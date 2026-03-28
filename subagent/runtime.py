@@ -7,9 +7,11 @@ from config.subagent_config import SubAgentConfig, load_subagent_config
 from providers.registry import ProviderRegistry
 from sessions.session_state import PcSessionState
 from subagent.capabilities import AwaitUserTool, DelegateOpenCodeTool, ListFilesTool, ReadFileTool, RunShellTool
+from subagent.capabilities.agent_delegate import DelegateAgentTool
 from subagent.context_builder import ContextBuilder
 from subagent.models import RuntimeState, SubstepRecord
 from subagent.tool_registry import ToolRegistry
+from workers.codex_worker import CodexWorker
 from workers.models import WorkerProgressEvent, WorkerResult
 from workers.registry import WorkerRegistry
 
@@ -50,6 +52,7 @@ class PcSubAgentRuntime:
             ) from error
         self.tools = ToolRegistry()
         self.workers = WorkerRegistry(self.config)
+        self.workers.register(CodexWorker(self.config))
         self.state = RuntimeState(
             workspace=session.workspace or ".",
             goal=session.task or session.goal,
@@ -119,6 +122,14 @@ class PcSubAgentRuntime:
         self.tools.register(ReadFileTool(self.session.workspace))
         self.tools.register(RunShellTool(self.session.workspace, timeout_seconds=self.config.shell_timeout_seconds))
         self.tools.register(
+            DelegateAgentTool(
+                workspace=self.session.workspace,
+                workers=self.workers,
+                on_progress=self._on_worker_progress,
+                on_result=self._on_worker_result,
+            )
+        )
+        self.tools.register(
             DelegateOpenCodeTool(
                 workspace=self.session.workspace,
                 worker=self.workers.get("opencode"),
@@ -161,7 +172,7 @@ class PcSubAgentRuntime:
 
         if self.emit_substep:
             detail = result.summary or result.output[:200] or f"{result.worker} finished"
-            await self.emit_substep("worker", result.worker, "completed", detail)
+            await self.emit_substep("worker", result.worker, "completed" if result.success else "failed", detail)
 
     @staticmethod
     def _summarize_result(result: str) -> str:
