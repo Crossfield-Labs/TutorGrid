@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class PcSessionParams:
+    runner: str = "shell"
+    workspace: str = ""
+    task: str = ""
+    goal: str = ""
+    command: str | None = None
+    text: str = ""
+    input_mode: str = "text"
+
+
+@dataclass(slots=True)
+class PcSessionRequest:
+    type: str
+    method: str
+    task_id: str | None = None
+    node_id: str | None = None
+    session_id: str | None = None
+    request_id: str | None = None
+    params: PcSessionParams = field(default_factory=PcSessionParams)
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> "PcSessionRequest":
+        params = payload.get("params") or {}
+        return cls(
+            type=str(payload.get("type") or ""),
+            method=str(payload.get("method") or ""),
+            task_id=payload.get("taskId"),
+            node_id=payload.get("nodeId"),
+            session_id=payload.get("sessionId"),
+            request_id=payload.get("id"),
+            params=PcSessionParams(
+                runner=str(params.get("runner") or "shell"),
+                workspace=str(params.get("workspace") or ""),
+                task=str(params.get("task") or ""),
+                goal=str(params.get("goal") or ""),
+                command=params.get("command"),
+                text=str(params.get("text") or ""),
+                input_mode=str(params.get("inputMode") or "text"),
+            ),
+        )
+
+
+def build_event(
+    *,
+    event: str,
+    task_id: str | None,
+    node_id: str | None,
+    session_id: str | None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "event",
+        "event": event,
+        "taskId": task_id,
+        "nodeId": node_id,
+        "sessionId": session_id,
+        "payload": payload or {},
+    }

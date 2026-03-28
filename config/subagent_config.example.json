@@ -1,0 +1,15 @@
+{
+  "planner": {
+    "provider": "openai_compat",
+    "model": "openai/gpt-4.1-mini",
+    "apiKey": "YOUR_API_KEY",
+    "apiBase": "https://api.openai.com/v1",
+    "temperature": 0.2,
+    "maxTokens": 4096
+  },
+  "maxIterations": 12,
+  "shellTimeoutSeconds": 90,
+  "opencodeCommand": "opencode",
+  "opencodeModel": "",
+  "opencodeAgent": ""
+}
