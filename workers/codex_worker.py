@@ -9,7 +9,7 @@ from typing import Any
 
 from config.subagent_config import SubAgentConfig
 from workers.base import WorkerAdapter, WorkerProgressCallback
-from workers.models import WorkerArtifact, WorkerProgressEvent, WorkerResult
+from workers.models import WorkerArtifact, WorkerProgressEvent, WorkerResult, WorkerSessionRef
 
 
 class CodexWorker(WorkerAdapter):
@@ -30,10 +30,53 @@ class CodexWorker(WorkerAdapter):
         task: str,
         workspace: str,
         on_progress: WorkerProgressCallback | None = None,
+        session_id: str | None = None,
+        session_mode: str = "new",
+        session_key: str = "primary",
     ) -> WorkerResult:
         workspace_path = Path(workspace or ".").resolve()
         before = self._snapshot_workspace(workspace_path)
-        command = self._build_command(task, workspace_path)
+        normalized_mode = (session_mode or "new").strip().lower()
+        effective_session_id = (session_id or "").strip()
+
+        if normalized_mode == "fork":
+            if on_progress:
+                await on_progress(
+                    WorkerProgressEvent(
+                        phase="worker_session",
+                        message="codex non-interactive fork is not wired yet, so a fresh session will be created instead.",
+                        raw_type="session_fallback",
+                        metadata={"requested_mode": session_mode, "session_id": effective_session_id},
+                    )
+                )
+            normalized_mode = "new"
+            effective_session_id = ""
+
+        if normalized_mode == "resume" and effective_session_id and on_progress:
+            await on_progress(
+                WorkerProgressEvent(
+                    phase="worker_session",
+                    message=f"codex is resuming session ({effective_session_id[:8]})",
+                    raw_type="session_resume",
+                    metadata={"session_id": effective_session_id, "session_key": session_key},
+                )
+            )
+        elif on_progress:
+            await on_progress(
+                WorkerProgressEvent(
+                    phase="worker_session",
+                    message="codex is creating a new session",
+                    raw_type="session_new",
+                    metadata={"session_key": session_key},
+                )
+            )
+
+        command = self._build_command(
+            task,
+            workspace_path,
+            session_id=effective_session_id,
+            session_mode=normalized_mode,
+        )
 
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -51,6 +94,18 @@ class CodexWorker(WorkerAdapter):
         after = self._snapshot_workspace(workspace_path)
         artifacts = self._diff_workspace(before, after)
         final_message = self._extract_final_message(raw_events)
+        resolved_session_id = self._extract_thread_id(raw_events) or effective_session_id
+        session_ref = (
+            WorkerSessionRef(
+                worker=self.name,
+                session_id=resolved_session_id,
+                session_key=session_key,
+                mode=normalized_mode,
+                continued_from=effective_session_id if normalized_mode == "resume" else "",
+            )
+            if resolved_session_id
+            else None
+        )
         summary = self._build_summary(artifacts, final_message, returncode)
         if returncode != 0:
             error_text = stderr or final_message or f"codex exited with code {returncode}"
@@ -62,6 +117,7 @@ class CodexWorker(WorkerAdapter):
                 artifacts=artifacts,
                 raw_events=raw_events,
                 error=error_text,
+                session=session_ref,
             )
 
         return WorkerResult(
@@ -71,25 +127,46 @@ class CodexWorker(WorkerAdapter):
             output=final_message or "\n".join(stdout_lines[-20:]),
             artifacts=artifacts,
             raw_events=raw_events,
+            session=session_ref,
         )
 
-    def _build_command(self, task: str, workspace: Path) -> list[str]:
+    def _build_command(
+        self,
+        task: str,
+        workspace: Path,
+        *,
+        session_id: str,
+        session_mode: str,
+    ) -> list[str]:
         executable = self._resolve_command()
-        command = [
-            executable,
-            "-a",
-            "never",
-            "-s",
-            "workspace-write",
-            "-C",
-            str(workspace),
-            "exec",
-            "--json",
-            "--skip-git-repo-check",
-        ]
+        command: list[str] = [executable]
         model = os.environ.get("METAAGENT_SUBAGENT_CODEX_MODEL", "").strip()
         if model:
             command.extend(["-m", model])
+        if session_mode == "resume" and session_id:
+            command.extend(
+                [
+                    "exec",
+                    "resume",
+                    session_id,
+                    "--json",
+                    "--skip-git-repo-check",
+                ]
+            )
+        else:
+            command.extend(
+                [
+                    "-a",
+                    "never",
+                    "-s",
+                    "workspace-write",
+                    "-C",
+                    str(workspace),
+                    "exec",
+                    "--json",
+                    "--skip-git-repo-check",
+                ]
+            )
         command.append(task)
         return command
 
@@ -232,6 +309,16 @@ class CodexWorker(WorkerAdapter):
             if isinstance(text, str) and text.strip():
                 final_parts.append(text.strip())
         return "\n".join(final_parts).strip()
+
+    @staticmethod
+    def _extract_thread_id(raw_events: list[dict[str, Any]]) -> str:
+        for payload in raw_events:
+            if str(payload.get("type") or "") != "thread.started":
+                continue
+            thread_id = str(payload.get("thread_id") or "").strip()
+            if thread_id:
+                return thread_id
+        return ""
 
     @staticmethod
     def _snapshot_workspace(workspace: Path) -> dict[str, tuple[int, int]]:

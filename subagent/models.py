@@ -22,4 +22,5 @@ class RuntimeState:
     substeps: list[SubstepRecord] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
     worker_runs: list[dict[str, Any]] = field(default_factory=list)
+    worker_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     final_answer: str = ""

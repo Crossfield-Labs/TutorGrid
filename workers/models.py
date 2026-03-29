@@ -22,6 +22,15 @@ class WorkerProgressEvent:
 
 
 @dataclass(slots=True)
+class WorkerSessionRef:
+    worker: str
+    session_id: str
+    session_key: str = "primary"
+    mode: str = "new"
+    continued_from: str = ""
+
+
+@dataclass(slots=True)
 class WorkerResult:
     worker: str
     success: bool
@@ -30,6 +39,7 @@ class WorkerResult:
     artifacts: list[WorkerArtifact] = field(default_factory=list)
     raw_events: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
+    session: WorkerSessionRef | None = None
 
     def to_tool_payload(self) -> str:
         lines = [
@@ -79,6 +89,14 @@ class WorkerResult:
                 for artifact in self.artifacts
             ],
         }
+        if self.session is not None:
+            record["session"] = {
+                "worker": self.session.worker,
+                "session_id": self.session.session_id,
+                "session_key": self.session.session_key,
+                "mode": self.session.mode,
+                "continued_from": self.session.continued_from,
+            }
         if include_raw_events:
             record["raw_events"] = self.raw_events
         return record

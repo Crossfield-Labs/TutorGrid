@@ -53,11 +53,19 @@ class PcSubAgentRuntime:
         self.tools = ToolRegistry()
         self.workers = WorkerRegistry(self.config)
         self.workers.register(CodexWorker(self.config))
+        worker_sessions = self.session.worker_sessions or {}
+        if not worker_sessions:
+            context_sessions = self.session.context.get("worker_sessions")
+            if isinstance(context_sessions, dict):
+                worker_sessions = dict(context_sessions)
+        self.session.worker_sessions = worker_sessions
         self.state = RuntimeState(
             workspace=session.workspace or ".",
             goal=session.task or session.goal,
             session_id=session.session_id,
+            worker_sessions=worker_sessions,
         )
+        self.session.context["worker_sessions"] = self.state.worker_sessions
         self._register_tools()
 
     async def run(self) -> str:
@@ -125,6 +133,7 @@ class PcSubAgentRuntime:
             DelegateAgentTool(
                 workspace=self.session.workspace,
                 workers=self.workers,
+                worker_sessions=self.state.worker_sessions,
                 on_progress=self._on_worker_progress,
                 on_result=self._on_worker_result,
             )
@@ -164,6 +173,7 @@ class PcSubAgentRuntime:
         self.state.worker_runs.append(record)
         self.session.worker_runs.append(record)
         self.session.context["worker_runs"] = self.state.worker_runs
+        self.session.context["worker_sessions"] = self.state.worker_sessions
 
         artifact_paths = [artifact.path for artifact in result.artifacts]
         if artifact_paths:
