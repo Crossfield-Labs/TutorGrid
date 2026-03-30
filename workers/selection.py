@@ -16,15 +16,26 @@ class SessionModeSelection:
     reason: str
 
 
+def _normalize_worker_name(name: str) -> str:
+    normalized = (name or "").strip().lower()
+    aliases = {
+        "claude_sdk": "claude",
+        "claudecode": "claude",
+        "claude-code": "claude",
+        "opencodeai": "opencode",
+    }
+    return aliases.get(normalized, normalized)
+
+
 def select_worker(
     *,
     task: str,
     available_workers: list[str],
     preferred_worker: str | None = None,
 ) -> WorkerSelection:
-    normalized_available = [item.strip().lower() for item in available_workers if item.strip()]
+    normalized_available = [_normalize_worker_name(item) for item in available_workers if item.strip()]
     task_lower = task.lower()
-    preferred = (preferred_worker or "").strip().lower()
+    preferred = _normalize_worker_name(preferred_worker or "")
 
     if preferred:
         if preferred not in normalized_available:
@@ -35,12 +46,46 @@ def select_worker(
             fallback_order=[item for item in normalized_available if item != preferred],
         )
 
-    if "codex" in task_lower and "codex" in normalized_available:
+    if "claude" in task_lower and "claude" in normalized_available:
+        selected = "claude"
+        reason = "The task explicitly mentions Claude."
+    elif "codex" in task_lower and "codex" in normalized_available:
         selected = "codex"
         reason = "The task explicitly mentions Codex."
     elif "opencode" in task_lower and "opencode" in normalized_available:
         selected = "opencode"
         reason = "The task explicitly mentions OpenCode."
+    elif any(
+        keyword in task_lower
+        for keyword in (
+            "document",
+            "docs",
+            "documentation",
+            "report",
+            "research",
+            "outline",
+            "writeup",
+            "summary",
+            "note",
+            "essay",
+            "readme",
+            "architecture",
+            "usage",
+            "study",
+            "learning",
+            "course",
+            ".md",
+            "学习",
+            "讲解",
+            "说明",
+            "文档",
+            "报告",
+            "总结",
+            "资料",
+        )
+    ) and "claude" in normalized_available:
+        selected = "claude"
+        reason = "The task looks more like an agentic documentation or research workflow, which fits Claude well."
     elif any(keyword in task_lower for keyword in ("review", "analyze", "inspect", "explain", "summary", "report")) and "codex" in normalized_available:
         selected = "codex"
         reason = "The task emphasizes code review or structured analysis, which fits Codex well."
@@ -48,7 +93,8 @@ def select_worker(
         selected = "opencode"
         reason = "The task emphasizes concrete code generation or editing, which fits OpenCode well."
     else:
-        selected = "opencode" if "opencode" in normalized_available else normalized_available[0]
+        priority = [name for name in ("opencode", "codex", "claude") if name in normalized_available]
+        selected = priority[0] if priority else normalized_available[0]
         reason = "Defaulting to the most execution-oriented backend available."
 
     return WorkerSelection(
@@ -90,16 +136,17 @@ def select_session_mode(
                 reason="The task explicitly requested continuing the existing backend session.",
             )
 
-    if worker != "codex":
+    normalized_worker = _normalize_worker_name(worker)
+    if normalized_worker not in {"codex", "claude"}:
         return SessionModeSelection(
             mode="new",
-            reason="Only Codex currently supports native long-lived sessions in this orchestration layer.",
+            reason="Only Codex and Claude currently support native long-lived sessions in this orchestration layer.",
         )
 
     if not has_existing_session:
         return SessionModeSelection(
             mode="new",
-            reason="No previous Codex session is available yet, so a new session will be created.",
+            reason=f"No previous {normalized_worker.capitalize()} session is available yet, so a new session will be created.",
         )
 
     task_lower = task.lower()
@@ -120,10 +167,10 @@ def select_session_mode(
     if any(keyword in task_lower for keyword in resume_keywords):
         return SessionModeSelection(
             mode="resume",
-            reason="This looks like a follow-up request, so the existing Codex session should be resumed.",
+            reason=f"This looks like a follow-up request, so the existing {normalized_worker.capitalize()} session should be resumed.",
         )
 
     return SessionModeSelection(
         mode="new",
-        reason="This looks like a fresh delegated task, so a new Codex session will be created.",
+        reason=f"This looks like a fresh delegated task, so a new {normalized_worker.capitalize()} session will be created.",
     )

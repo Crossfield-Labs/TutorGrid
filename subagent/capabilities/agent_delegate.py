@@ -36,7 +36,8 @@ class DelegateAgentTool(SubAgentTool):
         return (
             "Delegate a focused coding or code-analysis task to a stronger external CLI backend. "
             "Use worker='opencode' for concrete implementation/editing, worker='codex' for review "
-            "or analysis, or omit worker to let the system choose."
+            "or structured analysis, worker='claude' for broader agentic documentation/research flows, "
+            "or omit worker to let the system choose."
         )
 
     @property
@@ -47,11 +48,11 @@ class DelegateAgentTool(SubAgentTool):
                 "task": {"type": "string", "description": "Task to delegate to the selected coding backend."},
                 "worker": {
                     "type": "string",
-                    "description": "Optional preferred backend, such as 'opencode' or 'codex'.",
+                    "description": "Optional preferred backend, such as 'opencode', 'codex', or 'claude'.",
                 },
                 "session_mode": {
                     "type": "string",
-                    "description": "Optional session mode: auto, new, resume, or fork. Use this mainly with worker='codex'.",
+                    "description": "Optional session mode: auto, new, resume, or fork. Use this mainly with worker='codex' or worker='claude'.",
                 },
                 "session_key": {
                     "type": "string",
@@ -136,7 +137,7 @@ class DelegateAgentTool(SubAgentTool):
                     "workspace": str(self.workspace),
                     "on_progress": self.on_progress,
                 }
-                if candidate == "codex":
+                if candidate in {"codex", "claude"}:
                     run_kwargs.update(
                         {
                             "session_id": str(existing_session.get("session_id") or "") if existing_session else "",

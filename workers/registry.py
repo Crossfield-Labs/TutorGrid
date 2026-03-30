@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from config.subagent_config import SubAgentConfig
 from workers.base import WorkerAdapter
+from workers.claude_sdk_worker import ClaudeSdkWorker
 from workers.codex_worker import CodexWorker
 from workers.opencode_worker import OpencodeWorker
 
@@ -11,6 +12,8 @@ class WorkerRegistry:
         self._workers: dict[str, WorkerAdapter] = {}
         self.register(OpencodeWorker(config))
         self.register(CodexWorker(config))
+        if config.claude_sdk_enabled:
+            self.register(ClaudeSdkWorker(config))
 
     def register(self, worker: WorkerAdapter) -> None:
         self._workers[worker.name] = worker
