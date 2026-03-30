@@ -78,6 +78,117 @@ async def _broadcast_event(
             session_subscribers[session.session_id].discard(websocket)
 
 
+def _build_explanation_message(session: PcSessionState) -> str:
+    snapshot = session.build_snapshot()
+    lines: list[str] = [
+        f"当前 PC 会话状态：{snapshot['status']}，阶段：{snapshot['phase']}。",
+    ]
+    if snapshot["activeWorker"]:
+        worker_line = f"当前 worker：{snapshot['activeWorker']}"
+        if snapshot["activeSessionMode"]:
+            worker_line += f"（session_mode={snapshot['activeSessionMode']}）"
+        lines.append(worker_line + "。")
+    if snapshot["latestSummary"]:
+        lines.append(f"最近摘要：{snapshot['latestSummary']}")
+    elif snapshot["lastProgressMessage"]:
+        lines.append(f"最近进展：{snapshot['lastProgressMessage']}")
+    if snapshot["awaitingInput"]:
+        lines.append(f"当前正在等待你的输入：{snapshot['pendingUserPrompt']}")
+    elif snapshot["pendingFollowups"]:
+        lines.append(f"当前有 {len(snapshot['pendingFollowups'])} 条 follow-up 已接收，等待下一安全点处理。")
+    if snapshot["latestArtifactSummary"]:
+        lines.append(f"产物情况：{snapshot['latestArtifactSummary']}")
+    if snapshot["artifacts"]:
+        lines.append(f"当前已记录产物 {len(snapshot['artifacts'])} 个。")
+    return "\n".join(lines)
+
+
+async def _emit_projection_updates(session: PcSessionState) -> None:
+    snapshot = session.build_snapshot()
+    previous = session.context.get("_projection_state")
+    previous_state = previous if isinstance(previous, dict) else {}
+
+    if previous_state.get("phase") != snapshot["phase"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.phase",
+            payload={
+                "phase": snapshot["phase"],
+                "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    current_worker = {
+        "worker": snapshot["activeWorker"],
+        "sessionMode": snapshot["activeSessionMode"],
+    }
+    previous_worker = {
+        "worker": previous_state.get("activeWorker", ""),
+        "sessionMode": previous_state.get("activeSessionMode", ""),
+    }
+    if current_worker != previous_worker and snapshot["activeWorker"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.worker",
+            payload={
+                "worker": snapshot["activeWorker"],
+                "sessionMode": snapshot["activeSessionMode"],
+                "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    if previous_state.get("latestSummary") != snapshot["latestSummary"] and snapshot["latestSummary"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.summary",
+            payload={
+                "message": snapshot["latestSummary"],
+                "phase": snapshot["phase"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    if (
+        previous_state.get("latestArtifactSummary") != snapshot["latestArtifactSummary"]
+        and snapshot["latestArtifactSummary"]
+    ):
+        await _broadcast_event(
+            session,
+            event="pc.session.artifact_summary",
+            payload={
+                "message": snapshot["latestArtifactSummary"],
+                "artifacts": snapshot["artifacts"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    if previous_state.get("snapshotVersion") != snapshot["snapshotVersion"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.snapshot",
+            payload={
+                "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
+                "runner": session.runner,
+                "snapshot": snapshot,
+            },
+        )
+
+    session.context["_projection_state"] = {
+        "phase": snapshot["phase"],
+        "activeWorker": snapshot["activeWorker"],
+        "activeSessionMode": snapshot["activeSessionMode"],
+        "latestSummary": snapshot["latestSummary"],
+        "latestArtifactSummary": snapshot["latestArtifactSummary"],
+        "snapshotVersion": snapshot["snapshotVersion"],
+    }
+
+
 async def _emit_progress(session: PcSessionState, message: str, progress: float | None = None) -> None:
     session.mark(status="RUNNING", message=message)
     session_manager.update(session)
@@ -90,6 +201,7 @@ async def _emit_progress(session: PcSessionState, message: str, progress: float 
             "runner": session.runner,
         },
     )
+    await _emit_projection_updates(session)
 
 
 async def _emit_substep(
@@ -120,6 +232,7 @@ async def _emit_substep(
             "runner": session.runner,
         },
     )
+    await _emit_projection_updates(session)
 
 
 async def _await_user(session: PcSessionState, message: str, input_mode: str | None = None) -> str:
@@ -138,6 +251,7 @@ async def _await_user(session: PcSessionState, message: str, input_mode: str | N
             "runner": session.runner,
         },
     )
+    await _emit_projection_updates(session)
 
     user_input = await future
     session_waiters.pop(session.session_id, None)
@@ -149,6 +263,8 @@ async def _await_user(session: PcSessionState, message: str, input_mode: str | N
 
 async def _run_session(session: PcSessionState) -> None:
     try:
+        session.set_phase("starting")
+        session.set_latest_summary("PC session created")
         session.mark(status="RUNNING", message="PC session created")
         session_manager.update(session)
         await _broadcast_event(
@@ -160,6 +276,7 @@ async def _run_session(session: PcSessionState) -> None:
                 "runner": session.runner,
             },
         )
+        await _emit_projection_updates(session)
 
         runner = runner_router.get(session.runner)
         async def emit_progress(message: str, progress: float | None = None) -> None:
@@ -182,6 +299,9 @@ async def _run_session(session: PcSessionState) -> None:
 
         result = await runner.run(session, emit_progress, await_user)
         session.result = result
+        session.set_phase("completed")
+        session.set_stop_reason("completed")
+        session.set_latest_summary(result[:400] if result else "PC session completed")
         session.mark(status="COMPLETED", message="PC session completed")
         session_manager.update(session)
         await _broadcast_event(
@@ -196,8 +316,12 @@ async def _run_session(session: PcSessionState) -> None:
                 "workerRuns": session.worker_runs,
             },
         )
+        await _emit_projection_updates(session)
     except asyncio.CancelledError:
         session.error = "PC session cancelled"
+        session.set_phase("cancelled")
+        session.set_stop_reason("cancelled")
+        session.set_latest_summary(session.error)
         session.mark(status="CANCELLED", message=session.error)
         session_manager.update(session)
         await _broadcast_event(
@@ -209,9 +333,13 @@ async def _run_session(session: PcSessionState) -> None:
                 "runner": session.runner,
             },
         )
+        await _emit_projection_updates(session)
         raise
     except Exception as exc:
         session.error = str(exc)
+        session.set_phase("failed")
+        session.set_stop_reason("failed")
+        session.set_latest_summary(session.error)
         session.mark(status="FAILED", message=session.error)
         session_manager.update(session)
         await _broadcast_event(
@@ -223,6 +351,7 @@ async def _run_session(session: PcSessionState) -> None:
                 "runner": session.runner,
             },
         )
+        await _emit_projection_updates(session)
     finally:
         session_waiters.pop(session.session_id, None)
         session_tasks.pop(session.session_id, None)
@@ -293,8 +422,43 @@ async def handle_input_request(
         return None
 
     _subscribe(session_id, websocket)
+    input_intent = (request.params.input_intent or "reply").strip().lower() or "reply"
+    input_text = request.params.text.strip()
+    target = request.params.target.strip()
     waiter = session_waiters.get(session_id)
-    if waiter is None or waiter.done():
+
+    if input_intent == "explain":
+        explanation = _build_explanation_message(session)
+        await send_event(
+            websocket,
+            event="pc.session.summary",
+            task_id=session.task_id,
+            node_id=session.node_id,
+            session_id=session.session_id,
+            payload={
+                "message": explanation,
+                "runner": session.runner,
+                "snapshot": session.build_snapshot(),
+            },
+        )
+        return session_id
+
+    if waiter is not None and not waiter.done():
+        waiter.set_result(input_text)
+        await _broadcast_event(
+            session,
+            event="pc.session.followup.accepted",
+            payload={
+                "message": f"Accepted {input_intent or 'reply'} input for the waiting PC session.",
+                "intent": input_intent,
+                "text": input_text,
+                "target": target,
+                "runner": session.runner,
+            },
+        )
+        return session_id
+
+    if input_intent == "reply":
         await send_event(
             websocket,
             event="pc.session.failed",
@@ -308,7 +472,99 @@ async def handle_input_request(
         )
         return session_id
 
-    waiter.set_result(request.params.text.strip())
+    if not input_text:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=session.task_id,
+            node_id=session.node_id,
+            session_id=session.session_id,
+            payload={
+                "message": "Follow-up text cannot be empty",
+                "error": "Follow-up text cannot be empty",
+            },
+        )
+        return session_id
+
+    queued = session_manager.enqueue_followup(
+        session_id,
+        text=input_text,
+        intent=input_intent,
+        target=target,
+    )
+    if queued is None:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=session.task_id,
+            node_id=session.node_id,
+            session_id=session.session_id,
+            payload={
+                "message": "Session not found while queueing follow-up",
+                "error": "Session not found while queueing follow-up",
+            },
+        )
+        return session_id
+
+    session.set_latest_summary(f"Accepted {input_intent} follow-up: {input_text}".strip())
+    session_manager.update(session)
+    await _broadcast_event(
+        session,
+        event="pc.session.followup.accepted",
+        payload={
+            "message": f"Accepted {input_intent} follow-up for the current PC session.",
+            "intent": input_intent,
+            "text": input_text,
+            "target": target,
+            "runner": session.runner,
+            "followup": queued["followup"],
+        },
+    )
+    await _emit_projection_updates(session)
+    return session_id
+
+
+async def handle_snapshot_request(
+    websocket: WebSocketServerProtocol,
+    request: PcSessionRequest,
+) -> str | None:
+    session_id = (request.session_id or "").strip()
+    if not session_id:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=request.task_id,
+            node_id=request.node_id,
+            session_id=None,
+            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
+        )
+        return None
+
+    session = session_manager.get(session_id)
+    if session is None:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=request.task_id,
+            node_id=request.node_id,
+            session_id=session_id,
+            payload={"message": "Session not found", "error": "Session not found"},
+        )
+        return None
+
+    _subscribe(session_id, websocket)
+    await send_event(
+        websocket,
+        event="pc.session.snapshot",
+        task_id=session.task_id,
+        node_id=session.node_id,
+        session_id=session.session_id,
+        payload={
+            "message": session.latest_summary or session.last_progress_message,
+            "runner": session.runner,
+            "snapshot": session.build_snapshot(),
+        },
+    )
     return session_id
 
 
@@ -411,6 +667,12 @@ async def websocket_handler(
 
             if request.method == "pc.session.input":
                 session_id = await handle_input_request(websocket, request)
+                if session_id:
+                    subscribed_session_ids.add(session_id)
+                continue
+
+            if request.method == "pc.session.snapshot":
+                session_id = await handle_snapshot_request(websocket, request)
                 if session_id:
                     subscribed_session_ids.add(session_id)
                 continue

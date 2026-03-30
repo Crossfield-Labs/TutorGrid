@@ -18,6 +18,11 @@ class RuntimeState:
     workspace: str
     goal: str
     session_id: str
+    phase: str = "planning"
+    active_worker: str = ""
+    active_session_mode: str = ""
+    latest_summary: str = ""
+    stop_reason: str = ""
     tool_events: list[dict[str, Any]] = field(default_factory=list)
     substeps: list[SubstepRecord] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)

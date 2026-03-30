@@ -2,6 +2,7 @@ from .filesystem import ListFilesTool, ReadFileTool
 from .opencode import DelegateOpenCodeTool
 from .shell import RunShellTool
 from .user_prompt import AwaitUserTool
+from .web import WebFetchTool
 
 __all__ = [
     "AwaitUserTool",
@@ -9,4 +10,5 @@ __all__ = [
     "ListFilesTool",
     "ReadFileTool",
     "RunShellTool",
+    "WebFetchTool",
 ]

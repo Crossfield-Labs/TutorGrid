@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import locale
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +37,10 @@ class RunShellTool(SubAgentTool):
 
     @property
     def description(self) -> str:
-        return "Run a shell command inside the workspace. Use for inspection or execution when file tools are insufficient."
+        return (
+            "Run a PowerShell command inside the workspace. "
+            "Use for inspection or execution when file tools are insufficient."
+        )
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -51,18 +57,30 @@ class RunShellTool(SubAgentTool):
         if denied_reason:
             return f"Error: {denied_reason}"
 
-        process = await asyncio.create_subprocess_shell(
-            command,
-            cwd=str(self.workspace),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        executable = self._resolve_powershell()
+        script_path = self._write_temp_script(command)
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout_seconds)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return f"Error: Command timed out after {self.timeout_seconds} seconds"
+            process = await asyncio.create_subprocess_exec(
+                executable,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script_path),
+                cwd=str(self.workspace),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout_seconds)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return f"Error: Command timed out after {self.timeout_seconds} seconds"
+        finally:
+            script_path.unlink(missing_ok=True)
 
         stdout_text = self._decode(stdout)
         stderr_text = self._decode(stderr)
@@ -70,6 +88,17 @@ class RunShellTool(SubAgentTool):
         if stderr_text.strip():
             result = f"{result}\n\nSTDERR:\n{stderr_text}".strip()
         return (result if result else "(no output)") + f"\n\nExit code: {process.returncode}"
+
+    def _write_temp_script(self, command: str) -> Path:
+        handle, script_name = tempfile.mkstemp(
+            prefix="metaagent-subagent-",
+            suffix=".ps1",
+            dir=str(self.workspace),
+            text=True,
+        )
+        os.close(handle)
+        Path(script_name).write_text(command, encoding="utf-8-sig")
+        return Path(script_name)
 
     @staticmethod
     def _decode(raw: bytes) -> str:
@@ -89,3 +118,11 @@ class RunShellTool(SubAgentTool):
             if pattern.search(normalized):
                 return reason
         return None
+
+    @staticmethod
+    def _resolve_powershell() -> str:
+        for candidate in ("pwsh", "powershell", "powershell.exe"):
+            resolved = shutil.which(candidate)
+            if resolved:
+                return resolved
+        raise FileNotFoundError("Unable to locate PowerShell executable.")

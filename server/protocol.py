@@ -13,6 +13,8 @@ class PcSessionParams:
     command: str | None = None
     text: str = ""
     input_mode: str = "text"
+    input_intent: str = "reply"
+    target: str = ""
 
 
 @dataclass(slots=True)
@@ -43,6 +45,8 @@ class PcSessionRequest:
                 command=params.get("command"),
                 text=str(params.get("text") or ""),
                 input_mode=str(params.get("inputMode") or "text"),
+                input_intent=str(params.get("inputIntent") or "reply"),
+                target=str(params.get("target") or ""),
             ),
         )
 

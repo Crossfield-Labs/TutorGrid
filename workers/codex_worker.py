@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -140,7 +139,7 @@ class CodexWorker(WorkerAdapter):
     ) -> list[str]:
         executable = self._resolve_command()
         command: list[str] = [executable]
-        model = os.environ.get("METAAGENT_SUBAGENT_CODEX_MODEL", "").strip()
+        model = self.config.codex_model.strip()
         if model:
             command.extend(["-m", model])
         if session_mode == "resume" and session_id:
@@ -170,9 +169,8 @@ class CodexWorker(WorkerAdapter):
         command.append(task)
         return command
 
-    @staticmethod
-    def _resolve_command() -> str:
-        configured = os.environ.get("METAAGENT_SUBAGENT_CODEX_COMMAND", "codex").strip()
+    def _resolve_command(self) -> str:
+        configured = self.config.codex_command.strip()
         if not configured:
             raise RuntimeError("codex command is not configured.")
 

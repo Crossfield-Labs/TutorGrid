@@ -7,9 +7,11 @@
     "temperature": 0.2,
     "maxTokens": 4096
   },
-  "maxIterations": 12,
+  "maxIterations": 16,
   "shellTimeoutSeconds": 90,
   "opencodeCommand": "opencode",
   "opencodeModel": "",
-  "opencodeAgent": ""
+  "opencodeAgent": "",
+  "codexCommand": "codex",
+  "codexModel": ""
 }

@@ -19,11 +19,13 @@ class PlannerConfig:
 @dataclass(slots=True)
 class SubAgentConfig:
     planner: PlannerConfig
-    max_iterations: int = 12
+    max_iterations: int = 16
     shell_timeout_seconds: int = 90
     opencode_command: str = "opencode"
     opencode_model: str = ""
     opencode_agent: str = ""
+    codex_command: str = "codex"
+    codex_model: str = ""
 
 
 def _config_path() -> Path:
@@ -48,11 +50,16 @@ def load_subagent_config() -> SubAgentConfig:
     )
     return SubAgentConfig(
         planner=planner,
-        max_iterations=int(os.environ.get("METAAGENT_SUBAGENT_MAX_ITERATIONS", data.get("maxIterations") or 12)),
+        max_iterations=int(os.environ.get("METAAGENT_SUBAGENT_MAX_ITERATIONS", data.get("maxIterations") or 16)),
         shell_timeout_seconds=int(
             os.environ.get("METAAGENT_SUBAGENT_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)
         ),
-        opencode_command=os.environ.get("METAAGENT_SUBAGENT_OPENCODE_COMMAND", str(data.get("opencodeCommand") or "opencode")),
+        opencode_command=os.environ.get(
+            "METAAGENT_SUBAGENT_OPENCODE_COMMAND",
+            str(data.get("opencodeCommand") or "opencode"),
+        ),
         opencode_model=os.environ.get("METAAGENT_SUBAGENT_OPENCODE_MODEL", str(data.get("opencodeModel") or "")),
         opencode_agent=os.environ.get("METAAGENT_SUBAGENT_OPENCODE_AGENT", str(data.get("opencodeAgent") or "")),
+        codex_command=os.environ.get("METAAGENT_SUBAGENT_CODEX_COMMAND", str(data.get("codexCommand") or "codex")),
+        codex_model=os.environ.get("METAAGENT_SUBAGENT_CODEX_MODEL", str(data.get("codexModel") or "")),
     )
