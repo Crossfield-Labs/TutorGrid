@@ -16,6 +16,12 @@ class SessionModeSelection:
     reason: str
 
 
+@dataclass(slots=True)
+class WorkerProfileSelection:
+    profile: str
+    reason: str
+
+
 def _normalize_worker_name(name: str) -> str:
     normalized = (name or "").strip().lower()
     aliases = {
@@ -173,4 +179,98 @@ def select_session_mode(
     return SessionModeSelection(
         mode="new",
         reason=f"This looks like a fresh delegated task, so a new {normalized_worker.capitalize()} session will be created.",
+    )
+
+
+def select_worker_profile(
+    *,
+    worker: str,
+    task: str,
+    requested_profile: str | None = None,
+) -> WorkerProfileSelection:
+    normalized_worker = _normalize_worker_name(worker)
+    requested = (requested_profile or "").strip().lower()
+    if normalized_worker != "claude":
+        return WorkerProfileSelection(profile="", reason=f"{normalized_worker or 'worker'} does not use Claude task profiles.")
+
+    valid_profiles = {"code", "doc", "study", "research"}
+    if requested:
+        if requested not in valid_profiles:
+            raise RuntimeError(f"Unsupported Claude profile: {requested_profile}")
+        return WorkerProfileSelection(
+            profile=requested,
+            reason=f"The task explicitly requested the Claude {requested} profile.",
+        )
+
+    task_lower = task.lower()
+    if any(
+        keyword in task_lower
+        for keyword in (
+            "study",
+            "learning",
+            "teach",
+            "lesson",
+            "tutorial",
+            "learning guide",
+            "course",
+            "newbie",
+            "beginner",
+            "学习",
+            "讲解",
+            "教程",
+            "新手",
+            "课程",
+        )
+    ):
+        return WorkerProfileSelection(
+            profile="study",
+            reason="The task looks like a learning or teaching flow, so the Claude study profile fits best.",
+        )
+
+    if any(
+        keyword in task_lower
+        for keyword in (
+            "document",
+            "docs",
+            "documentation",
+            "readme",
+            "architecture",
+            "usage",
+            "manual",
+            "guide",
+            ".md",
+            "文档",
+            "说明",
+            "手册",
+            "报告",
+        )
+    ):
+        return WorkerProfileSelection(
+            profile="doc",
+            reason="The task emphasizes documentation artifacts, so the Claude doc profile fits best.",
+        )
+
+    if any(
+        keyword in task_lower
+        for keyword in (
+            "research",
+            "investigate",
+            "compare",
+            "summary",
+            "summarize",
+            "outline",
+            "资料",
+            "调研",
+            "总结",
+            "提纲",
+        )
+    ):
+        return WorkerProfileSelection(
+            profile="research",
+            reason="The task looks more like research and synthesis, so the Claude research profile fits best.",
+        )
+
+    return WorkerProfileSelection(
+        profile="code",
+        reason="Defaulting Claude to the code profile for implementation-oriented work.",
     )

@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from subagent.tool_base import SubAgentTool
-from workers.models import WorkerProgressEvent, WorkerResult
+from workers.models import WorkerControlRef, WorkerProgressEvent, WorkerResult
 from workers.registry import WorkerRegistry
-from workers.selection import select_session_mode, select_worker
+from workers.selection import select_session_mode, select_worker, select_worker_profile
 
 ProgressFn = Callable[[WorkerProgressEvent], Awaitable[None]]
 ResultFn = Callable[[WorkerResult], Awaitable[None]]
+ControlFn = Callable[[str, WorkerControlRef | None], Awaitable[None]]
 
 
 class DelegateAgentTool(SubAgentTool):
@@ -20,12 +21,14 @@ class DelegateAgentTool(SubAgentTool):
         worker_sessions: dict[str, dict[str, Any]] | None = None,
         on_progress: ProgressFn | None = None,
         on_result: ResultFn | None = None,
+        on_control: ControlFn | None = None,
     ) -> None:
         self.workspace = Path(workspace or ".").resolve()
         self.workers = workers
         self.worker_sessions = worker_sessions if worker_sessions is not None else {}
         self.on_progress = on_progress
         self.on_result = on_result
+        self.on_control = on_control
 
     @property
     def name(self) -> str:
@@ -58,6 +61,10 @@ class DelegateAgentTool(SubAgentTool):
                     "type": "string",
                     "description": "Optional logical key for a long-lived backend conversation, such as 'primary' or 'cnn_training'.",
                 },
+                "profile": {
+                    "type": "string",
+                    "description": "Optional backend profile. For Claude, useful values are code, doc, study, or research.",
+                },
             },
             "required": ["task"],
         }
@@ -68,6 +75,7 @@ class DelegateAgentTool(SubAgentTool):
         worker: str | None = None,
         session_mode: str | None = None,
         session_key: str | None = None,
+        profile: str | None = None,
         **kwargs: Any,
     ) -> str:
         selection = select_worker(
@@ -131,6 +139,27 @@ class DelegateAgentTool(SubAgentTool):
                         },
                     )
                 )
+            profile_selection = select_worker_profile(
+                worker=candidate,
+                task=candidate_task,
+                requested_profile=profile if index == 0 else None,
+            )
+            if self.on_progress and profile_selection.profile:
+                await self.on_progress(
+                    WorkerProgressEvent(
+                        phase="worker_profile",
+                        message=(
+                            f"Using {candidate} profile {profile_selection.profile}: "
+                            f"{profile_selection.reason}"
+                        ),
+                        raw_type="worker_profile",
+                        metadata={
+                            "worker": candidate,
+                            "worker_profile": profile_selection.profile,
+                            "worker_profile_reason": profile_selection.reason,
+                        },
+                    )
+                )
             try:
                 run_kwargs: dict[str, Any] = {
                     "task": candidate_task,
@@ -143,6 +172,13 @@ class DelegateAgentTool(SubAgentTool):
                             "session_id": str(existing_session.get("session_id") or "") if existing_session else "",
                             "session_mode": mode_selection.mode,
                             "session_key": normalized_session_key,
+                        }
+                    )
+                if candidate == "claude":
+                    run_kwargs.update(
+                        {
+                            "profile": profile_selection.profile,
+                            "on_control": self._build_control_sink(candidate),
                         }
                     )
                 result = await backend.run(**run_kwargs)
@@ -160,6 +196,8 @@ class DelegateAgentTool(SubAgentTool):
 
             last_result = result
             if result.success:
+                if self.on_control:
+                    await self.on_control(candidate, None)
                 if result.session is not None:
                     self.worker_sessions[session_lookup_key] = {
                         "worker": result.session.worker,
@@ -171,7 +209,16 @@ class DelegateAgentTool(SubAgentTool):
                 return result.to_json()
 
             previous_error = result.error or result.summary or f"{candidate} failed."
+            if self.on_control:
+                await self.on_control(candidate, None)
 
         if last_result is None:
             raise RuntimeError("No worker attempts were executed.")
         return last_result.to_json()
+
+    def _build_control_sink(self, worker: str) -> Callable[[WorkerControlRef | None], Awaitable[None]]:
+        async def _sink(control: WorkerControlRef | None) -> None:
+            if self.on_control:
+                await self.on_control(worker, control)
+
+        return _sink

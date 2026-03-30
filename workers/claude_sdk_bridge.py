@@ -8,6 +8,44 @@ from workers.models import WorkerProgressEvent
 
 class ClaudeSdkBridge:
     @staticmethod
+    def build_hook_event(
+        *,
+        hook_event: str,
+        message: str,
+        tool_name: str = "",
+        status: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkerProgressEvent:
+        merged_metadata = dict(metadata or {})
+        merged_metadata.update(
+            {
+                "hook_event": hook_event,
+                "tool_name": tool_name,
+                "hook_status": status,
+            }
+        )
+        return WorkerProgressEvent(
+            phase="worker_hook",
+            message=message,
+            raw_type=f"hook:{hook_event}",
+            metadata=merged_metadata,
+        )
+
+    @staticmethod
+    def build_summary_event(
+        *,
+        phase: str,
+        message: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> WorkerProgressEvent:
+        return WorkerProgressEvent(
+            phase=phase,
+            message=message,
+            raw_type=phase,
+            metadata=dict(metadata or {}),
+        )
+
+    @staticmethod
     def to_record(message: Any) -> dict[str, Any]:
         if is_dataclass(message):
             payload = asdict(message)

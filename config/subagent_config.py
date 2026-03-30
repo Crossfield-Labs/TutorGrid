@@ -31,7 +31,14 @@ class SubAgentConfig:
     claude_model: str = ""
     claude_permission_mode: str = "acceptEdits"
     claude_allowed_tools: list[str] = field(default_factory=list)
+    claude_disallowed_tools: list[str] = field(default_factory=list)
     claude_settings_path: str = ""
+    claude_mcp_config: str = ""
+    claude_profile_default: str = "code"
+    claude_enable_interrupt: bool = True
+    claude_enable_hooks: bool = True
+    claude_enable_session_introspection: bool = True
+    claude_enable_file_checkpointing: bool = False
 
 
 def _config_path() -> Path:
@@ -108,8 +115,41 @@ def load_subagent_config() -> SubAgentConfig:
         claude_allowed_tools=_parse_str_list(
             os.environ.get("METAAGENT_SUBAGENT_CLAUDE_ALLOWED_TOOLS", data.get("claudeAllowedTools"))
         ),
+        claude_disallowed_tools=_parse_str_list(
+            os.environ.get("METAAGENT_SUBAGENT_CLAUDE_DISALLOWED_TOOLS", data.get("claudeDisallowedTools"))
+        ),
         claude_settings_path=os.environ.get(
             "METAAGENT_SUBAGENT_CLAUDE_SETTINGS",
             str(data.get("claudeSettingsPath") or ""),
+        ),
+        claude_mcp_config=os.environ.get(
+            "METAAGENT_SUBAGENT_CLAUDE_MCP_CONFIG",
+            str(data.get("claudeMcpConfig") or ""),
+        ),
+        claude_profile_default=os.environ.get(
+            "METAAGENT_SUBAGENT_CLAUDE_PROFILE",
+            str(data.get("claudeProfileDefault") or "code"),
+        ),
+        claude_enable_interrupt=_parse_bool(
+            os.environ.get("METAAGENT_SUBAGENT_CLAUDE_ENABLE_INTERRUPT", data.get("claudeEnableInterrupt")),
+            True,
+        ),
+        claude_enable_hooks=_parse_bool(
+            os.environ.get("METAAGENT_SUBAGENT_CLAUDE_ENABLE_HOOKS", data.get("claudeEnableHooks")),
+            True,
+        ),
+        claude_enable_session_introspection=_parse_bool(
+            os.environ.get(
+                "METAAGENT_SUBAGENT_CLAUDE_ENABLE_SESSION_INTROSPECTION",
+                data.get("claudeEnableSessionIntrospection"),
+            ),
+            True,
+        ),
+        claude_enable_file_checkpointing=_parse_bool(
+            os.environ.get(
+                "METAAGENT_SUBAGENT_CLAUDE_ENABLE_FILE_CHECKPOINTING",
+                data.get("claudeEnableFileCheckpointing"),
+            ),
+            False,
         ),
     )

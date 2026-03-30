@@ -87,7 +87,13 @@ def _build_explanation_message(session: PcSessionState) -> str:
         worker_line = f"当前 worker：{snapshot['activeWorker']}"
         if snapshot["activeSessionMode"]:
             worker_line += f"（session_mode={snapshot['activeSessionMode']}）"
+        if snapshot["activeWorkerProfile"]:
+            worker_line += f"（profile={snapshot['activeWorkerProfile']}）"
         lines.append(worker_line + "。")
+    if snapshot["activeWorkerTaskId"]:
+        lines.append(f"当前 worker task_id：{snapshot['activeWorkerTaskId']}")
+    if snapshot["activeWorkerCanInterrupt"]:
+        lines.append("当前 worker 支持 interrupt。")
     if snapshot["latestSummary"]:
         lines.append(f"最近摘要：{snapshot['latestSummary']}")
     elif snapshot["lastProgressMessage"]:
@@ -98,6 +104,19 @@ def _build_explanation_message(session: PcSessionState) -> str:
         lines.append(f"当前有 {len(snapshot['pendingFollowups'])} 条 follow-up 已接收，等待下一安全点处理。")
     if snapshot["latestArtifactSummary"]:
         lines.append(f"产物情况：{snapshot['latestArtifactSummary']}")
+    if snapshot["permissionSummary"]:
+        lines.append(f"权限情况：{snapshot['permissionSummary']}")
+    if snapshot["sessionInfoSummary"]:
+        lines.append(f"会话信息：{snapshot['sessionInfoSummary']}")
+    if snapshot["mcpStatusSummary"]:
+        lines.append(f"MCP 情况：{snapshot['mcpStatusSummary']}")
+    recent_hooks = snapshot.get("recentHookEvents") or []
+    if recent_hooks:
+        latest_hook = recent_hooks[-1]
+        hook_name = str(latest_hook.get("name") or "").strip()
+        hook_message = str(latest_hook.get("message") or "").strip()
+        if hook_name or hook_message:
+            lines.append(f"最近 hook：{hook_name or 'hook'} - {hook_message}")
     if snapshot["artifacts"]:
         lines.append(f"当前已记录产物 {len(snapshot['artifacts'])} 个。")
     return "\n".join(lines)
@@ -123,10 +142,16 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
     current_worker = {
         "worker": snapshot["activeWorker"],
         "sessionMode": snapshot["activeSessionMode"],
+        "workerProfile": snapshot["activeWorkerProfile"],
+        "taskId": snapshot["activeWorkerTaskId"],
+        "canInterrupt": snapshot["activeWorkerCanInterrupt"],
     }
     previous_worker = {
         "worker": previous_state.get("activeWorker", ""),
         "sessionMode": previous_state.get("activeSessionMode", ""),
+        "workerProfile": previous_state.get("activeWorkerProfile", ""),
+        "taskId": previous_state.get("activeWorkerTaskId", ""),
+        "canInterrupt": previous_state.get("activeWorkerCanInterrupt", False),
     }
     if current_worker != previous_worker and snapshot["activeWorker"]:
         await _broadcast_event(
@@ -135,6 +160,9 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
             payload={
                 "worker": snapshot["activeWorker"],
                 "sessionMode": snapshot["activeSessionMode"],
+                "workerProfile": snapshot["activeWorkerProfile"],
+                "taskId": snapshot["activeWorkerTaskId"],
+                "canInterrupt": snapshot["activeWorkerCanInterrupt"],
                 "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
                 "runner": session.runner,
                 "snapshotVersion": snapshot["snapshotVersion"],
@@ -168,6 +196,45 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
             },
         )
 
+    if previous_state.get("permissionSummary") != snapshot["permissionSummary"] and snapshot["permissionSummary"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.permission",
+            payload={
+                "message": snapshot["permissionSummary"],
+                "phase": snapshot["phase"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    if previous_state.get("mcpStatusSummary") != snapshot["mcpStatusSummary"] and snapshot["mcpStatusSummary"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.mcp_status",
+            payload={
+                "message": snapshot["mcpStatusSummary"],
+                "phase": snapshot["phase"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
+    if previous_state.get("sessionInfoSummary") != snapshot["sessionInfoSummary"] and snapshot["sessionInfoSummary"]:
+        await _broadcast_event(
+            session,
+            event="pc.session.worker_runtime",
+            payload={
+                "message": snapshot["sessionInfoSummary"],
+                "worker": snapshot["activeWorker"],
+                "workerProfile": snapshot["activeWorkerProfile"],
+                "taskId": snapshot["activeWorkerTaskId"],
+                "canInterrupt": snapshot["activeWorkerCanInterrupt"],
+                "runner": session.runner,
+                "snapshotVersion": snapshot["snapshotVersion"],
+            },
+        )
+
     if previous_state.get("snapshotVersion") != snapshot["snapshotVersion"]:
         await _broadcast_event(
             session,
@@ -183,8 +250,14 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
         "phase": snapshot["phase"],
         "activeWorker": snapshot["activeWorker"],
         "activeSessionMode": snapshot["activeSessionMode"],
+        "activeWorkerProfile": snapshot["activeWorkerProfile"],
+        "activeWorkerTaskId": snapshot["activeWorkerTaskId"],
+        "activeWorkerCanInterrupt": snapshot["activeWorkerCanInterrupt"],
         "latestSummary": snapshot["latestSummary"],
         "latestArtifactSummary": snapshot["latestArtifactSummary"],
+        "permissionSummary": snapshot["permissionSummary"],
+        "sessionInfoSummary": snapshot["sessionInfoSummary"],
+        "mcpStatusSummary": snapshot["mcpStatusSummary"],
         "snapshotVersion": snapshot["snapshotVersion"],
     }
 
@@ -427,6 +500,9 @@ async def handle_input_request(
     target = request.params.target.strip()
     waiter = session_waiters.get(session_id)
 
+    if input_intent == "interrupt":
+        return await handle_interrupt_request(websocket, request)
+
     if input_intent == "explain":
         explanation = _build_explanation_message(session)
         await send_event(
@@ -518,6 +594,72 @@ async def handle_input_request(
             "target": target,
             "runner": session.runner,
             "followup": queued["followup"],
+        },
+    )
+    await _emit_projection_updates(session)
+    return session_id
+
+
+async def handle_interrupt_request(
+    websocket: WebSocketServerProtocol,
+    request: PcSessionRequest,
+) -> str | None:
+    session_id = (request.session_id or "").strip()
+    if not session_id:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=request.task_id,
+            node_id=request.node_id,
+            session_id=None,
+            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
+        )
+        return None
+
+    session = session_manager.get(session_id)
+    if session is None:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=request.task_id,
+            node_id=request.node_id,
+            session_id=session_id,
+            payload={"message": "Session not found", "error": "Session not found"},
+        )
+        return None
+
+    _subscribe(session_id, websocket)
+    control = session.context.get("_active_worker_control")
+    if control is None or not getattr(control, "can_interrupt", False) or getattr(control, "interrupt", None) is None:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=session.task_id,
+            node_id=session.node_id,
+            session_id=session.session_id,
+            payload={
+                "message": "The active worker does not currently support interrupt.",
+                "error": "The active worker does not currently support interrupt.",
+            },
+        )
+        return session_id
+
+    result = await control.interrupt()
+    note = request.params.text.strip()
+    session.set_phase("interrupting")
+    session.set_stop_reason("interrupt_requested")
+    session.set_latest_summary(note or "Interrupt requested for the active worker.")
+    session_manager.update(session)
+    await _broadcast_event(
+        session,
+        event="pc.session.followup.accepted",
+        payload={
+            "message": note or "Accepted interrupt request for the current PC session.",
+            "intent": "interrupt",
+            "text": note,
+            "runner": session.runner,
+            "worker": getattr(control, "worker", ""),
+            "result": result,
         },
     )
     await _emit_projection_updates(session)
@@ -673,6 +815,12 @@ async def websocket_handler(
 
             if request.method == "pc.session.snapshot":
                 session_id = await handle_snapshot_request(websocket, request)
+                if session_id:
+                    subscribed_session_ids.add(session_id)
+                continue
+
+            if request.method == "pc.session.interrupt":
+                session_id = await handle_interrupt_request(websocket, request)
                 if session_id:
                     subscribed_session_ids.add(session_id)
                 continue

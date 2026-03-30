@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +32,16 @@ class WorkerSessionRef:
 
 
 @dataclass(slots=True)
+class WorkerControlRef:
+    worker: str
+    session_id: str
+    task_id: str = ""
+    can_interrupt: bool = False
+    interrupt: Callable[[], Awaitable[dict[str, Any]]] | None = None
+    get_runtime_info: Callable[[], Awaitable[dict[str, Any]]] | None = None
+
+
+@dataclass(slots=True)
 class WorkerResult:
     worker: str
     success: bool
@@ -40,6 +51,7 @@ class WorkerResult:
     raw_events: list[dict[str, Any]] = field(default_factory=list)
     error: str = ""
     session: WorkerSessionRef | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_tool_payload(self) -> str:
         lines = [
@@ -97,6 +109,8 @@ class WorkerResult:
                 "mode": self.session.mode,
                 "continued_from": self.session.continued_from,
             }
+        if self.metadata:
+            record["metadata"] = self.metadata
         if include_raw_events:
             record["raw_events"] = self.raw_events
         return record

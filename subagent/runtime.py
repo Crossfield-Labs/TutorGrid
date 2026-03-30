@@ -18,7 +18,7 @@ from subagent.capabilities.agent_delegate import DelegateAgentTool
 from subagent.context_builder import ContextBuilder
 from subagent.models import RuntimeState, SubstepRecord
 from subagent.tool_registry import ToolRegistry
-from workers.models import WorkerProgressEvent, WorkerResult
+from workers.models import WorkerControlRef, WorkerProgressEvent, WorkerResult
 from workers.registry import WorkerRegistry
 
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
@@ -185,6 +185,7 @@ class PcSubAgentRuntime:
                 worker_sessions=self.state.worker_sessions,
                 on_progress=self._on_worker_progress,
                 on_result=self._on_worker_result,
+                on_control=self._on_worker_control,
             )
         )
         self.tools.register(
@@ -256,15 +257,62 @@ class PcSubAgentRuntime:
         metadata = event.metadata or {}
         selected_worker = str(metadata.get("selected_worker") or metadata.get("worker") or "").strip()
         session_mode = str(metadata.get("session_mode") or "").strip()
+        worker_profile = str(metadata.get("worker_profile") or "").strip()
+        task_id = str(metadata.get("task_id") or "").strip()
         if selected_worker:
-            self._set_active_worker(selected_worker, session_mode or self.state.active_session_mode)
+            self._set_active_worker(
+                selected_worker,
+                session_mode or self.state.active_session_mode,
+                task_id=task_id,
+                profile=worker_profile,
+            )
         elif session_mode and self.state.active_worker:
-            self._set_active_worker(self.state.active_worker, session_mode)
+            self._set_active_worker(
+                self.state.active_worker,
+                session_mode,
+                task_id=task_id or self.session.active_worker_task_id,
+                profile=worker_profile or self.session.active_worker_profile,
+            )
+        elif worker_profile and self.state.active_worker:
+            self._set_active_worker(
+                self.state.active_worker,
+                self.state.active_session_mode,
+                task_id=task_id or self.session.active_worker_task_id,
+                profile=worker_profile,
+            )
+        elif task_id and self.state.active_worker:
+            self._set_active_worker(
+                self.state.active_worker,
+                self.state.active_session_mode,
+                task_id=task_id,
+                profile=self.session.active_worker_profile,
+            )
 
         if event.phase == "worker_reroute":
             self._set_phase("delegating")
         elif event.phase.startswith("worker_"):
             self._set_phase("delegating")
+
+        hook_event = str(metadata.get("hook_event") or "").strip()
+        if hook_event:
+            self.session.add_hook_event(
+                name=hook_event,
+                message=event.message,
+                tool_name=str(metadata.get("tool_name") or "").strip(),
+                status=str(metadata.get("hook_status") or "").strip(),
+            )
+
+        permission_summary = str(metadata.get("permission_summary") or "").strip()
+        if permission_summary:
+            self.session.set_permission_summary(permission_summary)
+
+        session_info_summary = str(metadata.get("session_info_summary") or "").strip()
+        if session_info_summary:
+            self.session.set_session_info_summary(session_info_summary)
+
+        mcp_status_summary = str(metadata.get("mcp_status_summary") or "").strip()
+        if mcp_status_summary:
+            self.session.set_mcp_status_summary(mcp_status_summary)
 
         self._set_latest_summary(event.message)
         await self.emit_progress(event.message, 0.72)
@@ -280,6 +328,25 @@ class PcSubAgentRuntime:
         self._set_active_worker(
             result.worker,
             result.session.mode if result.session is not None else self.state.active_session_mode,
+            profile=str(result.metadata.get("worker_profile") or self.session.active_worker_profile),
+        )
+        if result.metadata:
+            permission_summary = str(result.metadata.get("permission_summary") or "").strip()
+            if permission_summary:
+                self.session.set_permission_summary(permission_summary)
+            session_info_summary = str(result.metadata.get("session_info_summary") or "").strip()
+            if session_info_summary:
+                self.session.set_session_info_summary(session_info_summary)
+            mcp_status_summary = str(result.metadata.get("mcp_status_summary") or "").strip()
+            if mcp_status_summary:
+                self.session.set_mcp_status_summary(mcp_status_summary)
+        self.session.context.pop("_active_worker_control", None)
+        self.session.set_active_worker_runtime(
+            worker=self.session.active_worker,
+            session_mode=self.session.active_session_mode,
+            task_id=self.session.active_worker_task_id,
+            profile=self.session.active_worker_profile,
+            can_interrupt=False,
         )
 
         artifact_paths = [artifact.path for artifact in result.artifacts]
@@ -319,10 +386,23 @@ class PcSubAgentRuntime:
         self.state.phase = normalized
         self.session.set_phase(normalized)
 
-    def _set_active_worker(self, worker: str, session_mode: str = "") -> None:
+    def _set_active_worker(
+        self,
+        worker: str,
+        session_mode: str = "",
+        *,
+        task_id: str = "",
+        profile: str = "",
+    ) -> None:
         self.state.active_worker = (worker or "").strip()
         self.state.active_session_mode = (session_mode or "").strip()
-        self.session.set_active_worker(self.state.active_worker, self.state.active_session_mode)
+        self.session.set_active_worker_runtime(
+            worker=self.state.active_worker,
+            session_mode=self.state.active_session_mode,
+            task_id=task_id or self.session.active_worker_task_id,
+            profile=profile or self.session.active_worker_profile,
+            can_interrupt=self.session.active_worker_can_interrupt,
+        )
 
     def _set_latest_summary(self, summary: str) -> None:
         normalized = (summary or "").strip()
@@ -330,6 +410,27 @@ class PcSubAgentRuntime:
             return
         self.state.latest_summary = normalized
         self.session.set_latest_summary(normalized)
+
+    async def _on_worker_control(self, worker: str, control: WorkerControlRef | None) -> None:
+        if control is None:
+            self.session.context.pop("_active_worker_control", None)
+            self.session.set_active_worker_runtime(
+                worker=self.session.active_worker,
+                session_mode=self.session.active_session_mode,
+                task_id=self.session.active_worker_task_id,
+                profile=self.session.active_worker_profile,
+                can_interrupt=False,
+            )
+            return
+
+        self.session.context["_active_worker_control"] = control
+        self.session.set_active_worker_runtime(
+            worker=worker,
+            session_mode=self.session.active_session_mode,
+            task_id=control.task_id,
+            profile=self.session.active_worker_profile,
+            can_interrupt=control.can_interrupt,
+        )
 
     @staticmethod
     def _summarize_result(result: str) -> str:
