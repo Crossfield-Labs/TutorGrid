@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from router.runner_router import RunnerRouter
@@ -19,6 +21,8 @@ runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
 session_subscribers: dict[str, set[WebSocketServerProtocol]] = defaultdict(set)
+ROOT = Path(__file__).resolve().parents[1]
+TRACE_ROOT = ROOT / "scratch" / "session-trace"
 
 
 def parse_args() -> argparse.Namespace:
@@ -52,12 +56,83 @@ async def send_event(
     )
 
 
+def _ensure_workspace(raw_workspace: str) -> str:
+    workspace_text = raw_workspace.strip() or str(ROOT / "scratch" / "pc-session")
+    workspace_path = Path(workspace_text).expanduser()
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    return str(workspace_path)
+
+
+def _should_trace_event(event: str) -> bool:
+    return event != "pc.session.snapshot"
+
+
+def _build_trace_payload(event: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+
+    if event == "pc.session.snapshot":
+        snapshot = payload.get("snapshot") or {}
+        return {
+            "message": payload.get("message", ""),
+            "runner": payload.get("runner", ""),
+            "snapshotVersion": snapshot.get("snapshotVersion"),
+            "phase": snapshot.get("phase", ""),
+            "activeWorker": snapshot.get("activeWorker", ""),
+            "activeWorkerProfile": snapshot.get("activeWorkerProfile", ""),
+            "activeWorkerCanInterrupt": snapshot.get("activeWorkerCanInterrupt", False),
+            "latestSummary": snapshot.get("latestSummary", ""),
+            "latestArtifactSummary": snapshot.get("latestArtifactSummary", ""),
+            "permissionSummary": snapshot.get("permissionSummary", ""),
+            "sessionInfoSummary": snapshot.get("sessionInfoSummary", ""),
+            "mcpStatusSummary": snapshot.get("mcpStatusSummary", ""),
+        }
+
+    return payload
+
+
+def _append_session_trace(
+    session: PcSessionState,
+    *,
+    event: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if not _should_trace_event(event):
+        return
+
+    TRACE_ROOT.mkdir(parents=True, exist_ok=True)
+    trace_path_text = str(session.context.get("_trace_path") or "").strip()
+    if trace_path_text:
+        trace_path = Path(trace_path_text)
+    else:
+        trace_name = f"{session.task_id or 'task'}_{session.session_id[:8]}.jsonl"
+        trace_path = TRACE_ROOT / trace_name
+        session.context["_trace_path"] = str(trace_path)
+
+    if not session.context.get("_trace_announced"):
+        print(f"[trace] session={session.session_id} -> {trace_path}")
+        session.context["_trace_announced"] = True
+
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "sessionId": session.session_id,
+        "taskId": session.task_id,
+        "nodeId": session.node_id,
+        "runner": session.runner,
+        "event": event,
+        "payload": _build_trace_payload(event, payload),
+    }
+    with trace_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 async def _broadcast_event(
     session: PcSessionState,
     *,
     event: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
+    _append_session_trace(session, event=event, payload=payload)
     subscribers = list(session_subscribers.get(session.session_id, set()))
     stale: list[WebSocketServerProtocol] = []
     for websocket in subscribers:
@@ -446,14 +521,30 @@ def _unsubscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
 async def handle_start_request(
     websocket: WebSocketServerProtocol,
     request: PcSessionRequest,
-) -> str:
+) -> str | None:
     params = request.params
     task_text = params.task.strip() or params.goal.strip()
+    try:
+        workspace = _ensure_workspace(params.workspace.strip())
+    except Exception as exc:
+        await send_event(
+            websocket,
+            event="pc.session.failed",
+            task_id=request.task_id,
+            node_id=request.node_id,
+            session_id=None,
+            payload={
+                "message": f"Failed to prepare workspace: {exc}",
+                "error": f"Failed to prepare workspace: {exc}",
+            },
+        )
+        return None
+
     session = session_manager.create(
         task_id=request.task_id,
         node_id=request.node_id,
         runner=params.runner.strip() or "shell",
-        workspace=params.workspace.strip(),
+        workspace=workspace,
         task=task_text,
         goal=params.goal.strip(),
     )
@@ -505,12 +596,9 @@ async def handle_input_request(
 
     if input_intent == "explain":
         explanation = _build_explanation_message(session)
-        await send_event(
-            websocket,
+        await _broadcast_event(
+            session,
             event="pc.session.summary",
-            task_id=session.task_id,
-            node_id=session.node_id,
-            session_id=session.session_id,
             payload={
                 "message": explanation,
                 "runner": session.runner,
@@ -804,7 +892,8 @@ async def websocket_handler(
 
             if request.method == "pc.session.start":
                 session_id = await handle_start_request(websocket, request)
-                subscribed_session_ids.add(session_id)
+                if session_id:
+                    subscribed_session_ids.add(session_id)
                 continue
 
             if request.method == "pc.session.input":
