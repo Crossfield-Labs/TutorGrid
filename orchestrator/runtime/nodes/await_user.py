@@ -17,6 +17,7 @@ async def await_user_node(state: RuntimeState) -> RuntimeState:
     else:
         next_state["awaiting_input"] = False
         next_state["pending_user_prompt"] = ""
+        next_state["phase"] = "planning"
         next_state["last_progress_message"] = "Await-user node resumed after receiving user input."
     await sync_session_from_runtime_state(
         next_state,

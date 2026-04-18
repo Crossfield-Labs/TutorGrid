@@ -107,6 +107,41 @@ async def _broadcast_event(
         _unsubscribe(session.session_id, websocket)
 
 
+def _build_explanation_message(session: OrchestratorSessionState) -> str:
+    snapshot = session.build_snapshot()
+    lines: list[str] = [f"当前会话状态：{snapshot['status']}，阶段：{snapshot['phase']}。"]
+    if snapshot["activeWorker"]:
+        worker_line = f"当前 worker：{snapshot['activeWorker']}"
+        if snapshot["activeSessionMode"]:
+            worker_line += f"（session_mode={snapshot['activeSessionMode']}）"
+        if snapshot["activeWorkerProfile"]:
+            worker_line += f"（profile={snapshot['activeWorkerProfile']}）"
+        lines.append(worker_line + "。")
+    if snapshot["activeWorkerTaskId"]:
+        lines.append(f"当前 worker task_id：{snapshot['activeWorkerTaskId']}")
+    if snapshot["activeWorkerCanInterrupt"]:
+        lines.append("当前 worker 支持 interrupt。")
+    if snapshot["latestSummary"]:
+        lines.append(f"最近摘要：{snapshot['latestSummary']}")
+    elif snapshot["lastProgressMessage"]:
+        lines.append(f"最近进展：{snapshot['lastProgressMessage']}")
+    if snapshot["awaitingInput"]:
+        lines.append(f"当前正在等待你的输入：{snapshot['pendingUserPrompt']}")
+    elif snapshot["pendingFollowups"]:
+        lines.append(f"当前有 {len(snapshot['pendingFollowups'])} 条 follow-up 已接收，等待下一安全点处理。")
+    if snapshot["latestArtifactSummary"]:
+        lines.append(f"产物情况：{snapshot['latestArtifactSummary']}")
+    if snapshot["permissionSummary"]:
+        lines.append(f"权限情况：{snapshot['permissionSummary']}")
+    if snapshot["sessionInfoSummary"]:
+        lines.append(f"会话信息：{snapshot['sessionInfoSummary']}")
+    if snapshot["mcpStatusSummary"]:
+        lines.append(f"MCP 情况：{snapshot['mcpStatusSummary']}")
+    if snapshot["artifacts"]:
+        lines.append(f"当前已记录产物 {len(snapshot['artifacts'])} 个。")
+    return "\n".join(lines)
+
+
 async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
     snapshot = session.build_snapshot()
     previous = session.context.get("_projection_state")
@@ -396,24 +431,42 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     continue
                 _subscribe(session.session_id, websocket, event_namespace)
                 subscribed_session_ids.add(session.session_id)
+                input_intent = (request.params.input_intent or "reply").strip().lower() or "reply"
                 waiter = session_waiters.get(request.session_id)
-                if waiter is not None and not waiter.done():
+                if input_intent == "explain":
+                    explanation = _build_explanation_message(session)
+                    await _broadcast_event(
+                        session,
+                        event="orchestrator.session.summary",
+                        payload={"message": explanation, "snapshot": session.build_snapshot()},
+                    )
+                    await _emit_projection_updates(session)
+                elif waiter is not None and not waiter.done() and input_intent == "reply":
                     waiter.set_result(request.params.text)
                     await _broadcast_event(
                         session,
                         event="orchestrator.session.followup.accepted",
                         payload={
                             "message": "Accepted user reply.",
-                            "intent": request.params.input_intent,
+                            "intent": input_intent,
                             "text": request.params.text,
                         },
                     )
                     await _emit_projection_updates(session)
-                elif request.params.input_intent in {"redirect", "comment", "instruction"}:
+                elif input_intent == "reply":
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": "Session is not waiting for user input"},
+                    )
+                elif input_intent in {"redirect", "comment", "instruction"}:
                     session_manager.enqueue_followup(
                         request.session_id,
                         text=request.params.text,
-                        intent=request.params.input_intent,
+                        intent=input_intent,
                         target=request.params.target,
                     )
                     await _broadcast_event(
@@ -421,13 +474,31 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         event="orchestrator.session.followup.accepted",
                         payload={
                             "message": "Accepted follow-up for the current session.",
-                            "intent": request.params.input_intent,
+                            "intent": input_intent,
                             "text": request.params.text,
                             "target": request.params.target,
                             "snapshot": session.build_snapshot(),
                         },
                     )
                     await _emit_projection_updates(session)
+                elif waiter is not None and not waiter.done():
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": f"Unsupported input intent while waiting for input: {input_intent}"},
+                    )
+                else:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": f"Unsupported input intent: {input_intent}"},
+                    )
                 continue
 
             if request.method in {"orchestrator.session.snapshot", "pc.session.snapshot"} and request.session_id:
@@ -486,10 +557,10 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 await _emit_projection_updates(session)
                 continue
 
-                await send_event(
-                    websocket,
-                    event=event_name("orchestrator.session.failed"),
-                    task_id=request.task_id,
+            await send_event(
+                websocket,
+                event=event_name("orchestrator.session.failed"),
+                task_id=request.task_id,
                 node_id=request.node_id,
                 session_id=request.session_id,
                 payload={"message": f"Unsupported method: {request.method}"},

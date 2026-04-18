@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from orchestrator.llm.messages import append_assistant_message
+from orchestrator.llm.messages import append_assistant_message, append_user_message
 from orchestrator.runtime.session_sync import sync_session_from_runtime_state
 from orchestrator.runtime.state import RuntimeState
 
@@ -22,12 +22,11 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
     workspace = str(next_state.get("workspace") or ".")
     max_iterations = int(next_state.get("max_iterations") or 8)
     tool_results = list(next_state.get("tool_results") or [])
+    tool_events = list(next_state.get("tool_events") or [])
     history = list(next_state.get("messages") or [])
 
     if session is not None:
-        consumed_followups: list[dict[str, str]] = []
-        while session.followups:
-            consumed_followups.append(session.followups.pop(0))
+        consumed_followups = session.drain_followups()
         for followup in consumed_followups:
             intent = str(followup.get("intent") or "comment").strip().lower() or "comment"
             text = str(followup.get("text") or "").strip()
@@ -48,11 +47,16 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
                 )
             if target:
                 content += f"\nTarget: {target}"
-            history.append({"role": "user", "content": content})
+            history = append_user_message(history, content=content)
+            tool_events.append({"tool": "followup", "intent": intent, "target": target, "result": text})
+            next_state["latest_summary"] = (
+                f"Accepted a direction change: {text}" if intent == "redirect" else f"Accepted a follow-up message: {text}"
+            )
 
     messages, response = await planner.plan(
         task=task,
         goal=goal,
+        workspace=workspace,
         history=history,
         tools=tool_definitions,
     )
@@ -77,6 +81,8 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             {"id": item.id, "tool": item.name, "arguments": item.arguments}
             for item in response.tool_calls
         ]
+        next_state["tool_events"] = tool_events
+        next_state["worker_sessions"] = dict(session.worker_sessions if session is not None else next_state.get("worker_sessions") or {})
         next_state["last_progress_message"] = (
             f"Planning iteration {iteration} scheduled {len(response.tool_calls)} tool call(s)."
         )
@@ -90,10 +96,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
     if not tool_results and iteration < max(2, max_iterations):
         next_state["messages"] = append_assistant_message(messages, content=response.content)
         next_state["planned_tool_calls"] = [
-            {"id": "bootstrap-list-files", "tool": "list_files", "arguments": {"path": str(next_state.get("workspace") or ".")}},
+            {"id": "bootstrap-list-files", "tool": "list_files", "arguments": {"path": "."}},
             {"id": "bootstrap-read-main", "tool": "read_file", "arguments": {"path": "main.py"}},
             {"id": "bootstrap-read-readme", "tool": "read_file", "arguments": {"path": "README.md"}},
         ]
+        next_state["tool_events"] = tool_events
+        next_state["worker_sessions"] = dict(session.worker_sessions if session is not None else next_state.get("worker_sessions") or {})
         next_state["last_progress_message"] = (
             f"Planning iteration {iteration} produced no tool calls; scheduled bootstrap inspection tools."
         )
@@ -105,35 +113,22 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         )
         return next_state
 
-    if tool_results:
+    if tool_results and _should_attempt_forced_finish(next_state, iteration, max_iterations):
         forced_final = await planner.finalize_from_evidence(
             task=task,
             goal=goal,
+            workspace=workspace,
             history=messages,
             evidence=tool_results,
-            reason="Tool results are already available, so conclude from the collected evidence.",
+            reason="Enough evidence has already been collected to conclude the task.",
         )
         if forced_final:
             next_state["messages"] = append_assistant_message(messages, content=forced_final)
             next_state["last_progress_message"] = f"Planning iteration {iteration} finalized from collected evidence."
             next_state["latest_summary"] = forced_final
             next_state["final_answer"] = forced_final
-            await sync_session_from_runtime_state(
-                next_state,
-                emit_progress=runtime_context.get("emit_progress"),
-                progress=0.9,
-            )
-            return next_state
-        fallback = planner.build_fallback_summary(
-            task=task,
-            workspace=workspace,
-            evidence=tool_results,
-            reason="Planner did not return a final answer after evidence collection.",
-        )
-        next_state["messages"] = append_assistant_message(messages, content=fallback)
-        next_state["last_progress_message"] = f"Planning iteration {iteration} used fallback evidence summary."
-        next_state["latest_summary"] = fallback
-        next_state["final_answer"] = fallback
+            next_state["stop_reason"] = "completed_from_evidence"
+            next_state["tool_events"] = tool_events
         await sync_session_from_runtime_state(
             next_state,
             emit_progress=runtime_context.get("emit_progress"),
@@ -152,6 +147,8 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         next_state["last_progress_message"] = f"Planning iteration {iteration} forced completion at max iterations."
         next_state["latest_summary"] = fallback
         next_state["final_answer"] = fallback
+        next_state["stop_reason"] = "max_iterations_finalized"
+        next_state["tool_events"] = tool_events
         await sync_session_from_runtime_state(
             next_state,
             emit_progress=runtime_context.get("emit_progress"),
@@ -163,9 +160,37 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
     next_state["last_progress_message"] = f"Planning iteration {iteration} produced a final response."
     next_state["latest_summary"] = str(response.content or "").strip()
     next_state["final_answer"] = str(response.content or "").strip()
+    next_state["stop_reason"] = "completed"
+    next_state["tool_events"] = tool_events
     await sync_session_from_runtime_state(
         next_state,
         emit_progress=runtime_context.get("emit_progress"),
         progress=0.9,
     )
     return next_state
+
+
+def _has_completion_evidence(state: RuntimeState) -> bool:
+    worker_runs = [run for run in list(state.get("worker_runs") or []) if run.get("success")]
+    if worker_runs:
+        if state.get("artifacts"):
+            return True
+        latest = worker_runs[-1]
+        summary_blob = " ".join(str(latest.get(field) or "") for field in ("summary", "output")).lower()
+        if any(
+            token in summary_blob
+            for token in ("pass", "passed", "completed", "generated", "created", "done", "success", "verified", "ready")
+        ):
+            return True
+
+    tool_results = list(state.get("tool_results") or [])
+    if not tool_results:
+        return False
+    non_empty_results = [str(item.get("result") or "").strip() for item in tool_results]
+    return any(bool(item) for item in non_empty_results)
+
+
+def _should_attempt_forced_finish(state: RuntimeState, iteration: int, max_iterations: int) -> bool:
+    if not _has_completion_evidence(state):
+        return False
+    return iteration >= max(1, max_iterations - 4)

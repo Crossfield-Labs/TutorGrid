@@ -42,16 +42,26 @@ async def sync_session_from_runtime_state(
         session.awaiting_input = bool(state.get("awaiting_input") or False)
     if "pending_user_prompt" in state:
         session.pending_user_prompt = str(state.get("pending_user_prompt") or "")
+    if "stop_reason" in state:
+        session.stop_reason = str(state.get("stop_reason") or "")
     if "followups" in state:
         session.followups = list(state.get("followups") or [])
     if "artifacts" in state:
         session.artifacts = list(state.get("artifacts") or [])
     if "worker_runs" in state:
         session.worker_runs = list(state.get("worker_runs") or [])
+    if "worker_sessions" in state:
+        session.worker_sessions = dict(state.get("worker_sessions") or {})
+    if "substeps" in state:
+        session.substeps = list(state.get("substeps") or [])
     if "final_answer" in state:
         session.result = str(state.get("final_answer") or "")
     if "error" in state:
         session.error = str(state.get("error") or "")
+    if "messages" in state:
+        session.context["planner_messages"] = list(state.get("messages") or [])
+    if "tool_events" in state:
+        session.context["tool_events"] = list(state.get("tool_events") or [])
 
     if emit_progress is not None and state.get("last_progress_message"):
         await emit_progress(str(state.get("last_progress_message") or ""), progress)

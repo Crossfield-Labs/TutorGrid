@@ -52,6 +52,11 @@ def append_tool_message(
     return messages
 
 
+def append_user_message(messages: list[dict[str, Any]], *, content: str) -> list[dict[str, Any]]:
+    messages.append({"role": "user", "content": content})
+    return messages
+
+
 def deserialize_messages(history: list[dict[str, Any]]) -> list[BaseMessage]:
     if SystemMessage is None:
         return []

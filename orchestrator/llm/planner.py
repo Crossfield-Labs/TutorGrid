@@ -15,12 +15,20 @@ class PlannerRuntime:
         self.prompt = build_planner_prompt()
         self.provider = ProviderRegistry.create(config.planner)
 
-    def build_messages(self, *, task: str, goal: str, history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def build_messages(
+        self,
+        *,
+        task: str,
+        goal: str,
+        workspace: str,
+        history: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         if self.prompt is None:
             return history
         langchain_messages = self.prompt.format_messages(
             goal=goal or task,
             task=task,
+            workspace=workspace,
             history=deserialize_messages(history),
         )
         return serialize_messages(langchain_messages)
@@ -30,10 +38,11 @@ class PlannerRuntime:
         *,
         task: str,
         goal: str,
+        workspace: str,
         history: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
     ) -> tuple[list[dict[str, Any]], LLMResponse]:
-        messages = self.build_messages(task=task, goal=goal, history=history)
+        messages = self.build_messages(task=task, goal=goal, workspace=workspace, history=history)
         response = await self.provider.chat(messages=messages, tools=tools)
         return messages, response
 
@@ -42,6 +51,7 @@ class PlannerRuntime:
         *,
         task: str,
         goal: str,
+        workspace: str,
         history: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
         reason: str,
@@ -53,7 +63,7 @@ class PlannerRuntime:
             preview = result_text[:280] + ("..." if len(result_text) > 280 else "")
             evidence_lines.append(f"- {tool_name}: {preview}")
 
-        messages = self.build_messages(task=task, goal=goal, history=history)
+        messages = self.build_messages(task=task, goal=goal, workspace=workspace, history=history)
         messages.append(
             {
                 "role": "user",

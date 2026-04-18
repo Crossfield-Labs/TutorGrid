@@ -59,6 +59,9 @@ class OrchestratorRuntime:
         state["status"] = "RUNNING"
         state["phase"] = "planning"
         state["followups"] = list(self.session.followups)
+        state["worker_sessions"] = dict(self.session.worker_sessions)
+        state["stop_reason"] = str(self.session.stop_reason or "")
+        state["messages"] = list(self.session.context.get("planner_messages") or [])
         state["context"] = {
             "planner": self.planner,
             "tools": self.tools,
@@ -67,7 +70,8 @@ class OrchestratorRuntime:
             "session": self.session,
             "emit_substep": self.emit_substep,
         }
-        result = await self.graph_build.graph.ainvoke(state)
+        recursion_limit = max(50, int(self.config.max_iterations) * 6)
+        result = await self.graph_build.graph.ainvoke(state, config={"recursion_limit": recursion_limit})
         final_state = RuntimeState(**{**dict(state), **dict(result)})
         self._apply_runtime_state(final_state)
         return self.session.result
@@ -99,7 +103,12 @@ class OrchestratorRuntime:
         )
         self.session.awaiting_input = bool(final_state.get("awaiting_input") or False)
         self.session.pending_user_prompt = str(final_state.get("pending_user_prompt") or "")
+        self.session.stop_reason = str(final_state.get("stop_reason") or self.session.stop_reason or "")
         self.session.followups = list(final_state.get("followups") or self.session.followups)
         self.session.artifacts = list(final_state.get("artifacts") or self.session.artifacts)
         self.session.worker_runs = list(final_state.get("worker_runs") or self.session.worker_runs)
+        self.session.worker_sessions = dict(final_state.get("worker_sessions") or self.session.worker_sessions)
+        self.session.substeps = list(final_state.get("substeps") or self.session.substeps)
+        self.session.context["planner_messages"] = list(final_state.get("messages") or [])
+        self.session.context["tool_events"] = list(final_state.get("tool_events") or [])
         self.session.result = str(final_state.get("final_answer") or self.session.result or "")

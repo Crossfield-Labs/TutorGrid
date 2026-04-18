@@ -22,12 +22,16 @@ class RuntimeState(TypedDict, total=False):
     active_worker_can_interrupt: bool
     awaiting_input: bool
     pending_user_prompt: str
+    stop_reason: str
     followups: list[dict[str, Any]]
     messages: list[dict[str, Any]]
     planned_tool_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
+    tool_events: list[dict[str, Any]]
     artifacts: list[str]
     worker_runs: list[dict[str, Any]]
+    worker_sessions: dict[str, dict[str, Any]]
+    substeps: list[dict[str, Any]]
     final_answer: str
     error: str
     iteration: int
@@ -64,12 +68,16 @@ def create_initial_state(
         active_worker_can_interrupt=False,
         awaiting_input=False,
         pending_user_prompt="",
+        stop_reason="",
         followups=[],
         messages=[],
         planned_tool_calls=[],
         tool_results=[],
+        tool_events=[],
         artifacts=[],
         worker_runs=[],
+        worker_sessions={},
+        substeps=[],
         final_answer="",
         error="",
         iteration=0,
