@@ -7,7 +7,7 @@ from orchestrator.llm.planner import PlannerRuntime
 from orchestrator.runtime.graph import build_runtime_graph
 from orchestrator.runtime.state import RuntimeState, create_initial_state
 from orchestrator.sessions.state import OrchestratorSessionState
-from orchestrator.tools.registry import build_langchain_tools
+from orchestrator.tools import build_langchain_tools, build_tool_map
 
 AwaitUserCallback = Callable[[str, str | None], Awaitable[str]]
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
@@ -32,6 +32,7 @@ class OrchestratorRuntime:
             shell_timeout_seconds=self.config.shell_timeout_seconds,
             await_user_fn=await_user,
         )
+        self.tool_map = build_tool_map(self.tools)
 
     async def run(self) -> str:
         await self.emit_progress("Bootstrapping LangGraph runtime", 0.05)
@@ -52,6 +53,7 @@ class OrchestratorRuntime:
         state["context"] = {
             "planner": self.planner,
             "tools": self.tools,
+            "tool_map": self.tool_map,
             "session": self.session,
         }
         result = await self.graph_build.graph.ainvoke(state)

@@ -13,6 +13,7 @@ class OrchestratorParams:
     text: str = ""
     input_mode: str = "text"
     input_intent: str = "reply"
+    target: str = ""
 
 
 @dataclass(slots=True)
@@ -43,6 +44,7 @@ class OrchestratorRequest:
                 text=str(params.get("text") or ""),
                 input_mode=str(params.get("inputMode") or "text"),
                 input_intent=str(params.get("inputIntent") or "reply"),
+                target=str(params.get("target") or ""),
             ),
         )
 

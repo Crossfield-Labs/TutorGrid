@@ -40,3 +40,12 @@ def build_langchain_tools(
         StructuredTool.from_function(coroutine=await_user, name="await_user", description="Ask the user for input."),
         StructuredTool.from_function(coroutine=delegate_task, name="delegate_task", description="Delegate work to a worker."),
     ]
+
+
+def build_tool_map(tools: list[object]) -> dict[str, object]:
+    tool_map: dict[str, object] = {}
+    for tool in tools:
+        name = getattr(tool, "name", "")
+        if name:
+            tool_map[str(name)] = tool
+    return tool_map

@@ -6,8 +6,10 @@ from typing import Any
 from orchestrator.runtime.nodes.await_user import await_user_node
 from orchestrator.runtime.nodes.finalize import finalize_node
 from orchestrator.runtime.nodes.planning import planning_node
+from orchestrator.runtime.nodes.tools import tools_node
 from orchestrator.runtime.nodes.verify import verify_node
 from orchestrator.runtime.routes.next_step import route_after_planning
+from orchestrator.runtime.routes.post_tools import route_after_tools
 from orchestrator.runtime.state import RuntimeState
 
 try:
@@ -29,6 +31,7 @@ def build_runtime_graph() -> GraphBuildResult:
 
     graph = StateGraph(RuntimeState)
     graph.add_node("planning", planning_node)
+    graph.add_node("tools", tools_node)
     graph.add_node("await_user", await_user_node)
     graph.add_node("verify", verify_node)
     graph.add_node("finalize", finalize_node)
@@ -37,7 +40,16 @@ def build_runtime_graph() -> GraphBuildResult:
         "planning",
         route_after_planning,
         {
+            "tools": "tools",
             "await_user": "await_user",
+            "verify": "verify",
+            "finalize": "finalize",
+        },
+    )
+    graph.add_conditional_edges(
+        "tools",
+        route_after_tools,
+        {
             "verify": "verify",
             "finalize": "finalize",
         },
