@@ -1,0 +1,20 @@
+{
+  "planner": {
+    "provider": "openai_compat",
+    "model": "",
+    "apiKey": "YOUR_API_KEY",
+    "apiBase": "",
+    "temperature": 0.2,
+    "maxTokens": 4096
+  },
+  "maxIterations": 8,
+  "shellTimeoutSeconds": 90,
+  "codexCommand": "codex",
+  "claudeCommand": "claude",
+  "opencodeCommand": "opencode",
+  "enabledWorkers": [
+    "codex",
+    "claude",
+    "opencode"
+  ]
+}
