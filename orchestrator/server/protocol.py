@@ -10,6 +10,7 @@ class OrchestratorParams:
     workspace: str = ""
     task: str = ""
     goal: str = ""
+    command: str = ""
     text: str = ""
     input_mode: str = "text"
     input_intent: str = "reply"
@@ -41,6 +42,7 @@ class OrchestratorRequest:
                 workspace=str(params.get("workspace") or ""),
                 task=str(params.get("task") or ""),
                 goal=str(params.get("goal") or ""),
+                command=str(params.get("command") or ""),
                 text=str(params.get("text") or ""),
                 input_mode=str(params.get("inputMode") or "text"),
                 input_intent=str(params.get("inputIntent") or "reply"),

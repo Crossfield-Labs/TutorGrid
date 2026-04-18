@@ -5,7 +5,7 @@ import json
 import urllib.request
 from typing import Any
 
-from orchestrator.providers.base import LLMProvider, LLMResponse
+from orchestrator.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
 class OpenAICompatProvider(LLMProvider):
@@ -39,8 +39,26 @@ class OpenAICompatProvider(LLMProvider):
         response = await asyncio.to_thread(self._post_json, payload)
         choices = response.get("choices") or []
         message = choices[0].get("message") if choices else {}
+        tool_calls_raw = message.get("tool_calls") if isinstance(message, dict) else []
+        tool_calls: list[ToolCallRequest] = []
+        for item in tool_calls_raw or []:
+            function = item.get("function") if isinstance(item, dict) else {}
+            arguments_raw = function.get("arguments") if isinstance(function, dict) else "{}"
+            try:
+                arguments = json.loads(arguments_raw) if isinstance(arguments_raw, str) else arguments_raw
+            except json.JSONDecodeError:
+                arguments = {"raw": arguments_raw}
+            tool_calls.append(
+                ToolCallRequest(
+                    id=str(item.get("id") or function.get("name") or "tool_call"),
+                    name=str(function.get("name") or ""),
+                    arguments=arguments if isinstance(arguments, dict) else {"value": arguments},
+                )
+            )
         return LLMResponse(
             content=message.get("content") if isinstance(message, dict) else None,
+            tool_calls=tool_calls,
+            finish_reason=str(choices[0].get("finish_reason") or "stop") if choices else "stop",
             raw=response if isinstance(response, dict) else {},
         )
 

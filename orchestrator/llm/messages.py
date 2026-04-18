@@ -21,6 +21,37 @@ def serialize_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
     return serialized
 
 
+def append_assistant_message(
+    messages: list[dict[str, Any]],
+    *,
+    content: str | None,
+    tool_calls: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    entry: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        entry["tool_calls"] = tool_calls
+    messages.append(entry)
+    return messages
+
+
+def append_tool_message(
+    messages: list[dict[str, Any]],
+    *,
+    tool_call_id: str,
+    tool_name: str,
+    result: str,
+) -> list[dict[str, Any]]:
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": result,
+        }
+    )
+    return messages
+
+
 def deserialize_messages(history: list[dict[str, Any]]) -> list[BaseMessage]:
     if SystemMessage is None:
         return []

@@ -17,7 +17,10 @@ def build_planner_prompt() -> ChatPromptTemplate | None:
                 (
                     "You are the standalone orchestrator runtime built with LangGraph and LangChain.\n"
                     "Goal: {goal}\n"
-                    "Plan carefully, prefer tools for evidence, and keep track of runtime state."
+                    "Plan carefully, prefer tools for evidence, and keep track of runtime state.\n"
+                    "Before making concrete claims about a workspace, inspect it with tools.\n"
+                    "If you do not yet have enough evidence, call tools instead of answering early.\n"
+                    "Use concise final answers after enough evidence is collected."
                 ),
             ),
             MessagesPlaceholder(variable_name="history", optional=True),

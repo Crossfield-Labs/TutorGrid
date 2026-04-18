@@ -14,8 +14,15 @@ class RuntimeState(TypedDict, total=False):
     status: str
     latest_summary: str
     last_progress_message: str
+    latest_artifact_summary: str
+    active_worker: str
+    active_session_mode: str
+    active_worker_profile: str
+    active_worker_task_id: str
+    active_worker_can_interrupt: bool
     awaiting_input: bool
     pending_user_prompt: str
+    followups: list[dict[str, Any]]
     messages: list[dict[str, Any]]
     planned_tool_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
@@ -49,8 +56,15 @@ def create_initial_state(
         status="PENDING",
         latest_summary="",
         last_progress_message="",
+        latest_artifact_summary="",
+        active_worker="",
+        active_session_mode="",
+        active_worker_profile="",
+        active_worker_task_id="",
+        active_worker_can_interrupt=False,
         awaiting_input=False,
         pending_user_prompt="",
+        followups=[],
         messages=[],
         planned_tool_calls=[],
         tool_results=[],
