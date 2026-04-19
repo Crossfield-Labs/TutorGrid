@@ -13,6 +13,8 @@ jobs:
   unit:
     name: unit (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
     strategy:
       fail-fast: false
       matrix:
@@ -36,4 +38,4 @@ jobs:
 
       - name: Run unit tests
         run: |
-          python -m unittest discover -s ./tests -p "test_*.py" -v
+          python -m unittest discover -s ./tests -t . -p "test_*.py" -v

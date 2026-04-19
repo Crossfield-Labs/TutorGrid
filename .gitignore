@@ -45,7 +45,6 @@ env/
 
 # Project specific
 config.json
-sessions/
 scratch/
 *.log
 .env
