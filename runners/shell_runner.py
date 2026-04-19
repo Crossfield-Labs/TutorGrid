@@ -6,13 +6,13 @@ import os
 from pathlib import Path
 
 from runners.base import AwaitUserCallback, BaseRunner, ProgressCallback
-from sessions.session_state import PcSessionState
+from sessions.state import OrchestratorSessionState
 
 
 class ShellRunner(BaseRunner):
     async def run(
         self,
-        session: PcSessionState,
+        session: OrchestratorSessionState,
         emit_progress: ProgressCallback,
         await_user: AwaitUserCallback,
     ) -> str:
@@ -60,10 +60,7 @@ class ShellRunner(BaseRunner):
         output = "\n".join(captured).strip()
         if exit_code != 0:
             raise RuntimeError(output or f"PowerShell exited with code {exit_code}")
-
-        if output:
-            return output
-        return f"Shell task completed in {workspace}"
+        return output or f"Shell task completed in {workspace}"
 
     def _build_command(self, task: str, workspace: Path) -> str:
         lowered = task.lower()
@@ -88,31 +85,15 @@ class ShellRunner(BaseRunner):
 
     def _needs_user_confirmation(self, task: str) -> bool:
         lowered = task.lower()
-        return any(
-            token in lowered
-            for token in (
-                "先问我",
-                "需要确认",
-                "ask me",
-                "confirm first",
-                "before continuing",
-            )
-        )
+        return any(token in lowered for token in ("先问我", "需要确认", "ask me", "confirm first", "before continuing"))
 
-    def _wrap_command_with_utf8(self, command: str) -> str:
-        return (
-            "$OutputEncoding = [Console]::OutputEncoding = "
-            "[System.Text.UTF8Encoding]::new($false); "
-            f"{command}"
-        )
+    @staticmethod
+    def _wrap_command_with_utf8(command: str) -> str:
+        return "$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " + command
 
-    def _decode_output(self, data: bytes) -> str:
-        encodings = [
-            "utf-8",
-            locale.getpreferredencoding(False),
-            "gbk",
-            "cp936",
-        ]
+    @staticmethod
+    def _decode_output(data: bytes) -> str:
+        encodings = ["utf-8", locale.getpreferredencoding(False), "gbk", "cp936"]
         for encoding in encodings:
             if not encoding:
                 continue
@@ -121,3 +102,4 @@ class ShellRunner(BaseRunner):
             except UnicodeDecodeError:
                 continue
         return data.decode("utf-8", errors="replace")
+

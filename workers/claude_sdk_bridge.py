@@ -17,13 +17,7 @@ class ClaudeSdkBridge:
         metadata: dict[str, Any] | None = None,
     ) -> WorkerProgressEvent:
         merged_metadata = dict(metadata or {})
-        merged_metadata.update(
-            {
-                "hook_event": hook_event,
-                "tool_name": tool_name,
-                "hook_status": status,
-            }
-        )
+        merged_metadata.update({"hook_event": hook_event, "tool_name": tool_name, "hook_status": status})
         return WorkerProgressEvent(
             phase="worker_hook",
             message=message,
@@ -38,12 +32,7 @@ class ClaudeSdkBridge:
         message: str,
         metadata: dict[str, Any] | None = None,
     ) -> WorkerProgressEvent:
-        return WorkerProgressEvent(
-            phase=phase,
-            message=message,
-            raw_type=phase,
-            metadata=dict(metadata or {}),
-        )
+        return WorkerProgressEvent(phase=phase, message=message, raw_type=phase, metadata=dict(metadata or {}))
 
     @staticmethod
     def to_record(message: Any) -> dict[str, Any]:
@@ -244,3 +233,4 @@ class ClaudeSdkBridge:
                 metadata=raw_record,
             )
         ]
+

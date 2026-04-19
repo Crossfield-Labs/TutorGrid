@@ -53,30 +53,6 @@ class WorkerResult:
     session: WorkerSessionRef | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_tool_payload(self) -> str:
-        lines = [
-            f"Worker: {self.worker}",
-            f"Success: {'yes' if self.success else 'no'}",
-        ]
-        if self.summary:
-            lines.extend(["Summary:", self.summary.strip()])
-        if self.artifacts:
-            lines.append("Artifacts:")
-            lines.extend(
-                f"- {artifact.change_type}: {artifact.path}"
-                + (f" ({artifact.size} bytes)" if artifact.size is not None else "")
-                for artifact in self.artifacts[:12]
-            )
-            remaining = len(self.artifacts) - 12
-            if remaining > 0:
-                lines.append(f"- ... and {remaining} more")
-        if self.error:
-            lines.extend(["Error:", self.error.strip()])
-        elif self.output:
-            output = self.output.strip()
-            lines.extend(["Output:", output[:6000]])
-        return "\n".join(lines).strip()
-
     def to_record(
         self,
         *,
@@ -93,11 +69,7 @@ class WorkerResult:
             "output": output,
             "error": self.error,
             "artifacts": [
-                {
-                    "path": artifact.path,
-                    "change_type": artifact.change_type,
-                    "size": artifact.size,
-                }
+                {"path": artifact.path, "change_type": artifact.change_type, "size": artifact.size}
                 for artifact in self.artifacts
             ],
         }
@@ -110,9 +82,9 @@ class WorkerResult:
                 "continued_from": self.session.continued_from,
             }
         if self.metadata:
-            record["metadata"] = self.metadata
+            record["metadata"] = dict(self.metadata)
         if include_raw_events:
-            record["raw_events"] = self.raw_events
+            record["raw_events"] = list(self.raw_events)
         return record
 
     def to_json(self, *, include_raw_events: bool = False) -> str:

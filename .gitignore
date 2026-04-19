@@ -44,7 +44,7 @@ env/
 *.sublime-workspace
 
 # Project specific
-config/subagent_config.json
+config.json
 sessions/
 scratch/
 *.log

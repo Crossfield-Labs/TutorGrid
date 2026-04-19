@@ -19,10 +19,6 @@ class LLMResponse:
     finish_reason: str = "stop"
     raw: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def has_tool_calls(self) -> bool:
-        return bool(self.tool_calls)
-
 
 class LLMProvider(ABC):
     def __init__(self, *, model: str, temperature: float = 0.2, max_tokens: int = 4096) -> None:
@@ -36,6 +32,5 @@ class LLMProvider(ABC):
         *,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
-        tool_choice: str | dict[str, Any] | None = "auto",
     ) -> LLMResponse:
         raise NotImplementedError

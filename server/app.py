@@ -8,25 +8,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from router.runner_router import RunnerRouter
-from server.protocol import PcSessionRequest, build_event
-from sessions.session_manager import SessionManager
-from sessions.session_state import PcSessionState
+from runners.router import RunnerRouter
+from server.protocol import OrchestratorRequest, build_event
+from sessions.manager import SessionManager
+from sessions.state import OrchestratorSessionState
 from websockets.exceptions import ConnectionClosed
 from websockets.legacy.server import WebSocketServerProtocol, serve
 
 
+ROOT = Path(__file__).resolve().parents[1]
+TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
 session_subscribers: dict[str, set[WebSocketServerProtocol]] = defaultdict(set)
-ROOT = Path(__file__).resolve().parents[1]
-TRACE_ROOT = ROOT / "scratch" / "session-trace"
+subscriber_event_namespaces: dict[WebSocketServerProtocol, str] = {}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="MetaAgent PC Orchestrator Step 2A")
+    parser = argparse.ArgumentParser(description="Orchestrator standalone server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3210)
     parser.add_argument("--token", default="")
@@ -56,22 +57,28 @@ async def send_event(
     )
 
 
+async def _await_user(session_id: str, message: str, input_mode: str = "text") -> str:
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[str] = loop.create_future()
+    session_waiters[session_id] = future
+    return await future
+
+
 def _ensure_workspace(raw_workspace: str) -> str:
-    workspace_text = raw_workspace.strip() or str(ROOT / "scratch" / "pc-session")
+    workspace_text = raw_workspace.strip() or str(ROOT / "scratch" / "orchestrator-session")
     workspace_path = Path(workspace_text).expanduser()
     workspace_path.mkdir(parents=True, exist_ok=True)
     return str(workspace_path)
 
 
 def _should_trace_event(event: str) -> bool:
-    return event != "pc.session.snapshot"
+    return event != "orchestrator.session.snapshot"
 
 
 def _build_trace_payload(event: str, payload: dict[str, Any] | None) -> dict[str, Any]:
     if not payload:
         return {}
-
-    if event == "pc.session.snapshot":
+    if event == "orchestrator.session.snapshot":
         snapshot = payload.get("snapshot") or {}
         return {
             "message": payload.get("message", ""),
@@ -87,19 +94,17 @@ def _build_trace_payload(event: str, payload: dict[str, Any] | None) -> dict[str
             "sessionInfoSummary": snapshot.get("sessionInfoSummary", ""),
             "mcpStatusSummary": snapshot.get("mcpStatusSummary", ""),
         }
-
     return payload
 
 
 def _append_session_trace(
-    session: PcSessionState,
+    session: OrchestratorSessionState,
     *,
     event: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
     if not _should_trace_event(event):
         return
-
     TRACE_ROOT.mkdir(parents=True, exist_ok=True)
     trace_path_text = str(session.context.get("_trace_path") or "").strip()
     if trace_path_text:
@@ -108,11 +113,6 @@ def _append_session_trace(
         trace_name = f"{session.task_id or 'task'}_{session.session_id[:8]}.jsonl"
         trace_path = TRACE_ROOT / trace_name
         session.context["_trace_path"] = str(trace_path)
-
-    if not session.context.get("_trace_announced"):
-        print(f"[trace] session={session.session_id} -> {trace_path}")
-        session.context["_trace_announced"] = True
-
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "sessionId": session.session_id,
@@ -126,20 +126,41 @@ def _append_session_trace(
         handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _translate_event_name(event: str, namespace: str) -> str:
+    if namespace == "pc" and event.startswith("orchestrator.session."):
+        return "pc.session." + event.removeprefix("orchestrator.session.")
+    return event
+
+
+def _subscribe(session_id: str, websocket: WebSocketServerProtocol, namespace: str) -> None:
+    session_subscribers[session_id].add(websocket)
+    subscriber_event_namespaces[websocket] = namespace
+
+
+def _unsubscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
+    subscribers = session_subscribers.get(session_id)
+    if not subscribers:
+        return
+    subscribers.discard(websocket)
+    if not subscribers:
+        session_subscribers.pop(session_id, None)
+    if all(websocket not in items for items in session_subscribers.values()):
+        subscriber_event_namespaces.pop(websocket, None)
+
+
 async def _broadcast_event(
-    session: PcSessionState,
+    session: OrchestratorSessionState,
     *,
     event: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
     _append_session_trace(session, event=event, payload=payload)
-    subscribers = list(session_subscribers.get(session.session_id, set()))
     stale: list[WebSocketServerProtocol] = []
-    for websocket in subscribers:
+    for websocket in list(session_subscribers.get(session.session_id, set())):
         try:
             await send_event(
                 websocket,
-                event=event,
+                event=_translate_event_name(event, subscriber_event_namespaces.get(websocket, "orchestrator")),
                 task_id=session.task_id,
                 node_id=session.node_id,
                 session_id=session.session_id,
@@ -147,17 +168,13 @@ async def _broadcast_event(
             )
         except ConnectionClosed:
             stale.append(websocket)
-
-    if stale:
-        for websocket in stale:
-            session_subscribers[session.session_id].discard(websocket)
+    for websocket in stale:
+        _unsubscribe(session.session_id, websocket)
 
 
-def _build_explanation_message(session: PcSessionState) -> str:
+def _build_explanation_message(session: OrchestratorSessionState) -> str:
     snapshot = session.build_snapshot()
-    lines: list[str] = [
-        f"当前 PC 会话状态：{snapshot['status']}，阶段：{snapshot['phase']}。",
-    ]
+    lines: list[str] = [f"当前会话状态：{snapshot['status']}，阶段：{snapshot['phase']}。"]
     if snapshot["activeWorker"]:
         worker_line = f"当前 worker：{snapshot['activeWorker']}"
         if snapshot["activeSessionMode"]:
@@ -197,7 +214,26 @@ def _build_explanation_message(session: PcSessionState) -> str:
     return "\n".join(lines)
 
 
-async def _emit_projection_updates(session: PcSessionState) -> None:
+def _classify_input_handling(*, input_intent: str, waiter_active: bool) -> str:
+    normalized_intent = (input_intent or "reply").strip().lower() or "reply"
+    if normalized_intent == "explain":
+        return "explain"
+    if normalized_intent == "interrupt":
+        return "interrupt"
+    if waiter_active:
+        if normalized_intent == "reply":
+            return "reply_waiter"
+        if normalized_intent in {"redirect", "comment", "instruction"}:
+            return "queue_followup"
+        return "unsupported_waiter"
+    if normalized_intent == "reply":
+        return "reply_without_waiter"
+    if normalized_intent in {"redirect", "comment", "instruction"}:
+        return "queue_followup"
+    return "unsupported"
+
+
+async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
     snapshot = session.build_snapshot()
     previous = session.context.get("_projection_state")
     previous_state = previous if isinstance(previous, dict) else {}
@@ -205,12 +241,11 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
     if previous_state.get("phase") != snapshot["phase"]:
         await _broadcast_event(
             session,
-            event="pc.session.phase",
+            event="orchestrator.session.phase",
             payload={
                 "phase": snapshot["phase"],
                 "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "snapshot": snapshot,
             },
         )
 
@@ -231,7 +266,7 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
     if current_worker != previous_worker and snapshot["activeWorker"]:
         await _broadcast_event(
             session,
-            event="pc.session.worker",
+            event="orchestrator.session.worker",
             payload={
                 "worker": snapshot["activeWorker"],
                 "sessionMode": snapshot["activeSessionMode"],
@@ -239,21 +274,15 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
                 "taskId": snapshot["activeWorkerTaskId"],
                 "canInterrupt": snapshot["activeWorkerCanInterrupt"],
                 "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "snapshot": snapshot,
             },
         )
 
     if previous_state.get("latestSummary") != snapshot["latestSummary"] and snapshot["latestSummary"]:
         await _broadcast_event(
             session,
-            event="pc.session.summary",
-            payload={
-                "message": snapshot["latestSummary"],
-                "phase": snapshot["phase"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
-            },
+            event="orchestrator.session.summary",
+            payload={"message": snapshot["latestSummary"], "phase": snapshot["phase"], "snapshot": snapshot},
         )
 
     if (
@@ -262,63 +291,58 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
     ):
         await _broadcast_event(
             session,
-            event="pc.session.artifact_summary",
+            event="orchestrator.session.artifact_summary",
             payload={
                 "message": snapshot["latestArtifactSummary"],
                 "artifacts": snapshot["artifacts"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "phase": snapshot["phase"],
+                "snapshot": snapshot,
             },
         )
 
     if previous_state.get("permissionSummary") != snapshot["permissionSummary"] and snapshot["permissionSummary"]:
         await _broadcast_event(
             session,
-            event="pc.session.permission",
+            event="orchestrator.session.permission",
             payload={
                 "message": snapshot["permissionSummary"],
                 "phase": snapshot["phase"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "worker": snapshot["activeWorker"],
+                "snapshot": snapshot,
             },
         )
 
     if previous_state.get("mcpStatusSummary") != snapshot["mcpStatusSummary"] and snapshot["mcpStatusSummary"]:
         await _broadcast_event(
             session,
-            event="pc.session.mcp_status",
+            event="orchestrator.session.mcp_status",
             payload={
                 "message": snapshot["mcpStatusSummary"],
                 "phase": snapshot["phase"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "worker": snapshot["activeWorker"],
+                "snapshot": snapshot,
             },
         )
 
     if previous_state.get("sessionInfoSummary") != snapshot["sessionInfoSummary"] and snapshot["sessionInfoSummary"]:
         await _broadcast_event(
             session,
-            event="pc.session.worker_runtime",
+            event="orchestrator.session.worker_runtime",
             payload={
                 "message": snapshot["sessionInfoSummary"],
                 "worker": snapshot["activeWorker"],
                 "workerProfile": snapshot["activeWorkerProfile"],
                 "taskId": snapshot["activeWorkerTaskId"],
                 "canInterrupt": snapshot["activeWorkerCanInterrupt"],
-                "runner": session.runner,
-                "snapshotVersion": snapshot["snapshotVersion"],
+                "snapshot": snapshot,
             },
         )
 
     if previous_state.get("snapshotVersion") != snapshot["snapshotVersion"]:
         await _broadcast_event(
             session,
-            event="pc.session.snapshot",
-            payload={
-                "message": snapshot["latestSummary"] or snapshot["lastProgressMessage"],
-                "runner": session.runner,
-                "snapshot": snapshot,
-            },
+            event="orchestrator.session.snapshot",
+            payload={"message": snapshot["latestSummary"] or snapshot["lastProgressMessage"], "snapshot": snapshot},
         )
 
     session.context["_projection_state"] = {
@@ -337,499 +361,127 @@ async def _emit_projection_updates(session: PcSessionState) -> None:
     }
 
 
-async def _emit_progress(session: PcSessionState, message: str, progress: float | None = None) -> None:
-    session.mark(status="RUNNING", message=message)
+async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> None:
+    session = session_manager.get(session_id)
+    if session is None:
+        return
+    runner = runner_router.get(session.runner)
+    session.phase = "starting"
+    session.mark(status="RUNNING", message="Session started")
     session_manager.update(session)
     await _broadcast_event(
         session,
-        event="pc.session.progress",
-        payload={
-            "message": message,
-            "progress": progress,
-            "runner": session.runner,
-        },
+        event="orchestrator.session.started",
+        payload={"message": "session started", "runner": session.runner, "snapshot": session.build_snapshot()},
     )
     await _emit_projection_updates(session)
 
-
-async def _emit_substep(
-    session: PcSessionState,
-    *,
-    kind: str,
-    title: str,
-    status: str,
-    detail: str | None = None,
-) -> None:
-    record = {
-        "kind": kind,
-        "title": title,
-        "status": status,
-        "detail": detail or "",
-    }
-    session.substeps.append(record)
-    session_manager.update(session)
-    await _broadcast_event(
-        session,
-        event=f"pc.session.subnode.{status}",
-        payload={
-            "kind": kind,
-            "title": title,
-            "status": status,
-            "message": detail or title,
-            "detail": detail or "",
-            "runner": session.runner,
-        },
-    )
-    await _emit_projection_updates(session)
-
-
-async def _await_user(session: PcSessionState, message: str, input_mode: str | None = None) -> str:
-    loop = asyncio.get_running_loop()
-    future: asyncio.Future[str] = loop.create_future()
-    session.request_user_input(message, input_mode or "text")
-    session_manager.update(session)
-    session_waiters[session.session_id] = future
-
-    await _broadcast_event(
-        session,
-        event="pc.session.await_user",
-        payload={
-            "message": message,
-            "inputMode": input_mode or "text",
-            "runner": session.runner,
-        },
-    )
-    await _emit_projection_updates(session)
-
-    user_input = await future
-    session_waiters.pop(session.session_id, None)
-    session.resume_with_input(user_input)
-    session_manager.update(session)
-    await _emit_progress(session, f"User replied: {user_input}", 0.62)
-    return user_input
-
-
-async def _run_session(session: PcSessionState) -> None:
-    try:
-        session.set_phase("starting")
-        session.set_latest_summary("PC session created")
-        session.mark(status="RUNNING", message="PC session created")
+    async def emit_progress(message: str, progress: float | None = None) -> None:
+        session.mark(status="RUNNING", message=message)
         session_manager.update(session)
         await _broadcast_event(
             session,
-            event="pc.session.started",
+            event="orchestrator.session.progress",
             payload={
-                "message": f"PC session started with runner {session.runner}",
-                "progress": 0.05,
+                "message": message,
+                "progress": progress,
                 "runner": session.runner,
+                "snapshot": session.build_snapshot(),
             },
         )
         await _emit_projection_updates(session)
 
-        runner = runner_router.get(session.runner)
-        async def emit_progress(message: str, progress: float | None = None) -> None:
-            await _emit_progress(session, message, progress)
-
-        async def await_user(message: str, input_mode: str | None = None) -> str:
-            return await _await_user(session, message, input_mode)
-
-        async def emit_substep(kind: str, title: str, status: str, detail: str | None = None) -> None:
-            await _emit_substep(
-                session,
-                kind=kind,
-                title=title,
-                status=status,
-                detail=detail,
-            )
-
-        if hasattr(runner, "set_event_callbacks"):
-            runner.set_event_callbacks(emit_substep=emit_substep)
-
-        result = await runner.run(session, emit_progress, await_user)
-        session.result = result
-        session.set_phase("completed")
-        session.set_stop_reason("completed")
-        session.set_latest_summary(result[:400] if result else "PC session completed")
-        session.mark(status="COMPLETED", message="PC session completed")
+    async def await_user(message: str, input_mode: str | None = None) -> str:
+        session.request_user_input(message, input_mode or "text")
         session_manager.update(session)
         await _broadcast_event(
             session,
-            event="pc.session.completed",
+            event="orchestrator.session.await_user",
             payload={
-                "message": "PC session completed",
+                "message": message,
+                "inputMode": input_mode or "text",
+                "runner": session.runner,
+                "snapshot": session.build_snapshot(),
+            },
+        )
+        await _emit_projection_updates(session)
+        reply = await _await_user(session.session_id, message, input_mode or "text")
+        session.resume_with_input(reply)
+        session_manager.update(session)
+        await emit_progress(f"User replied: {reply}", 0.62)
+        await _emit_projection_updates(session)
+        return reply
+
+    async def emit_substep(kind: str, title: str, status: str, detail: str | None = None) -> None:
+        record = {"kind": kind, "title": title, "status": status, "detail": detail or ""}
+        session.substeps.append(record)
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event=f"orchestrator.session.subnode.{status}",
+            payload={
+                "kind": kind,
+                "title": title,
+                "status": status,
+                "message": detail or title,
+                "detail": detail or "",
+                "snapshot": session.build_snapshot(),
+            },
+        )
+        await _emit_projection_updates(session)
+
+    try:
+        if hasattr(runner, "set_event_callbacks"):
+            runner.set_event_callbacks(emit_substep=emit_substep)
+        result = await runner.run(session, emit_progress, await_user)
+        session.result = result
+        session.phase = "completed"
+        session.stop_reason = "completed"
+        session.mark(status="COMPLETED", message="Session completed")
+        session.latest_summary = result[:400] if result else "Session completed"
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.completed",
+            payload={
+                "message": "Session completed",
                 "result": result,
                 "runner": session.runner,
                 "progress": 1.0,
                 "artifacts": session.artifacts,
                 "workerRuns": session.worker_runs,
+                "snapshot": session.build_snapshot(),
             },
         )
         await _emit_projection_updates(session)
     except asyncio.CancelledError:
-        session.error = "PC session cancelled"
-        session.set_phase("cancelled")
-        session.set_stop_reason("cancelled")
-        session.set_latest_summary(session.error)
+        session.error = "Session cancelled"
+        session.phase = "cancelled"
+        session.stop_reason = "cancelled"
         session.mark(status="CANCELLED", message=session.error)
         session_manager.update(session)
         await _broadcast_event(
             session,
-            event="pc.session.failed",
-            payload={
-                "message": session.error,
-                "error": session.error,
-                "runner": session.runner,
-            },
+            event="orchestrator.session.failed",
+            payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
         await _emit_projection_updates(session)
         raise
     except Exception as exc:
         session.error = str(exc)
-        session.set_phase("failed")
-        session.set_stop_reason("failed")
-        session.set_latest_summary(session.error)
+        session.phase = "failed"
+        session.stop_reason = "failed"
         session.mark(status="FAILED", message=session.error)
         session_manager.update(session)
         await _broadcast_event(
             session,
-            event="pc.session.failed",
-            payload={
-                "message": session.error,
-                "error": session.error,
-                "runner": session.runner,
-            },
+            event="orchestrator.session.failed",
+            payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
         await _emit_projection_updates(session)
     finally:
         session_waiters.pop(session.session_id, None)
         session_tasks.pop(session.session_id, None)
-
-
-def _subscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
-    session_subscribers[session_id].add(websocket)
-
-
-def _unsubscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
-    subscribers = session_subscribers.get(session_id)
-    if not subscribers:
-        return
-    subscribers.discard(websocket)
-    if not subscribers:
-        session_subscribers.pop(session_id, None)
-
-
-async def handle_start_request(
-    websocket: WebSocketServerProtocol,
-    request: PcSessionRequest,
-) -> str | None:
-    params = request.params
-    task_text = params.task.strip() or params.goal.strip()
-    try:
-        workspace = _ensure_workspace(params.workspace.strip())
-    except Exception as exc:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=None,
-            payload={
-                "message": f"Failed to prepare workspace: {exc}",
-                "error": f"Failed to prepare workspace: {exc}",
-            },
-        )
-        return None
-
-    session = session_manager.create(
-        task_id=request.task_id,
-        node_id=request.node_id,
-        runner=params.runner.strip() or "shell",
-        workspace=workspace,
-        task=task_text,
-        goal=params.goal.strip(),
-    )
-    if params.command:
-        session.context["command"] = params.command
-
-    _subscribe(session.session_id, websocket)
-    session_task = asyncio.create_task(_run_session(session))
-    session_tasks[session.session_id] = session_task
-    return session.session_id
-
-
-async def handle_input_request(
-    websocket: WebSocketServerProtocol,
-    request: PcSessionRequest,
-) -> str | None:
-    session_id = (request.session_id or "").strip()
-    if not session_id:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=None,
-            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
-        )
-        return None
-
-    session = session_manager.get(session_id)
-    if session is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=session_id,
-            payload={"message": "Session not found", "error": "Session not found"},
-        )
-        return None
-
-    _subscribe(session_id, websocket)
-    input_intent = (request.params.input_intent or "reply").strip().lower() or "reply"
-    input_text = request.params.text.strip()
-    target = request.params.target.strip()
-    waiter = session_waiters.get(session_id)
-
-    if input_intent == "interrupt":
-        return await handle_interrupt_request(websocket, request)
-
-    if input_intent == "explain":
-        explanation = _build_explanation_message(session)
-        await _broadcast_event(
-            session,
-            event="pc.session.summary",
-            payload={
-                "message": explanation,
-                "runner": session.runner,
-                "snapshot": session.build_snapshot(),
-            },
-        )
-        return session_id
-
-    if waiter is not None and not waiter.done():
-        waiter.set_result(input_text)
-        await _broadcast_event(
-            session,
-            event="pc.session.followup.accepted",
-            payload={
-                "message": f"Accepted {input_intent or 'reply'} input for the waiting PC session.",
-                "intent": input_intent,
-                "text": input_text,
-                "target": target,
-                "runner": session.runner,
-            },
-        )
-        return session_id
-
-    if input_intent == "reply":
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=session.task_id,
-            node_id=session.node_id,
-            session_id=session.session_id,
-            payload={
-                "message": "Session is not waiting for user input",
-                "error": "Session is not waiting for user input",
-            },
-        )
-        return session_id
-
-    if not input_text:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=session.task_id,
-            node_id=session.node_id,
-            session_id=session.session_id,
-            payload={
-                "message": "Follow-up text cannot be empty",
-                "error": "Follow-up text cannot be empty",
-            },
-        )
-        return session_id
-
-    queued = session_manager.enqueue_followup(
-        session_id,
-        text=input_text,
-        intent=input_intent,
-        target=target,
-    )
-    if queued is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=session.task_id,
-            node_id=session.node_id,
-            session_id=session.session_id,
-            payload={
-                "message": "Session not found while queueing follow-up",
-                "error": "Session not found while queueing follow-up",
-            },
-        )
-        return session_id
-
-    session.set_latest_summary(f"Accepted {input_intent} follow-up: {input_text}".strip())
-    session_manager.update(session)
-    await _broadcast_event(
-        session,
-        event="pc.session.followup.accepted",
-        payload={
-            "message": f"Accepted {input_intent} follow-up for the current PC session.",
-            "intent": input_intent,
-            "text": input_text,
-            "target": target,
-            "runner": session.runner,
-            "followup": queued["followup"],
-        },
-    )
-    await _emit_projection_updates(session)
-    return session_id
-
-
-async def handle_interrupt_request(
-    websocket: WebSocketServerProtocol,
-    request: PcSessionRequest,
-) -> str | None:
-    session_id = (request.session_id or "").strip()
-    if not session_id:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=None,
-            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
-        )
-        return None
-
-    session = session_manager.get(session_id)
-    if session is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=session_id,
-            payload={"message": "Session not found", "error": "Session not found"},
-        )
-        return None
-
-    _subscribe(session_id, websocket)
-    control = session.context.get("_active_worker_control")
-    if control is None or not getattr(control, "can_interrupt", False) or getattr(control, "interrupt", None) is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=session.task_id,
-            node_id=session.node_id,
-            session_id=session.session_id,
-            payload={
-                "message": "The active worker does not currently support interrupt.",
-                "error": "The active worker does not currently support interrupt.",
-            },
-        )
-        return session_id
-
-    result = await control.interrupt()
-    note = request.params.text.strip()
-    session.set_phase("interrupting")
-    session.set_stop_reason("interrupt_requested")
-    session.set_latest_summary(note or "Interrupt requested for the active worker.")
-    session_manager.update(session)
-    await _broadcast_event(
-        session,
-        event="pc.session.followup.accepted",
-        payload={
-            "message": note or "Accepted interrupt request for the current PC session.",
-            "intent": "interrupt",
-            "text": note,
-            "runner": session.runner,
-            "worker": getattr(control, "worker", ""),
-            "result": result,
-        },
-    )
-    await _emit_projection_updates(session)
-    return session_id
-
-
-async def handle_snapshot_request(
-    websocket: WebSocketServerProtocol,
-    request: PcSessionRequest,
-) -> str | None:
-    session_id = (request.session_id or "").strip()
-    if not session_id:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=None,
-            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
-        )
-        return None
-
-    session = session_manager.get(session_id)
-    if session is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=session_id,
-            payload={"message": "Session not found", "error": "Session not found"},
-        )
-        return None
-
-    _subscribe(session_id, websocket)
-    await send_event(
-        websocket,
-        event="pc.session.snapshot",
-        task_id=session.task_id,
-        node_id=session.node_id,
-        session_id=session.session_id,
-        payload={
-            "message": session.latest_summary or session.last_progress_message,
-            "runner": session.runner,
-            "snapshot": session.build_snapshot(),
-        },
-    )
-    return session_id
-
-
-async def handle_cancel_request(
-    websocket: WebSocketServerProtocol,
-    request: PcSessionRequest,
-) -> str | None:
-    session_id = (request.session_id or "").strip()
-    if not session_id:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=None,
-            payload={"message": "Missing sessionId", "error": "Missing sessionId"},
-        )
-        return None
-
-    session = session_manager.get(session_id)
-    if session is None:
-        await send_event(
-            websocket,
-            event="pc.session.failed",
-            task_id=request.task_id,
-            node_id=request.node_id,
-            session_id=session_id,
-            payload={"message": "Session not found", "error": "Session not found"},
-        )
-        return None
-
-    task = session_tasks.get(session_id)
-    if task is not None:
-        task.cancel()
-    return session_id
 
 
 def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> bool:
@@ -839,47 +491,39 @@ def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> b
     return actual == required_token
 
 
-async def websocket_handler(
-    websocket: WebSocketServerProtocol,
-    path: str,
-    required_token: str,
-) -> None:
-    if path != "/ws/pc-agent":
+async def websocket_handler(websocket: WebSocketServerProtocol, path: str, required_token: str) -> None:
+    if path not in {"/ws/orchestrator", "/ws/pc-agent"}:
         await websocket.close(code=1008, reason="Unsupported path")
         return
     if not _is_authorized(websocket, required_token):
         await websocket.close(code=1008, reason="Unauthorized")
         return
+    event_namespace = "pc" if path == "/ws/pc-agent" else "orchestrator"
 
     subscribed_session_ids: set[str] = set()
 
     try:
         async for raw_message in websocket:
-            print(f"[pc-agent] received raw frame: {raw_message}")
+            def event_name(name: str) -> str:
+                return _translate_event_name(name, event_namespace)
+
             try:
                 payload = json.loads(raw_message)
             except json.JSONDecodeError:
                 await send_event(
                     websocket,
-                    event="pc.session.failed",
+                    event=event_name("orchestrator.session.failed"),
                     task_id=None,
                     node_id=None,
                     session_id=None,
                     payload={"message": "Invalid JSON payload", "error": "Invalid JSON payload"},
                 )
                 continue
-
-            request = PcSessionRequest.from_dict(payload)
-            print(
-                "[pc-agent] parsed request "
-                f"type={request.type!r} method={request.method!r} task_id={request.task_id!r} "
-                f"node_id={request.node_id!r} session_id={request.session_id!r}"
-            )
-
+            request = OrchestratorRequest.from_dict(payload)
             if request.type != "req":
                 await send_event(
                     websocket,
-                    event="pc.session.failed",
+                    event=event_name("orchestrator.session.failed"),
                     task_id=request.task_id,
                     node_id=request.node_id,
                     session_id=request.session_id,
@@ -890,46 +534,212 @@ async def websocket_handler(
                 )
                 continue
 
-            if request.method == "pc.session.start":
-                session_id = await handle_start_request(websocket, request)
-                if session_id:
-                    subscribed_session_ids.add(session_id)
+            if request.method in {"orchestrator.session.start", "pc.session.start"}:
+                task_text = request.params.task.strip() or request.params.goal.strip()
+                session = session_manager.create(
+                    task_id=request.task_id or "task",
+                    node_id=request.node_id or "node",
+                    runner=request.params.runner,
+                    workspace=_ensure_workspace(request.params.workspace),
+                    task=task_text,
+                    goal=request.params.goal,
+                )
+                if request.params.command:
+                    session.context["command"] = request.params.command
+                _subscribe(session.session_id, websocket, event_namespace)
+                subscribed_session_ids.add(session.session_id)
+                session_task = asyncio.create_task(_run_session(session.session_id, websocket))
+                session_tasks[session.session_id] = session_task
                 continue
 
-            if request.method == "pc.session.input":
-                session_id = await handle_input_request(websocket, request)
-                if session_id:
-                    subscribed_session_ids.add(session_id)
+            if request.method in {"orchestrator.session.input", "pc.session.input"} and request.session_id:
+                session = session_manager.get(request.session_id)
+                if session is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "Session not found"},
+                    )
+                    continue
+                _subscribe(session.session_id, websocket, event_namespace)
+                subscribed_session_ids.add(session.session_id)
+                input_intent = (request.params.input_intent or "reply").strip().lower() or "reply"
+                waiter = session_waiters.get(request.session_id)
+                action = _classify_input_handling(
+                    input_intent=input_intent,
+                    waiter_active=bool(waiter is not None and not waiter.done()),
+                )
+                if action == "explain":
+                    explanation = _build_explanation_message(session)
+                    await _broadcast_event(
+                        session,
+                        event="orchestrator.session.summary",
+                        payload={"message": explanation, "snapshot": session.build_snapshot()},
+                    )
+                    await _emit_projection_updates(session)
+                elif action == "reply_waiter":
+                    waiter.set_result(request.params.text)
+                    await _broadcast_event(
+                        session,
+                        event="orchestrator.session.followup.accepted",
+                        payload={
+                            "message": "Accepted user reply.",
+                            "intent": input_intent,
+                            "text": request.params.text,
+                        },
+                    )
+                    await _emit_projection_updates(session)
+                elif action == "reply_without_waiter":
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": "Session is not waiting for user input"},
+                    )
+                elif action == "queue_followup":
+                    if not request.params.text.strip():
+                        await send_event(
+                            websocket,
+                            event=event_name("orchestrator.session.failed"),
+                            task_id=session.task_id,
+                            node_id=session.node_id,
+                            session_id=session.session_id,
+                            payload={"message": "Follow-up text cannot be empty", "error": "Follow-up text cannot be empty"},
+                        )
+                        continue
+                    session_manager.enqueue_followup(
+                        request.session_id,
+                        text=request.params.text,
+                        intent=input_intent,
+                        target=request.params.target,
+                    )
+                    await _broadcast_event(
+                        session,
+                        event="orchestrator.session.followup.accepted",
+                        payload={
+                            "message": "Accepted follow-up for the current session.",
+                            "intent": input_intent,
+                            "text": request.params.text,
+                            "target": request.params.target,
+                            "runner": session.runner,
+                            "followup": {"text": request.params.text, "intent": input_intent, "target": request.params.target},
+                            "snapshot": session.build_snapshot(),
+                        },
+                    )
+                    await _emit_projection_updates(session)
+                elif action == "unsupported_waiter":
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": f"Unsupported input intent while waiting for input: {input_intent}"},
+                    )
+                else:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={"message": f"Unsupported input intent: {input_intent}"},
+                    )
                 continue
 
-            if request.method == "pc.session.snapshot":
-                session_id = await handle_snapshot_request(websocket, request)
-                if session_id:
-                    subscribed_session_ids.add(session_id)
+            if request.method in {"orchestrator.session.snapshot", "pc.session.snapshot"} and request.session_id:
+                session = session_manager.get(request.session_id)
+                if session is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "Session not found"},
+                    )
+                    continue
+                _subscribe(session.session_id, websocket, event_namespace)
+                subscribed_session_ids.add(session.session_id)
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.snapshot"),
+                    task_id=session.task_id,
+                    node_id=session.node_id,
+                    session_id=session.session_id,
+                    payload={
+                        "snapshot": session.build_snapshot(),
+                        "message": session.latest_summary or session.last_progress_message,
+                        "runner": session.runner,
+                    },
+                )
                 continue
 
-            if request.method == "pc.session.interrupt":
-                session_id = await handle_interrupt_request(websocket, request)
-                if session_id:
-                    subscribed_session_ids.add(session_id)
+            if request.method in {"orchestrator.session.cancel", "pc.session.cancel"} and request.session_id:
+                task = session_tasks.get(request.session_id)
+                if task is not None:
+                    task.cancel()
                 continue
 
-            if request.method == "pc.session.cancel":
-                session_id = await handle_cancel_request(websocket, request)
-                if session_id:
-                    subscribed_session_ids.add(session_id)
+            if request.method in {"orchestrator.session.interrupt", "pc.session.interrupt"} and request.session_id:
+                session = session_manager.get(request.session_id)
+                if session is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "Session not found"},
+                    )
+                    continue
+                control = session.context.get("_active_worker_control")
+                if control is None or not getattr(control, "can_interrupt", False) or getattr(control, "interrupt", None) is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={
+                            "message": "The active worker does not currently support interrupt.",
+                            "error": "The active worker does not currently support interrupt.",
+                        },
+                    )
+                    continue
+                result = await control.interrupt()
+                session.stop_reason = "interrupt_requested"
+                session.latest_summary = request.params.text or "Interrupt requested."
+                session.phase = "interrupting"
+                session_manager.update(session)
+                await _broadcast_event(
+                    session,
+                    event="orchestrator.session.followup.accepted",
+                    payload={
+                        "message": session.latest_summary,
+                        "intent": "interrupt",
+                        "text": request.params.text,
+                        "runner": session.runner,
+                        "worker": getattr(control, "worker", ""),
+                        "result": result,
+                        "snapshot": session.build_snapshot(),
+                    },
+                )
+                await _emit_projection_updates(session)
                 continue
 
             await send_event(
                 websocket,
-                event="pc.session.failed",
+                event=event_name("orchestrator.session.failed"),
                 task_id=request.task_id,
                 node_id=request.node_id,
                 session_id=request.session_id,
-                payload={
-                    "message": f"Unsupported method: {request.method}",
-                    "error": f"Unsupported method: {request.method}",
-                },
+                payload={"message": f"Unsupported method: {request.method}"},
             )
     except ConnectionClosed:
         return
@@ -940,10 +750,11 @@ async def websocket_handler(
 
 async def run_server(host: str, port: int, token: str) -> None:
     async with serve(lambda ws, path: websocket_handler(ws, path, token), host, port):
-        print(f"MetaAgent PC Orchestrator listening on ws://{host}:{port}/ws/pc-agent")
+        print(f"Orchestrator listening on ws://{host}:{port}/ws/orchestrator")
         await asyncio.Future()
 
 
 def main() -> None:
     args = parse_args()
     asyncio.run(run_server(args.host, args.port, args.token.strip()))
+

@@ -1,29 +1,22 @@
 from __future__ import annotations
 
-from config.subagent_config import SubAgentConfig
-from workers.base import WorkerAdapter
-from workers.claude_sdk_worker import ClaudeSdkWorker
+from config import OrchestratorConfig
+from workers.claude_worker import ClaudeWorker
 from workers.codex_worker import CodexWorker
 from workers.opencode_worker import OpencodeWorker
 
 
 class WorkerRegistry:
-    def __init__(self, config: SubAgentConfig) -> None:
-        self._workers: dict[str, WorkerAdapter] = {}
-        self.register(OpencodeWorker(config))
-        self.register(CodexWorker(config))
+    def __init__(self, config: OrchestratorConfig) -> None:
+        workers = {"codex": CodexWorker(config), "opencode": OpencodeWorker(config)}
         if config.claude_sdk_enabled:
-            self.register(ClaudeSdkWorker(config))
+            workers["claude"] = ClaudeWorker(config)
+        enabled = {item.strip().lower() for item in config.enabled_workers if item.strip()}
+        self._workers = {name: worker for name, worker in workers.items() if not enabled or name in enabled}
 
-    def register(self, worker: WorkerAdapter) -> None:
-        self._workers[worker.name] = worker
-
-    def get(self, name: str) -> WorkerAdapter:
-        normalized = name.strip().lower()
-        worker = self._workers.get(normalized)
-        if worker is None:
-            raise RuntimeError(f"Worker not found: {name}")
-        return worker
+    def get(self, name: str):
+        return self._workers[name]
 
     def list_names(self) -> list[str]:
         return sorted(self._workers.keys())
+
