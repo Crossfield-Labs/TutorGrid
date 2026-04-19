@@ -68,6 +68,7 @@ class OrchestratorRuntime:
             "tool_map": self.tool_map,
             "tool_definitions": self.tool_definitions,
             "session": self.session,
+            "emit_progress": self.emit_progress,
             "emit_substep": self.emit_substep,
         }
         recursion_limit = max(50, int(self.config.max_iterations) * 6)

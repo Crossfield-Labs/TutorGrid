@@ -29,11 +29,20 @@ async def main_async() -> None:
         prefix = f"[{progress:.2f}] " if progress is not None else ""
         print(prefix + message)
 
+    async def emit_substep(kind: str, title: str, status: str, detail: str | None = None) -> None:
+        suffix = f" :: {detail}" if detail else ""
+        print(f"[substep] {kind} | {title} | {status}{suffix}")
+
     async def await_user(message: str, input_mode: str | None = None) -> str:
         print(f"[await_user/{input_mode or 'text'}] {message}")
         return input("> ").strip()
 
-    runtime = OrchestratorRuntime(session=session, emit_progress=emit_progress, await_user=await_user)
+    runtime = OrchestratorRuntime(
+        session=session,
+        emit_progress=emit_progress,
+        await_user=await_user,
+        emit_substep=emit_substep,
+    )
     result = await runtime.run()
     print("\n=== FINAL RESULT ===")
     print(result)
