@@ -4,7 +4,6 @@ import argparse
 import asyncio
 import json
 from collections import defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +11,7 @@ from runners.router import RunnerRouter
 from server.protocol import OrchestratorRequest, build_event
 from sessions.manager import SessionManager
 from sessions.state import OrchestratorSessionState
+from storage.jsonl_trace import JsonlTraceStore
 from websockets.exceptions import ConnectionClosed
 from websockets.legacy.server import WebSocketServerProtocol, serve
 
@@ -19,6 +19,7 @@ from websockets.legacy.server import WebSocketServerProtocol, serve
 ROOT = Path(__file__).resolve().parents[1]
 TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
+trace_store = JsonlTraceStore(TRACE_ROOT)
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
@@ -105,25 +106,7 @@ def _append_session_trace(
 ) -> None:
     if not _should_trace_event(event):
         return
-    TRACE_ROOT.mkdir(parents=True, exist_ok=True)
-    trace_path_text = str(session.context.get("_trace_path") or "").strip()
-    if trace_path_text:
-        trace_path = Path(trace_path_text)
-    else:
-        trace_name = f"{session.task_id or 'task'}_{session.session_id[:8]}.jsonl"
-        trace_path = TRACE_ROOT / trace_name
-        session.context["_trace_path"] = str(trace_path)
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "sessionId": session.session_id,
-        "taskId": session.task_id,
-        "nodeId": session.node_id,
-        "runner": session.runner,
-        "event": event,
-        "payload": _build_trace_payload(event, payload),
-    }
-    with trace_path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    trace_store.append_session_event(session, event=event, payload=_build_trace_payload(event, payload))
 
 
 def _translate_event_name(event: str, namespace: str) -> str:
@@ -550,6 +533,17 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 subscribed_session_ids.add(session.session_id)
                 session_task = asyncio.create_task(_run_session(session.session_id, websocket))
                 session_tasks[session.session_id] = session_task
+                continue
+
+            if request.method in {"orchestrator.session.list", "pc.session.list"}:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"items": session_manager.list_sessions(limit=50)},
+                )
                 continue
 
             if request.method in {"orchestrator.session.input", "pc.session.input"} and request.session_id:

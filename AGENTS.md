@@ -5,9 +5,12 @@
 建议阅读顺序：
 1. `README.md`：先看项目范围和启动方式
 2. `CONTRIBUTING.md`：再看协作和改动约束
-3. `agent/gaps.md`：先看当前剩余缺口和框架职责边界
-4. `agent/README.md`：按模块导航定位要读的文档
-5. `agent/` 下对应模块文档：进入具体代码区域前先读
+3. `docs/roadmap.md`：先看当前产品优先级、GUI 方向和演进路线
+4. `docs/persistence.md`：再看持久化模型
+5. `docs/gui-protocol.md`：再看 GUI 所需协议与字段
+6. `agent/gaps.md`：最后看当前剩余缺口和框架职责边界
+7. `agent/README.md`：按模块导航定位要读的文档
+8. `agent/` 下对应模块文档：进入具体代码区域前先读
 
 如何使用 `agent/` 目录：
 - 把 `agent/README.md` 当作总导航
@@ -28,3 +31,4 @@
 - 不要随意重新依赖仓库外层的旧模块
 - 新的 runtime、协议、worker 行为要反映到 `agent/` 文档中
 - 长篇设计说明应放在 `docs/`，而不是堆在本文件里
+- 如果产品优先级变化，例如从 CLI 优先切到 GUI 优先，必须同步更新 `docs/roadmap.md` 和 `agent/gaps.md`

@@ -8,5 +8,11 @@
 - runtime 执行模型
 - tools / workers / providers 的详细设计
 - 重构路线图和迁移记录
+- GUI / TUI 产品路线与前后端协作约束
 
 根目录的 `README.md`、`AGENTS.md`、`CONTRIBUTING.md` 应该保持短小，详细内容统一沉淀到这里。
+
+当前优先阅读：
+- `roadmap.md`：下一阶段路线，包含 GUI 优先、持久化、压缩、前后端协议分工
+- `persistence.md`：session / message / snapshot / error / trace 的持久化模型
+- `gui-protocol.md`：GUI 第一版需要的协议、字段和历史查询能力

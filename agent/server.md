@@ -35,3 +35,4 @@
 - 订阅、广播、连接行为放在 `app.py`
 - 新消息类型要同步反映到 snapshot 和广播逻辑
 - `session.build_snapshot()` 是投影事件的单一事实来源，新增状态字段时先补 snapshot，再补广播
+- 下一阶段会为 GUI 补会话列表、历史时间线、trace 和错误查询，详见 `../docs/gui-protocol.md`

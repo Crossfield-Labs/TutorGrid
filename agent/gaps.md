@@ -9,11 +9,54 @@
 
 ## 当前剩余缺口
 
-现在代码层面的主缺口已经补齐，剩下的是环境相关联调和端到端验证。
+现在缺口已经不只是环境联调，还包括下一阶段产品化能力。
 
-### P0：环境相关联调仍需要继续做
+### P0：下一阶段基础设施
 
-1. 委派链路的策略已经补齐，并有最小回归测试，但仍需要做真实 CLI/SDK 联调。
+1. 缺少 session 持久化层。
+   重点目录：
+   - `sessions/`
+   - `server/`
+   - `runtime/`
+   需要补：
+   - session 持久化
+   - planner_messages 持久化
+   - snapshots / traces 落库或稳定落盘
+   - 历史会话恢复入口
+
+2. 缺少错误持久化和结构化错误模型。
+   重点目录：
+   - `runtime/`
+   - `workers/`
+   - `server/`
+   需要补：
+   - planner / tool / worker / transport error 分类
+   - retryable 标记
+   - 错误查询与展示所需字段
+
+3. 缺少上下文压缩能力。
+   重点目录：
+   - `llm/`
+   - `runtime/`
+   - `sessions/`
+   需要补：
+   - 长会话压缩策略
+   - 历史摘要与恢复机制
+   - 文件证据与聊天历史分层
+
+4. 缺少 GUI 所需的历史查询和展示协议。
+   重点目录：
+   - `server/`
+   - `sessions/`
+   需要补：
+   - 会话列表
+   - 历史 session 加载
+   - trace / snapshot 拉取
+   - GUI 所需的稳定事件与字段
+
+### P1：环境相关联调仍需要继续做
+
+5. 委派链路的策略已经补齐，并有最小回归测试，但仍需要做真实 CLI/SDK 联调。
    重点文件：
    - `tools/delegate.py`
    - `workers/selection.py`
@@ -24,7 +67,7 @@
    风险：
    - 真实 CLI/SDK 环境下，失败重路由、session 续接、artifact 汇总是否和旧版一致，还需要系统联调。
 
-2. `planning -> tools -> planning` 的多轮循环已经恢复，并补了重复工具调用抑制，但还需要继续观察真实模型行为。
+6. `planning -> tools -> planning` 的多轮循环已经恢复，并补了重复工具调用抑制，但还需要继续观察真实模型行为。
    重点文件：
    - `runtime/nodes/planning.py`
    - `runtime/routes/post_tools.py`
@@ -36,7 +79,7 @@
    - 继续减少模型层面的重复探索
    - 在真实任务里验证收口体验
 
-3. human-in-the-loop 的协议层和输入分流已经补齐，并有最小回归测试，但仍需要做真实多轮交互联调。
+7. human-in-the-loop 的协议层和输入分流已经补齐，并有最小回归测试，但仍需要做真实多轮交互联调。
    重点文件：
    - `server/app.py`
    - `runtime/nodes/await_user.py`
@@ -48,9 +91,9 @@
    - 真实多轮任务里的恢复语义
    - follow-up 被消费后的 planner 上下文稳定性
 
-### P1：主能力已在，但还没做完整端到端验证
+### P2：主能力已在，但还没做完整端到端验证
 
-4. runner 层需要按旧项目使用方式完整联调。
+8. runner 层需要按旧项目使用方式完整联调。
    重点文件：
    - `runners/router.py`
    - `runners/shell_runner.py`
@@ -65,7 +108,7 @@
    - `pc_subagent`
    - `/ws/pc-agent` 兼容路径
 
-5. WebSocket 协议虽然已经双命名空间兼容，但仍需要专门的协议回归。
+9. WebSocket 协议虽然已经双命名空间兼容，但仍需要专门的协议回归。
    重点文件：
    - `server/app.py`
    - `server/protocol.py`
@@ -78,23 +121,24 @@
    - `summary / phase / worker / snapshot / subnode.*`
    - 等待输入时的 explain / reply / redirect 行为
 
-6. 测试已经从“只有 compileall 和手工直跑”提升到了最小回归级别，但仍缺真正的端到端协议测试。
+10. 测试已经从“只有 compileall 和手工直跑”提升到了最小回归级别，但仍缺真正的端到端协议测试。
    当前已有：
-   - `python -m compileall orchestrator`
+   - `python -m compileall .`
    - `python -m dev.run_runtime ...`
    - runtime 节点测试
    - delegate 工具测试
    - server 输入分类测试
+   - protocol / runner router / session snapshot 测试
    还需要补：
    - websocket 协议集成测试
    - runner 端到端测试
    - follow-up / interrupt 集成测试
 
-### P2：不是缺功能，但可以继续增强
+### P3：不是缺功能，但可以继续增强
 
-7. prompt 约束虽然已经很接近旧版，但还可以继续针对“避免重复工具调用”“何时继续探索”“何时收口”做更强约束。
+11. prompt 约束虽然已经很接近旧版，但还可以继续针对“避免重复工具调用”“何时继续探索”“何时收口”做更强约束。
 
-8. 当前有些信息仍然是 runtime 内部约定，不是显式 schema。
+12. 当前有些信息仍然是 runtime 内部约定，不是显式 schema。
    例如：
    - `session.context["planner_messages"]`
    - `session.context["tool_events"]`
@@ -128,11 +172,17 @@ LangGraph 在这个项目里不该只是“跑一个 graph 壳”。
    - follow-up 在安全点消费
 
 4. checkpoint / 可恢复执行
-   当前还没充分用上。
+   当前仍未充分用上。
    后续应该考虑：
    - graph state checkpoint
    - session resume
    - replay / debug
+
+6. 为 GUI 提供稳定状态投影
+   - 时间线节点
+   - 会话恢复点
+   - 历史状态回放
+   - 错误与压缩结果投影
 
 5. 更清晰的状态投影
    - phase
@@ -172,6 +222,9 @@ LangChain 在这里不该替代 runtime，而是做组件层。
    - document loading
    - output parser
    - 更强的 structured output
+   - 上下文压缩链
+   - 错误解释链
+   - 历史恢复时的摘要重建链
 
 一句话：
 LangChain 负责“节点里怎么和模型、消息、工具交互”。
@@ -194,14 +247,22 @@ LangChain 负责“节点里怎么和模型、消息、工具交互”。
 
 ## 下一步建议顺序
 
-1. 先做 runner + websocket 联调
-   - 目标是验证新系统已经能按旧协议工作
+1. 先设计 session / error / snapshot / trace 的持久化模型
+   - 目标是为 GUI 和恢复能力打底
+   - 设计文档：`../docs/persistence.md`
 
-2. 再做真实 worker 环境压测
-   - 验证 selection、fallback、resume、profile 在 CLI/SDK 下的行为
+2. 再补 WebSocket 协议的会话列表、历史查询、trace 拉取
+   - 目标是让 GUI 不必直接碰 runtime 内部对象
+   - 设计文档：`../docs/gui-protocol.md`
 
-3. 最后补 websocket 级回归
-   - 把协议路径固化成真正的集成测试
+3. 然后做 TypeScript GUI 第一版
+   - 目标是先把会话列表、时间线、状态侧栏跑起来
+
+4. 再补上下文压缩和恢复
+   - 目标是让长会话真正可用
+
+5. 最后补 TUI 和端到端协议回归
+   - 目标是统一产品入口和开发入口
 
 ## 文档维护要求
 
