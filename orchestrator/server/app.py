@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,7 @@ from websockets.legacy.server import WebSocketServerProtocol, serve
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
@@ -62,6 +64,68 @@ async def _await_user(session_id: str, message: str, input_mode: str = "text") -
     return await future
 
 
+def _ensure_workspace(raw_workspace: str) -> str:
+    workspace_text = raw_workspace.strip() or str(ROOT / "scratch" / "orchestrator-session")
+    workspace_path = Path(workspace_text).expanduser()
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    return str(workspace_path)
+
+
+def _should_trace_event(event: str) -> bool:
+    return event != "orchestrator.session.snapshot"
+
+
+def _build_trace_payload(event: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not payload:
+        return {}
+    if event == "orchestrator.session.snapshot":
+        snapshot = payload.get("snapshot") or {}
+        return {
+            "message": payload.get("message", ""),
+            "runner": payload.get("runner", ""),
+            "snapshotVersion": snapshot.get("snapshotVersion"),
+            "phase": snapshot.get("phase", ""),
+            "activeWorker": snapshot.get("activeWorker", ""),
+            "activeWorkerProfile": snapshot.get("activeWorkerProfile", ""),
+            "activeWorkerCanInterrupt": snapshot.get("activeWorkerCanInterrupt", False),
+            "latestSummary": snapshot.get("latestSummary", ""),
+            "latestArtifactSummary": snapshot.get("latestArtifactSummary", ""),
+            "permissionSummary": snapshot.get("permissionSummary", ""),
+            "sessionInfoSummary": snapshot.get("sessionInfoSummary", ""),
+            "mcpStatusSummary": snapshot.get("mcpStatusSummary", ""),
+        }
+    return payload
+
+
+def _append_session_trace(
+    session: OrchestratorSessionState,
+    *,
+    event: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if not _should_trace_event(event):
+        return
+    TRACE_ROOT.mkdir(parents=True, exist_ok=True)
+    trace_path_text = str(session.context.get("_trace_path") or "").strip()
+    if trace_path_text:
+        trace_path = Path(trace_path_text)
+    else:
+        trace_name = f"{session.task_id or 'task'}_{session.session_id[:8]}.jsonl"
+        trace_path = TRACE_ROOT / trace_name
+        session.context["_trace_path"] = str(trace_path)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "sessionId": session.session_id,
+        "taskId": session.task_id,
+        "nodeId": session.node_id,
+        "runner": session.runner,
+        "event": event,
+        "payload": _build_trace_payload(event, payload),
+    }
+    with trace_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 def _translate_event_name(event: str, namespace: str) -> str:
     if namespace == "pc" and event.startswith("orchestrator.session."):
         return "pc.session." + event.removeprefix("orchestrator.session.")
@@ -90,6 +154,7 @@ async def _broadcast_event(
     event: str,
     payload: dict[str, Any] | None = None,
 ) -> None:
+    _append_session_trace(session, event=event, payload=payload)
     stale: list[WebSocketServerProtocol] = []
     for websocket in list(session_subscribers.get(session.session_id, set())):
         try:
@@ -137,9 +202,35 @@ def _build_explanation_message(session: OrchestratorSessionState) -> str:
         lines.append(f"会话信息：{snapshot['sessionInfoSummary']}")
     if snapshot["mcpStatusSummary"]:
         lines.append(f"MCP 情况：{snapshot['mcpStatusSummary']}")
+    recent_hooks = snapshot.get("recentHookEvents") or []
+    if recent_hooks:
+        latest_hook = recent_hooks[-1]
+        hook_name = str(latest_hook.get("name") or "").strip()
+        hook_message = str(latest_hook.get("message") or "").strip()
+        if hook_name or hook_message:
+            lines.append(f"最近 hook：{hook_name or 'hook'} - {hook_message}")
     if snapshot["artifacts"]:
         lines.append(f"当前已记录产物 {len(snapshot['artifacts'])} 个。")
     return "\n".join(lines)
+
+
+def _classify_input_handling(*, input_intent: str, waiter_active: bool) -> str:
+    normalized_intent = (input_intent or "reply").strip().lower() or "reply"
+    if normalized_intent == "explain":
+        return "explain"
+    if normalized_intent == "interrupt":
+        return "interrupt"
+    if waiter_active:
+        if normalized_intent == "reply":
+            return "reply_waiter"
+        if normalized_intent in {"redirect", "comment", "instruction"}:
+            return "queue_followup"
+        return "unsupported_waiter"
+    if normalized_intent == "reply":
+        return "reply_without_waiter"
+    if normalized_intent in {"redirect", "comment", "instruction"}:
+        return "queue_followup"
+    return "unsupported"
 
 
 async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
@@ -291,7 +382,12 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.session.progress",
-            payload={"message": message, "progress": progress, "snapshot": session.build_snapshot()},
+            payload={
+                "message": message,
+                "progress": progress,
+                "runner": session.runner,
+                "snapshot": session.build_snapshot(),
+            },
         )
         await _emit_projection_updates(session)
 
@@ -301,12 +397,18 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.session.await_user",
-            payload={"message": message, "inputMode": input_mode or "text", "snapshot": session.build_snapshot()},
+            payload={
+                "message": message,
+                "inputMode": input_mode or "text",
+                "runner": session.runner,
+                "snapshot": session.build_snapshot(),
+            },
         )
         await _emit_projection_updates(session)
         reply = await _await_user(session.session_id, message, input_mode or "text")
         session.resume_with_input(reply)
         session_manager.update(session)
+        await emit_progress(f"User replied: {reply}", 0.62)
         await _emit_projection_updates(session)
         return reply
 
@@ -341,7 +443,15 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.session.completed",
-            payload={"result": result, "snapshot": session.build_snapshot()},
+            payload={
+                "message": "Session completed",
+                "result": result,
+                "runner": session.runner,
+                "progress": 1.0,
+                "artifacts": session.artifacts,
+                "workerRuns": session.worker_runs,
+                "snapshot": session.build_snapshot(),
+            },
         )
         await _emit_projection_updates(session)
     except asyncio.CancelledError:
@@ -353,7 +463,7 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.session.failed",
-            payload={"error": session.error, "snapshot": session.build_snapshot()},
+            payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
         await _emit_projection_updates(session)
         raise
@@ -366,7 +476,7 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.session.failed",
-            payload={"error": session.error, "snapshot": session.build_snapshot()},
+            payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
         await _emit_projection_updates(session)
     finally:
@@ -397,16 +507,41 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
             def event_name(name: str) -> str:
                 return _translate_event_name(name, event_namespace)
 
-            payload = json.loads(raw_message)
+            try:
+                payload = json.loads(raw_message)
+            except json.JSONDecodeError:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.failed"),
+                    task_id=None,
+                    node_id=None,
+                    session_id=None,
+                    payload={"message": "Invalid JSON payload", "error": "Invalid JSON payload"},
+                )
+                continue
             request = OrchestratorRequest.from_dict(payload)
+            if request.type != "req":
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.failed"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "message": f"Unsupported frame type: {request.type}",
+                        "error": f"Unsupported frame type: {request.type}",
+                    },
+                )
+                continue
 
             if request.method in {"orchestrator.session.start", "pc.session.start"}:
+                task_text = request.params.task.strip() or request.params.goal.strip()
                 session = session_manager.create(
                     task_id=request.task_id or "task",
                     node_id=request.node_id or "node",
                     runner=request.params.runner,
-                    workspace=request.params.workspace or str(ROOT),
-                    task=request.params.task,
+                    workspace=_ensure_workspace(request.params.workspace),
+                    task=task_text,
                     goal=request.params.goal,
                 )
                 if request.params.command:
@@ -433,7 +568,11 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 subscribed_session_ids.add(session.session_id)
                 input_intent = (request.params.input_intent or "reply").strip().lower() or "reply"
                 waiter = session_waiters.get(request.session_id)
-                if input_intent == "explain":
+                action = _classify_input_handling(
+                    input_intent=input_intent,
+                    waiter_active=bool(waiter is not None and not waiter.done()),
+                )
+                if action == "explain":
                     explanation = _build_explanation_message(session)
                     await _broadcast_event(
                         session,
@@ -441,7 +580,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         payload={"message": explanation, "snapshot": session.build_snapshot()},
                     )
                     await _emit_projection_updates(session)
-                elif waiter is not None and not waiter.done() and input_intent == "reply":
+                elif action == "reply_waiter":
                     waiter.set_result(request.params.text)
                     await _broadcast_event(
                         session,
@@ -453,7 +592,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         },
                     )
                     await _emit_projection_updates(session)
-                elif input_intent == "reply":
+                elif action == "reply_without_waiter":
                     await send_event(
                         websocket,
                         event=event_name("orchestrator.session.failed"),
@@ -462,7 +601,17 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         session_id=session.session_id,
                         payload={"message": "Session is not waiting for user input"},
                     )
-                elif input_intent in {"redirect", "comment", "instruction"}:
+                elif action == "queue_followup":
+                    if not request.params.text.strip():
+                        await send_event(
+                            websocket,
+                            event=event_name("orchestrator.session.failed"),
+                            task_id=session.task_id,
+                            node_id=session.node_id,
+                            session_id=session.session_id,
+                            payload={"message": "Follow-up text cannot be empty", "error": "Follow-up text cannot be empty"},
+                        )
+                        continue
                     session_manager.enqueue_followup(
                         request.session_id,
                         text=request.params.text,
@@ -477,11 +626,13 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                             "intent": input_intent,
                             "text": request.params.text,
                             "target": request.params.target,
+                            "runner": session.runner,
+                            "followup": {"text": request.params.text, "intent": input_intent, "target": request.params.target},
                             "snapshot": session.build_snapshot(),
                         },
                     )
                     await _emit_projection_updates(session)
-                elif waiter is not None and not waiter.done():
+                elif action == "unsupported_waiter":
                     await send_event(
                         websocket,
                         event=event_name("orchestrator.session.failed"),
@@ -521,7 +672,11 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     task_id=session.task_id,
                     node_id=session.node_id,
                     session_id=session.session_id,
-                    payload={"snapshot": session.build_snapshot(), "message": session.latest_summary or session.last_progress_message},
+                    payload={
+                        "snapshot": session.build_snapshot(),
+                        "message": session.latest_summary or session.last_progress_message,
+                        "runner": session.runner,
+                    },
                 )
                 continue
 
@@ -544,15 +699,36 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     )
                     continue
                 control = session.context.get("_active_worker_control")
-                if control is not None and getattr(control, "can_interrupt", False) and getattr(control, "interrupt", None) is not None:
-                    await control.interrupt()
+                if control is None or not getattr(control, "can_interrupt", False) or getattr(control, "interrupt", None) is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=session.task_id,
+                        node_id=session.node_id,
+                        session_id=session.session_id,
+                        payload={
+                            "message": "The active worker does not currently support interrupt.",
+                            "error": "The active worker does not currently support interrupt.",
+                        },
+                    )
+                    continue
+                result = await control.interrupt()
                 session.stop_reason = "interrupt_requested"
                 session.latest_summary = request.params.text or "Interrupt requested."
+                session.phase = "interrupting"
                 session_manager.update(session)
                 await _broadcast_event(
                     session,
                     event="orchestrator.session.followup.accepted",
-                    payload={"message": session.latest_summary, "intent": "interrupt", "snapshot": session.build_snapshot()},
+                    payload={
+                        "message": session.latest_summary,
+                        "intent": "interrupt",
+                        "text": request.params.text,
+                        "runner": session.runner,
+                        "worker": getattr(control, "worker", ""),
+                        "result": result,
+                        "snapshot": session.build_snapshot(),
+                    },
                 )
                 await _emit_projection_updates(session)
                 continue

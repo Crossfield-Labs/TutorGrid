@@ -9,35 +9,44 @@
 
 ## 当前剩余缺口
 
-### P0：行为已迁入但还需要继续校准
+现在代码层面的主缺口已经补齐，剩下的是环境相关联调和端到端验证。
 
-1. 委派链路虽然已经补回 `select_worker / select_session_mode / select_worker_profile / fallback reroute`，但还需要做真实联调。
+### P0：环境相关联调仍需要继续做
+
+1. 委派链路的策略已经补齐，并有最小回归测试，但仍需要做真实 CLI/SDK 联调。
    重点文件：
    - `orchestrator/tools/delegate.py`
    - `orchestrator/workers/selection.py`
    - `orchestrator/workers/*.py`
+   当前状态：
+   - 已补齐 `select_worker / select_session_mode / select_worker_profile / fallback reroute`
+   - 已补最小 `delegate` 回归测试
    风险：
-   - 真实 CLI/SDK 环境下，失败重路由、session 续接、artifact 汇总是否和旧版一致，还没做系统回归。
+   - 真实 CLI/SDK 环境下，失败重路由、session 续接、artifact 汇总是否和旧版一致，还需要系统联调。
 
-2. `planning -> tools -> planning` 的多轮循环已经恢复，但 planner 仍然可能重复调用相同工具。
+2. `planning -> tools -> planning` 的多轮循环已经恢复，并补了重复工具调用抑制，但还需要继续观察真实模型行为。
    重点文件：
    - `orchestrator/runtime/nodes/planning.py`
    - `orchestrator/runtime/routes/post_tools.py`
    - `orchestrator/llm/prompts.py`
-   当前症状：
-   - `dev.run_runtime` 里可能出现多次重复 `list_files`
+   当前状态：
+   - 已补显式去重逻辑
+   - 已补规划节点回归测试
    目标：
-   - 减少重复工具调用
-   - 更接近旧版 `_should_attempt_forced_finish()` 的成熟收口体验
+   - 继续减少模型层面的重复探索
+   - 在真实任务里验证收口体验
 
-3. human-in-the-loop 的协议层已补齐，但运行时恢复仍需要继续打磨。
+3. human-in-the-loop 的协议层和输入分流已经补齐，并有最小回归测试，但仍需要做真实多轮交互联调。
    重点文件：
    - `orchestrator/server/app.py`
    - `orchestrator/runtime/nodes/await_user.py`
    - `orchestrator/runtime/nodes/planning.py`
+   当前状态：
+   - 已补输入分类 helper
+   - 已补 `reply / redirect / comment / instruction / explain / interrupt` 的最小回归
    当前关注点：
-   - `reply / redirect / comment / instruction / explain / interrupt` 在真实多轮任务中的恢复语义
-   - follow-up 被消费后的 planner 上下文是否足够稳定
+   - 真实多轮任务里的恢复语义
+   - follow-up 被消费后的 planner 上下文稳定性
 
 ### P1：主能力已在，但还没做完整端到端验证
 
@@ -60,19 +69,25 @@
    重点文件：
    - `orchestrator/server/app.py`
    - `orchestrator/server/protocol.py`
+   当前状态：
+   - 已补旧版中的 session trace、workspace 准备、非法 JSON/非法 frame 失败事件
+   - 已补更完整的 interrupt/cancel/snapshot/input 语义
+   - 已补更接近旧版的 payload 字段
    需要验证：
    - `start / input / snapshot / interrupt / cancel`
    - `summary / phase / worker / snapshot / subnode.*`
    - 等待输入时的 explain / reply / redirect 行为
 
-6. 测试覆盖不足。
-   当前主要验证方式仍是：
+6. 测试已经从“只有 compileall 和手工直跑”提升到了最小回归级别，但仍缺真正的端到端协议测试。
+   当前已有：
    - `python -m compileall orchestrator`
    - `python -m orchestrator.dev.run_runtime ...`
-   还需要补：
    - runtime 节点测试
    - delegate 工具测试
-   - server 协议测试
+   - server 输入分类测试
+   还需要补：
+   - websocket 协议集成测试
+   - runner 端到端测试
    - follow-up / interrupt 集成测试
 
 ### P2：不是缺功能，但可以继续增强
@@ -182,14 +197,11 @@ LangChain 负责“节点里怎么和模型、消息、工具交互”。
 1. 先做 runner + websocket 联调
    - 目标是验证新系统已经能按旧协议工作
 
-2. 再压 delegate 链路
-   - 验证 worker 选择、fallback、resume、profile
+2. 再做真实 worker 环境压测
+   - 验证 selection、fallback、resume、profile 在 CLI/SDK 下的行为
 
-3. 然后处理 planner 的重复工具调用
-   - 通过 prompt 约束和 loop 条件一起收敛
-
-4. 最后补测试
-   - 把当前已经能跑的路径固化成回归
+3. 最后补 websocket 级回归
+   - 把协议路径固化成真正的集成测试
 
 ## 文档维护要求
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from orchestrator.llm.messages import append_assistant_message, append_user_message
 from orchestrator.runtime.session_sync import sync_session_from_runtime_state
@@ -61,6 +62,47 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         tools=tool_definitions,
     )
     if response.tool_calls:
+        planned_tool_calls = [
+            {"id": item.id, "tool": item.name, "arguments": item.arguments}
+            for item in response.tool_calls
+        ]
+        filtered_tool_calls, dropped_duplicates = _filter_duplicate_tool_calls(
+            planned_tool_calls,
+            tool_events=tool_events,
+        )
+        if not filtered_tool_calls and dropped_duplicates and tool_results and _has_completion_evidence(next_state):
+            forced_final = await planner.finalize_from_evidence(
+                task=task,
+                goal=goal,
+                workspace=workspace,
+                history=messages,
+                evidence=tool_results,
+                reason="The planner only suggested duplicate tool calls, and the existing evidence is already sufficient.",
+            )
+            final_text = forced_final or planner.build_fallback_summary(
+                task=task,
+                workspace=workspace,
+                evidence=tool_results,
+                reason="Duplicate tool calls were suppressed because the same evidence had already been collected.",
+            )
+            next_state["messages"] = append_assistant_message(messages, content=final_text)
+            next_state["planned_tool_calls"] = []
+            next_state["tool_events"] = tool_events + [
+                {"tool": "dedupe", "result": f"Suppressed {dropped_duplicates} duplicate tool call(s)."}
+            ]
+            next_state["latest_summary"] = final_text
+            next_state["last_progress_message"] = (
+                f"Planning iteration {iteration} finalized after suppressing {dropped_duplicates} duplicate tool call(s)."
+            )
+            next_state["final_answer"] = final_text
+            next_state["stop_reason"] = "completed_after_duplicate_suppression"
+            await sync_session_from_runtime_state(
+                next_state,
+                emit_progress=runtime_context.get("emit_progress"),
+                progress=0.9,
+            )
+            return next_state
+
         assistant_tool_calls = [
             {
                 "id": item.id,
@@ -77,15 +119,18 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             content=response.content,
             tool_calls=assistant_tool_calls,
         )
-        next_state["planned_tool_calls"] = [
-            {"id": item.id, "tool": item.name, "arguments": item.arguments}
-            for item in response.tool_calls
-        ]
-        next_state["tool_events"] = tool_events
+        next_state["planned_tool_calls"] = filtered_tool_calls
+        next_state["tool_events"] = tool_events + (
+            [{"tool": "dedupe", "result": f"Suppressed {dropped_duplicates} duplicate tool call(s)."}]
+            if dropped_duplicates
+            else []
+        )
         next_state["worker_sessions"] = dict(session.worker_sessions if session is not None else next_state.get("worker_sessions") or {})
         next_state["last_progress_message"] = (
-            f"Planning iteration {iteration} scheduled {len(response.tool_calls)} tool call(s)."
+            f"Planning iteration {iteration} scheduled {len(filtered_tool_calls)} tool call(s)."
         )
+        if dropped_duplicates:
+            next_state["latest_summary"] = f"Suppressed {dropped_duplicates} duplicate tool call(s)."
         await sync_session_from_runtime_state(
             next_state,
             emit_progress=runtime_context.get("emit_progress"),
@@ -194,3 +239,28 @@ def _should_attempt_forced_finish(state: RuntimeState, iteration: int, max_itera
     if not _has_completion_evidence(state):
         return False
     return iteration >= max(1, max_iterations - 4)
+
+
+def _filter_duplicate_tool_calls(
+    planned_tool_calls: list[dict[str, Any]],
+    *,
+    tool_events: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    seen_signatures = {_tool_signature(item.get("tool"), item.get("arguments")) for item in tool_events if item.get("tool")}
+    filtered: list[dict[str, Any]] = []
+    dropped = 0
+    local_signatures: set[str] = set()
+
+    for call in planned_tool_calls:
+        signature = _tool_signature(call.get("tool"), call.get("arguments"))
+        if signature in seen_signatures or signature in local_signatures:
+            dropped += 1
+            continue
+        filtered.append(call)
+        local_signatures.add(signature)
+    return filtered, dropped
+
+
+def _tool_signature(tool_name: Any, arguments: Any) -> str:
+    normalized_arguments = arguments if isinstance(arguments, dict) else {"value": arguments}
+    return f"{str(tool_name or '').strip().lower()}::{json.dumps(normalized_arguments, ensure_ascii=False, sort_keys=True)}"
