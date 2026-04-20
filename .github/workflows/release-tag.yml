@@ -14,13 +14,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  package:
-    name: build-release-artifacts
-    runs-on: ubuntu-latest
+  build:
+    name: build-tag-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Compute build metadata
+        shell: bash
+        run: |
+          echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "BUILD_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -40,29 +50,84 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
 
-      - name: Backend smoke checks
+      - name: Backend checks
         env:
           PYTHONPATH: .
         run: |
           python -m compileall backend main.py
           python -m unittest discover -s ./tests -t . -p "test_*.py"
 
-      - name: Build frontend
+      - name: Build backend executable
+        run: |
+          pyinstaller --noconfirm --onefile --name pc-orchestrator-backend main.py
+
+      - name: Build frontend and desktop executable
         working-directory: frontend
         run: |
           npm ci
           npm run build
+          npm run package:desktop
 
-      - name: Package backend artifact
+      - name: Package source tarballs (unix)
+        if: runner.os != 'Windows'
         run: |
-          mkdir -p dist
-          tar -czf dist/backend-${GITHUB_REF_NAME}.tar.gz backend main.py requirements.txt config.example.json
+          mkdir -p dist-release
+          tar -czf dist-release/backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz backend main.py requirements.txt config.example.json
+          tar -czf dist-release/frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
 
-      - name: Package frontend artifact
+      - name: Package source tarballs (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          mkdir -p dist
-          tar -czf dist/frontend-${GITHUB_REF_NAME}.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+          New-Item -ItemType Directory -Path dist-release -Force | Out-Null
+          tar -czf dist-release/backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz backend main.py requirements.txt config.example.json
+          tar -czf dist-release/frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+
+      - name: Collect binary artifacts (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist-release
+          cp dist/pc-orchestrator-backend dist-release/pc-orchestrator-backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}
+          find frontend/release -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" \) | while read -r file; do
+            ext="${file##*.}"
+            cp "$file" "dist-release/pc-orchestrator-frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.${ext}"
+          done
+
+      - name: Collect binary artifacts (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist-release -Force | Out-Null
+          Copy-Item dist/pc-orchestrator-backend.exe dist-release/pc-orchestrator-backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.exe
+          $frontendArtifact = Get-ChildItem frontend/release -File -Include *.exe,*.msi | Select-Object -First 1
+          if ($null -ne $frontendArtifact) {
+            $ext = $frontendArtifact.Extension
+            Copy-Item $frontendArtifact.FullName "dist-release/pc-orchestrator-frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA$ext"
+          }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tag-${{ matrix.os }}
+          path: dist-release/*
+
+  publish:
+    name: publish-tag-release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p final-assets
+          find release-assets -type f -exec cp {} final-assets/ \;
 
       - name: Publish tag release
         uses: ncipollo/release-action@v1
@@ -72,6 +137,4 @@ jobs:
           draft: false
           prerelease: false
           generateReleaseNotes: true
-          artifacts: |
-            dist/backend-${{ github.ref_name }}.tar.gz
-            dist/frontend-${{ github.ref_name }}.tar.gz
+          artifacts: final-assets/*
