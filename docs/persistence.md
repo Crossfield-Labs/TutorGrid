@@ -68,7 +68,7 @@
 - `completed_at`
 
 说明：
-- 这一层对应 `sessions/state.py` 中对外可见的稳定字段
+- 这一层对应 `backend/sessions/state.py` 中对外可见的稳定字段
 - GUI 会话列表不应该直接扫 trace 来拼这些信息
 
 ### 2. session_messages
@@ -247,14 +247,14 @@
 ## 存储接口建议
 
 建议新增一层：
-- `storage/`
+- `backend/storage/`
 
 第一版建议文件：
-- `storage/__init__.py`
-- `storage/base.py`
-- `storage/sqlite_store.py`
-- `storage/models.py`
-- `storage/migrations.py`
+- `backend/storage/__init__.py`
+- `backend/storage/base.py`
+- `backend/storage/sqlite_store.py`
+- `backend/storage/models.py`
+- `backend/storage/migrations.py`
 
 建议暴露的接口：
 - `save_session(session)`
@@ -273,12 +273,12 @@
 ## 与当前代码的接入点
 
 优先接入这些位置：
-- `sessions/manager.py`
-- `server/app.py`
-- `runtime/runtime.py`
-- `runtime/session_sync.py`
-- `tools/delegate.py`
-- `workers/*.py`
+- `backend/sessions/manager.py`
+- `backend/server/app.py`
+- `backend/runtime/runtime.py`
+- `backend/runtime/session_sync.py`
+- `backend/tools/delegate.py`
+- `backend/workers/*.py`
 
 建议顺序：
 1. session create / update 时持久化 `sessions`
@@ -304,3 +304,5 @@
 3. 可以查看 session 的 substeps 和 recent trace
 4. 运行失败后可以查到结构化错误
 5. planner messages 可以恢复
+
+

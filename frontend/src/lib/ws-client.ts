@@ -1,20 +1,57 @@
 import type { OrchestratorEventMessage } from "./protocol";
 
+export interface SessionSnapshot {
+  snapshotVersion?: number;
+  sessionId?: string;
+  taskId?: string;
+  nodeId?: string;
+  runner?: string;
+  workspace?: string;
+  task?: string;
+  goal?: string;
+  status?: string;
+  phase?: string;
+  stopReason?: string;
+  error?: string;
+  activeWorker?: string;
+  activeSessionMode?: string;
+  activeWorkerProfile?: string;
+  activeWorkerTaskId?: string;
+  activeWorkerCanInterrupt?: boolean;
+  latestSummary?: string;
+  lastProgressMessage?: string;
+  latestArtifactSummary?: string;
+  permissionSummary?: string;
+  sessionInfoSummary?: string;
+  mcpStatusSummary?: string;
+  awaitingInput?: boolean;
+  pendingUserPrompt?: string;
+  pendingFollowups?: Array<Record<string, unknown>>;
+  artifacts?: string[];
+  recentHookEvents?: Array<Record<string, unknown>>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface UiSession {
   sessionId: string;
   task: string;
+  displayTitle?: string;
   runner: string;
   status: string;
   phase: string;
   latestSummary: string;
   activeWorker: string;
   updatedAt: string;
+  snapshot?: SessionSnapshot;
 }
 
 export interface TimelineEvent {
   id: string;
+  seq?: number;
   kind: "phase" | "substep" | "summary" | "worker" | "snapshot" | "error" | "event";
   title: string;
+  event?: string;
   status: string;
   detail: string;
   createdAt: string;

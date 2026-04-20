@@ -1,8 +1,8 @@
 # Sessions 模块
 
 主要代码：
-- `sessions/state.py`
-- `sessions/manager.py`
+- `backend/sessions/state.py`
+- `backend/sessions/manager.py`
 
 职责：
 - 表达对外可见的 session 状态
@@ -21,3 +21,4 @@
 - 只要字段影响客户端可见行为，就要更新 snapshot 输出
 - manager 保持小而纯，主要做状态管理
 - 不要继续扩大对 `session.context` 的隐式依赖，能变成显式字段或持久化模型的要逐步抽出来
+

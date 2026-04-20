@@ -1,9 +1,9 @@
 # Providers 模块
 
 主要代码：
-- `providers/base.py`
-- `providers/registry.py`
-- `providers/openai_compat.py`
+- `backend/providers/base.py`
+- `backend/providers/registry.py`
+- `backend/providers/openai_compat.py`
 
 职责：
 - 用统一接口抽象模型 provider
@@ -17,3 +17,4 @@
 修改时注意：
 - provider 特定兼容逻辑应留在 provider 内部
 - 引入新的 provider 类型时，要同步更新本文件
+

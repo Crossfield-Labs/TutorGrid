@@ -9,7 +9,7 @@
 
 模块文档：
 - `gaps.md`：当前剩余缺口、优先级、LangGraph 与 LangChain 的职责边界
-- `frontend.md`：GUI / TUI 方向、前端与协议边界、TypeScript 前端接入方式
+- `frontend.md`：GUI / TUI 方向、前端与协议边界、TypeScript 前端接入方式（含 MUI 统一实现规范）
 - `server.md`：WebSocket 入口、请求生命周期、对外协议
 - `sessions.md`：会话字段、snapshot 结构、follow-up 处理
 - `runners.md`：runner 抽象以及如何接入 runtime
@@ -29,3 +29,4 @@
 5. 修改后同步回写 `gaps.md` 的状态，避免下一个接手者重复判断
 
 当新的顶层模块变得重要时，要把它补进这个导航文件。
+

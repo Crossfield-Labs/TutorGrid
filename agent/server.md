@@ -1,8 +1,8 @@
 # Server 模块
 
 主要代码：
-- `server/app.py`
-- `server/protocol.py`
+- `backend/server/app.py`
+- `backend/server/protocol.py`
 
 职责：
 - 暴露独立 WebSocket 服务
@@ -15,6 +15,8 @@
 - server 暴露的方法应与 runtime 真正支持的能力保持一致
 - 当前已支持的主要方法：
   - `orchestrator.session.start`
+  - `orchestrator.session.list`
+  - `orchestrator.session.history`
   - `orchestrator.session.input`
   - `orchestrator.session.snapshot`
   - `orchestrator.session.cancel`
@@ -35,4 +37,9 @@
 - 订阅、广播、连接行为放在 `app.py`
 - 新消息类型要同步反映到 snapshot 和广播逻辑
 - `session.build_snapshot()` 是投影事件的单一事实来源，新增状态字段时先补 snapshot，再补广播
-- 下一阶段会为 GUI 补会话列表、历史时间线、trace 和错误查询，详见 `../docs/gui-protocol.md`
+- 当前桌面 GUI 已依赖：
+  - 会话列表
+  - 历史时间线
+  - snapshot 详情
+- 下一阶段会继续补 trace 和错误查询，详见 `../docs/gui-protocol.md`
+

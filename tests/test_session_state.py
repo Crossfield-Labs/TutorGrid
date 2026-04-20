@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from sessions.state import OrchestratorSessionState
+from backend.sessions.state import OrchestratorSessionState
 
 
 class SessionStateTests(unittest.TestCase):
@@ -37,3 +37,4 @@ class SessionStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

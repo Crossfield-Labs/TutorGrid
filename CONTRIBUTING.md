@@ -3,7 +3,8 @@
 当前仓库根目录已经是新的独立系统实现。
 
 基本规则：
-- 新实现直接落在当前根目录模块内
+- 后端实现统一落在 `backend/`
+- 前端实现统一落在 `frontend/`
 - `README.md` 是给人看的根入口
 - `AGENTS.md` 是给 agent 看的根入口
 - 详细架构和长文档放在 `docs/`
@@ -18,9 +19,10 @@
 6. 至少做一轮最小本地验证
 
 最小验证基线：
-- `python -m compileall orchestrator`
-- `python -m dev.run_runtime "test task" --workspace <workspace>`
-- 如果改了协议或会话流程，再跑 WebSocket 路径
+- `python -m compileall backend tests`
+- `python -m backend.dev.run_runtime "test task" --workspace <workspace>`
+- `python -m backend.main --host 127.0.0.1 --port 3210`
+- 如果改了协议或会话流程，再跑桌面前端和 WebSocket 路径
 
 文档分层：
 - 根目录文档：入口、协作方式、短说明
@@ -28,4 +30,5 @@
 - `agent/`：给 agent 快速定位模块和约束的文档
 
 Agent 接手时，先从 `AGENTS.md` 开始，再进入 `agent/README.md`。
+
 

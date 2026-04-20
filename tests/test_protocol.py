@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from server.protocol import OrchestratorRequest, build_event
+from backend.server.protocol import OrchestratorRequest, build_event
 
 
 class ProtocolTests(unittest.TestCase):
@@ -24,6 +24,21 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.runner, "orchestrator")
         self.assertEqual(request.params.input_intent, "reply")
         self.assertEqual(request.params.task, "inspect repo")
+        self.assertEqual(request.params.limit, 200)
+
+    def test_request_parsing_reads_history_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.session.history",
+                "sessionId": "session-1",
+                "params": {"limit": 25, "cursor": "cursor-1"},
+            }
+        )
+
+        self.assertEqual(request.session_id, "session-1")
+        self.assertEqual(request.params.limit, 25)
+        self.assertEqual(request.params.cursor, "cursor-1")
 
     def test_build_event_preserves_payload(self) -> None:
         event = build_event(
@@ -41,3 +56,4 @@ class ProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

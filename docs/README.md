@@ -16,3 +16,4 @@
 - `roadmap.md`：下一阶段路线，包含 GUI 优先、持久化、压缩、前后端协议分工
 - `persistence.md`：session / message / snapshot / error / trace 的持久化模型
 - `gui-protocol.md`：GUI 第一版需要的协议、字段和历史查询能力
+

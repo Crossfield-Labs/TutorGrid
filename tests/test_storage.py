@@ -6,8 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sessions.state import OrchestratorSessionState
-from storage.sqlite_store import SQLiteSessionStore
+from backend.sessions.state import OrchestratorSessionState
+from backend.storage.sqlite_store import SQLiteSessionStore
 
 
 class StorageTests(unittest.TestCase):
@@ -40,7 +40,9 @@ class StorageTests(unittest.TestCase):
             self.assertEqual(session_row[0], "done")
             self.assertEqual(session_row[1], "PENDING")
             self.assertEqual(snapshot_row[0], session.snapshot_version)
+            self.assertEqual(store.get_session_snapshot(session.session_id)["task"], "inspect")
 
 
 if __name__ == "__main__":
     unittest.main()
+

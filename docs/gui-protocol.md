@@ -1,6 +1,6 @@
 # GUI 协议与数据需求
 
-这份文档定义 Web GUI 第一版需要后端补的协议和字段，目标是：
+这份文档定义桌面 GUI 第一版需要后端补的协议和字段，目标是：
 - 复用现有 WebSocket 协议
 - 不让前端直接依赖 runtime 内部对象
 - 尽量减少后续前后端返工
@@ -9,6 +9,7 @@
 
 当前约定：
 - GUI 使用 TypeScript
+- 桌面壳使用 Electron
 - 优先 WebSocket
 - 历史查询可以补轻量拉取接口
 
@@ -159,6 +160,10 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - `detail`
 - `createdAt`
 
+当前实现：
+- 已支持 `items`
+- 每个 item 已包含 `seq / kind / event / title / status / detail / createdAt`
+
 ### 3. `orchestrator.session.trace`
 
 用途：
@@ -176,7 +181,7 @@ GUI 不能只靠实时事件，还需要历史拉取。
 
 ## snapshot 字段还需要补什么
 
-当前 `sessions/state.py` 已有很多字段，但为了 GUI 更稳定，建议后续补到 `build_snapshot()`：
+当前 `backend/sessions/state.py` 已有很多字段，但为了 GUI 更稳定，建议后续补到 `build_snapshot()`：
 - `stopReason`
 - `updatedAt`
 - `createdAt`
@@ -184,6 +189,9 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - `task`
 - `goal`
 - `error`
+
+当前实现：
+- 上述字段已经并入 snapshot
 
 这样 GUI 首屏不需要额外拼太多字段。
 
@@ -233,3 +241,4 @@ GUI 第一版上线前，后端至少要做到：
 3. session 时间线历史可拉取
 4. reply / redirect / explain / interrupt 通过统一协议可调用
 5. 错误详情可拉取
+

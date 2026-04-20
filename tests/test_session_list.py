@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sessions.manager import SessionManager
-from storage.sqlite_store import SQLiteSessionStore
+from backend.sessions.manager import SessionManager
+from backend.storage.sqlite_store import SQLiteSessionStore
 
 
 class SessionListTests(unittest.TestCase):
@@ -40,3 +40,4 @@ class SessionListTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

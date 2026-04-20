@@ -1,55 +1,149 @@
+import { useState } from "react";
+import AddIcon from "@mui/icons-material/Add";
+import EditIcon from "@mui/icons-material/Edit";
+import {
+  Box,
+  Button,
+  IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  TextField,
+  Typography,
+} from "@mui/material";
 import type { UiSession } from "../../lib/ws-client";
 
 interface SessionListProps {
   sessions: UiSession[];
   selectedSessionId: string;
   onSelect: (sessionId: string) => void;
-  onCreateSession: () => void;
+  onPrepareNewTask: () => void;
+  onRenameSession: (sessionId: string, title: string) => void;
 }
 
-export function SessionList({ sessions, selectedSessionId, onSelect, onCreateSession }: SessionListProps) {
+export function SessionList({
+  sessions,
+  selectedSessionId,
+  onSelect,
+  onPrepareNewTask,
+  onRenameSession,
+}: SessionListProps) {
+  const [editingSessionId, setEditingSessionId] = useState<string>("");
+  const [editingValue, setEditingValue] = useState("");
+
+  const beginRename = (session: UiSession) => {
+    setEditingSessionId(session.sessionId);
+    setEditingValue(session.displayTitle ?? session.task);
+  };
+
+  const commitRename = () => {
+    if (!editingSessionId) {
+      return;
+    }
+    onRenameSession(editingSessionId, editingValue);
+    setEditingSessionId("");
+    setEditingValue("");
+  };
+
   return (
-    <aside className="sidebar-shell">
-      <div className="sidebar-brand">
-        <div className="sidebar-brand-mark">O</div>
-        <div>
-          <div className="sidebar-brand-title">Orchestrator</div>
-          <div className="sidebar-brand-subtitle">Session Console</div>
-        </div>
-      </div>
+    <Box
+      component="aside"
+      sx={{
+        borderRight: "1px solid",
+        borderColor: "divider",
+        bgcolor: "grey.50",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        p: 1.5,
+      }}
+    >
+      <Box sx={{ mb: 1.5 }}>
+        <Typography variant="subtitle2" color="text.secondary">
+          Orchestrator
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Session Console
+        </Typography>
+      </Box>
 
-      <button type="button" className="new-session-button" onClick={onCreateSession}>
-        新建会话
-      </button>
+      <Button
+        startIcon={<AddIcon />}
+        variant="contained"
+        size="small"
+        onClick={onPrepareNewTask}
+        sx={{ mb: 1.5, justifyContent: "flex-start" }}
+      >
+        新任务
+      </Button>
 
-      <div className="sidebar-section-title">最近会话</div>
-      <div className="session-list">
-        {sessions.map((session) => (
-          <button
-            type="button"
-            key={session.sessionId}
-            className={`session-card ${session.sessionId === selectedSessionId ? "selected" : ""}`}
-            onClick={() => onSelect(session.sessionId)}
-          >
-            <div className="session-card-title-row">
-              <div className="session-card-title">{session.task}</div>
-              <span className="session-card-badge">{session.phase || "idle"}</span>
-            </div>
-            <div className="session-card-meta">
-              <div>{session.runner || "unknown runner"}</div>
-              <div>
-                {session.status} / {session.phase}
-              </div>
-              <div>{session.latestSummary || "暂无摘要"}</div>
-            </div>
-          </button>
-        ))}
-      </div>
+      <Typography variant="caption" color="text.secondary" sx={{ px: 1, mb: 1 }}>
+        最近会话
+      </Typography>
 
-      <div className="sidebar-footer">
-        <div className="sidebar-footer-title">当前模式</div>
-        <div className="sidebar-footer-value">GUI first · Tauri shell ready</div>
-      </div>
-    </aside>
+      <List dense disablePadding sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+        {sessions.map((session) => {
+          const title = session.displayTitle ?? session.task;
+          const isSelected = session.sessionId === selectedSessionId;
+          const isEditing = session.sessionId === editingSessionId;
+          return (
+            <ListItem
+              key={session.sessionId}
+              disablePadding
+              secondaryAction={
+                !isEditing ? (
+                  <IconButton
+                    size="small"
+                    edge="end"
+                    aria-label="重命名会话"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      beginRename(session);
+                    }}
+                  >
+                    <EditIcon fontSize="inherit" />
+                  </IconButton>
+                ) : undefined
+              }
+            >
+              {isEditing ? (
+                <TextField
+                  size="small"
+                  fullWidth
+                  value={editingValue}
+                  autoFocus
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setEditingValue(event.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitRename();
+                    }
+                    if (event.key === "Escape") {
+                      setEditingSessionId("");
+                      setEditingValue("");
+                    }
+                  }}
+                  sx={{ ml: 1, mr: 1 }}
+                />
+              ) : (
+                <ListItemButton selected={isSelected} onClick={() => onSelect(session.sessionId)} sx={{ pr: 5 }}>
+                  <ListItemText
+                    primary={title}
+                    primaryTypographyProps={{ noWrap: true, title }}
+                  />
+                </ListItemButton>
+              )}
+            </ListItem>
+          );
+        })}
+      </List>
+
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, px: 1 }}>
+        Desktop GUI · Electron shell
+      </Typography>
+    </Box>
   );
 }

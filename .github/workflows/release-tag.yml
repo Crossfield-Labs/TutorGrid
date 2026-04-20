@@ -1,0 +1,77 @@
+name: release-tag
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-tag-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: build-release-artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Backend smoke checks
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m compileall backend main.py
+          python -m unittest discover -s ./tests -t . -p "test_*.py"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package backend artifact
+        run: |
+          mkdir -p dist
+          tar -czf dist/backend-${GITHUB_REF_NAME}.tar.gz backend main.py requirements.txt config.example.json
+
+      - name: Package frontend artifact
+        run: |
+          mkdir -p dist
+          tar -czf dist/frontend-${GITHUB_REF_NAME}.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+
+      - name: Publish tag release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generateReleaseNotes: true
+          artifacts: |
+            dist/backend-${{ github.ref_name }}.tar.gz
+            dist/frontend-${{ github.ref_name }}.tar.gz

@@ -1,11 +1,11 @@
 # Runtime 模块
 
 主要代码：
-- `runtime/runtime.py`
-- `runtime/graph.py`
-- `runtime/state.py`
-- `runtime/nodes/`
-- `runtime/routes/`
+- `backend/runtime/runtime.py`
+- `backend/runtime/graph.py`
+- `backend/runtime/state.py`
+- `backend/runtime/nodes/`
+- `backend/runtime/routes/`
 
 职责：
 - 承载基于 LangGraph 的执行图
@@ -26,3 +26,4 @@
 - 保持 graph state 和 session state 的分层
 - 优先新增 node / route，不要重新长成一个大函数
 - 新 phase 或新执行假设要同步更新本文件
+

@@ -1,0 +1,96 @@
+name: release-dev
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - ref
+      - "ref/**"
+    tags-ignore:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: build-dev-artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Backend smoke checks
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m compileall backend main.py
+          python -m unittest discover -s ./tests -t . -p "test_*.py"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Package backend artifact
+        run: |
+          mkdir -p dist
+          tar -czf dist/backend-dev.tar.gz backend main.py requirements.txt config.example.json
+
+      - name: Package frontend artifact
+        run: |
+          mkdir -p dist
+          tar -czf dist/frontend-dev.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+
+      - name: Move dev tag to current commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -d dev || true
+          git push origin :refs/tags/dev || true
+          git tag dev
+          git push origin refs/tags/dev
+
+      - name: Publish/Update dev release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: dev
+          name: dev
+          prerelease: true
+          allowUpdates: true
+          replacesArtifacts: true
+          removeArtifacts: true
+          generateReleaseNotes: false
+          body: |
+            Continuous dev release.
+            This release is overwritten on each push.
+          artifacts: |
+            dist/backend-dev.tar.gz
+            dist/frontend-dev.tar.gz

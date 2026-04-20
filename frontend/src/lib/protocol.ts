@@ -37,5 +37,27 @@ export interface SessionListRequest {
   type: "req";
   id: string;
   method: "orchestrator.session.list";
+  params: {
+    limit?: number;
+    cursor?: string;
+  };
+}
+
+export interface SessionHistoryRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.session.history";
+  sessionId: string;
+  params: {
+    limit?: number;
+    cursor?: string;
+  };
+}
+
+export interface SessionSnapshotRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.session.snapshot";
+  sessionId: string;
   params: Record<string, never>;
 }

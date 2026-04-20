@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from server.app import _classify_input_handling
+from backend.server.app import _classify_input_handling
 
 
 class ServerInputTests(unittest.TestCase):
@@ -17,4 +17,5 @@ class ServerInputTests(unittest.TestCase):
     def test_explain_and_interrupt_are_special_actions(self) -> None:
         self.assertEqual(_classify_input_handling(input_intent="explain", waiter_active=False), "explain")
         self.assertEqual(_classify_input_handling(input_intent="interrupt", waiter_active=True), "interrupt")
+
 

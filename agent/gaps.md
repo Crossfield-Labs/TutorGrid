@@ -15,9 +15,9 @@
 
 1. 缺少 session 持久化层。
    重点目录：
-   - `sessions/`
-   - `server/`
-   - `runtime/`
+   - `backend/sessions/`
+   - `backend/server/`
+   - `backend/runtime/`
    需要补：
    - session 持久化
    - planner_messages 持久化
@@ -26,9 +26,9 @@
 
 2. 缺少错误持久化和结构化错误模型。
    重点目录：
-   - `runtime/`
-   - `workers/`
-   - `server/`
+   - `backend/runtime/`
+   - `backend/workers/`
+   - `backend/server/`
    需要补：
    - planner / tool / worker / transport error 分类
    - retryable 标记
@@ -36,31 +36,34 @@
 
 3. 缺少上下文压缩能力。
    重点目录：
-   - `llm/`
-   - `runtime/`
-   - `sessions/`
+   - `backend/llm/`
+   - `backend/runtime/`
+   - `backend/sessions/`
    需要补：
    - 长会话压缩策略
    - 历史摘要与恢复机制
    - 文件证据与聊天历史分层
 
-4. 缺少 GUI 所需的历史查询和展示协议。
+4. GUI 所需的历史查询和展示协议仍未完全补齐。
    重点目录：
-   - `server/`
-   - `sessions/`
-   需要补：
+   - `backend/server/`
+   - `backend/sessions/`
+   当前已补：
    - 会话列表
    - 历史 session 加载
-   - trace / snapshot 拉取
-   - GUI 所需的稳定事件与字段
+   - snapshot 拉取
+   仍需补：
+   - trace 拉取
+   - 错误查询
+   - GUI 所需的更多稳定字段
 
 ### P1：环境相关联调仍需要继续做
 
 5. 委派链路的策略已经补齐，并有最小回归测试，但仍需要做真实 CLI/SDK 联调。
    重点文件：
-   - `tools/delegate.py`
-   - `workers/selection.py`
-   - `workers/*.py`
+   - `backend/tools/delegate.py`
+   - `backend/workers/selection.py`
+   - `backend/workers/*.py`
    当前状态：
    - 已补齐 `select_worker / select_session_mode / select_worker_profile / fallback reroute`
    - 已补最小 `delegate` 回归测试
@@ -69,9 +72,9 @@
 
 6. `planning -> tools -> planning` 的多轮循环已经恢复，并补了重复工具调用抑制，但还需要继续观察真实模型行为。
    重点文件：
-   - `runtime/nodes/planning.py`
-   - `runtime/routes/post_tools.py`
-   - `llm/prompts.py`
+   - `backend/runtime/nodes/planning.py`
+   - `backend/runtime/routes/post_tools.py`
+   - `backend/llm/prompts.py`
    当前状态：
    - 已补显式去重逻辑
    - 已补规划节点回归测试
@@ -81,9 +84,9 @@
 
 7. human-in-the-loop 的协议层和输入分流已经补齐，并有最小回归测试，但仍需要做真实多轮交互联调。
    重点文件：
-   - `server/app.py`
-   - `runtime/nodes/await_user.py`
-   - `runtime/nodes/planning.py`
+   - `backend/server/app.py`
+   - `backend/runtime/nodes/await_user.py`
+   - `backend/runtime/nodes/planning.py`
    当前状态：
    - 已补输入分类 helper
    - 已补 `reply / redirect / comment / instruction / explain / interrupt` 的最小回归
@@ -95,12 +98,12 @@
 
 8. runner 层需要按旧项目使用方式完整联调。
    重点文件：
-   - `runners/router.py`
-   - `runners/shell_runner.py`
-   - `runners/codex_runner.py`
-   - `runners/claude_runner.py`
-   - `runners/opencode_runner.py`
-   - `runners/subagent_runner.py`
+   - `backend/runners/router.py`
+   - `backend/runners/shell_runner.py`
+   - `backend/runners/codex_runner.py`
+   - `backend/runners/claude_runner.py`
+   - `backend/runners/opencode_runner.py`
+   - `backend/runners/subagent_runner.py`
    需要验证：
    - `shell`
    - `codex_cli`
@@ -110,8 +113,8 @@
 
 9. WebSocket 协议虽然已经双命名空间兼容，但仍需要专门的协议回归。
    重点文件：
-   - `server/app.py`
-   - `server/protocol.py`
+   - `backend/server/app.py`
+   - `backend/server/protocol.py`
    当前状态：
    - 已补旧版中的 session trace、workspace 准备、非法 JSON/非法 frame 失败事件
    - 已补更完整的 interrupt/cancel/snapshot/input 语义
@@ -124,7 +127,7 @@
 10. 测试已经从“只有 compileall 和手工直跑”提升到了最小回归级别，但仍缺真正的端到端协议测试。
    当前已有：
    - `python -m compileall .`
-   - `python -m dev.run_runtime ...`
+   - `python -m backend.dev.run_runtime ...`
    - runtime 节点测试
    - delegate 工具测试
    - server 输入分类测试
@@ -278,4 +281,6 @@ LangChain 负责“节点里怎么和模型、消息、工具交互”。
 - 改的是哪一层
 - 对齐了旧版什么行为
 - 还剩什么没有完成
+
+
 

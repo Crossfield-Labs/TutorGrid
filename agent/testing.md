@@ -1,9 +1,9 @@
 # 测试说明
 
 当前主要验证路径：
-- `python -m compileall orchestrator`
-- `python -m dev.run_runtime "task" --workspace <workspace>`
-- `python -m main --host 127.0.0.1 --port 3210`
+- `python -m compileall backend tests`
+- `python -m backend.dev.run_runtime "task" --workspace <workspace>`
+- `python -m backend.main --host 127.0.0.1 --port 3210`
 - 如果要验证真实委派，先确认本机可执行：
   - `codex`
   - `claude`
@@ -22,6 +22,8 @@
 
 新增测试时：
 - runtime 相关测试优先放到 `tests/`
-- server/session 变化时补协议覆盖
+- backend/server + backend/sessions 变化时补协议覆盖
 - 新验证路径出现时，同步更新这里
+
+
 

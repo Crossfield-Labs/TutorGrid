@@ -1,12 +1,12 @@
 # Tools 模块
 
 主要代码：
-- `tools/registry.py`
-- `tools/filesystem.py`
-- `tools/shell.py`
-- `tools/web.py`
-- `tools/user_prompt.py`
-- `tools/delegate.py`
+- `backend/tools/registry.py`
+- `backend/tools/filesystem.py`
+- `backend/tools/shell.py`
+- `backend/tools/web.py`
+- `backend/tools/user_prompt.py`
+- `backend/tools/delegate.py`
 
 职责：
 - 以 LangChain 兼容形式暴露 runtime 工具
@@ -21,3 +21,4 @@
 - 一旦对 planner/runtime 暴露过的 tool 名称稳定下来，就不要随意改
 - tool 复杂度上升时要尽早补参数校验
 - 新增 tool 后，要同步更新本文件和 `agent/README.md`
+

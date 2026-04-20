@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import unittest
 
-from tools.delegate import delegate_task
-from workers.models import WorkerResult
+from backend.tools.delegate import delegate_task
+from backend.workers.models import WorkerResult
 
 
 class _FakeWorker:
@@ -106,5 +106,6 @@ class DelegateRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(registry.get("opencode").calls), 1)
         self.assertEqual(len(registry.get("codex").calls), 1)
         self.assertGreaterEqual(len(session.worker_runs), 2)
+
 
 

@@ -38,13 +38,14 @@ jobs:
 
       - name: Compile project source tree
         run: |
-          python -m compileall agent dev llm providers runners runtime server sessions state tests tools workers main.py config.py
+          python -m compileall backend agent docs tests main.py
 
       - name: Import smoke check
         run: |
-          python -c "import main, config, server.app, server.protocol, runtime.runtime, runners.router, workers.registry, sessions.manager"
+          python -c "import main, backend.config, backend.server.app, backend.server.protocol, backend.runtime.runtime, backend.runners.router, backend.workers.registry, backend.sessions.manager"
 
       - name: CLI smoke check
         run: |
           python main.py --help
-          python -m dev.run_runtime --help
+          python -m backend.dev.run_runtime --help
+

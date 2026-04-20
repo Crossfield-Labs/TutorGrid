@@ -1,9 +1,9 @@
 # LLM 模块
 
 主要代码：
-- `llm/planner.py`
-- `llm/prompts.py`
-- `llm/messages.py`
+- `backend/llm/planner.py`
+- `backend/llm/prompts.py`
+- `backend/llm/messages.py`
 
 职责：
 - 定义 LangChain 侧的 prompt 和 message 层
@@ -18,3 +18,4 @@
 - prompt 构造与 runtime 状态流转分开
 - message 序列化要稳定、可逆
 - 不要把传输层细节塞进这个模块
+

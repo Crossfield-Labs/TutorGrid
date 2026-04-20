@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from runners.router import RunnerRouter
-from runners.shell_runner import ShellRunner
-from runners.subagent_runner import SubAgentRunner
+from backend.runners.router import RunnerRouter
+from backend.runners.shell_runner import ShellRunner
+from backend.runners.subagent_runner import SubAgentRunner
 
 
 class RunnerRouterTests(unittest.TestCase):
@@ -22,3 +22,4 @@ class RunnerRouterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

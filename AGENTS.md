@@ -32,3 +32,4 @@
 - 新的 runtime、协议、worker 行为要反映到 `agent/` 文档中
 - 长篇设计说明应放在 `docs/`，而不是堆在本文件里
 - 如果产品优先级变化，例如从 CLI 优先切到 GUI 优先，必须同步更新 `docs/roadmap.md` 和 `agent/gaps.md`
+
