@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: pip install requests
 
       - name: Fetch base branch
@@ -41,7 +41,8 @@ jobs:
         id: diffcheck
         run: |
           SIZE=$(wc -c < pr.diff)
-          if [ "$SIZE" -gt 120000 ]; then
+          echo "size=$SIZE" >> "$GITHUB_OUTPUT"
+          if [ "$SIZE" -gt 60000 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -67,4 +68,10 @@ jobs:
         run: |
           gh pr comment "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" \
-            --body "AI review skipped: this PR diff is too large for the lightweight free-tier review."
+            --body "## AI Review Summary
+                    - AI review skipped because the PR diff is too large for the lightweight review threshold.
+
+                    ## Notes
+                    - Current diff size: ${{ steps.diffcheck.outputs.size }} bytes
+                    - Threshold: 60000 bytes
+                    - Try splitting the PR into smaller changes if you want AI review."
