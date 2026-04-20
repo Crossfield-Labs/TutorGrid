@@ -172,4 +172,7 @@ jobs:
           body: |
             Continuous dev release.
             This release is overwritten on each push.
+            ---
+            持续开发版本发布。
+            每次推送都会覆盖此版本。
           artifacts: final-assets/*
