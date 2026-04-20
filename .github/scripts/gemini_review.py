@@ -1,6 +1,8 @@
 import json
 import os
+import random
 import subprocess
+import time
 from pathlib import Path
 
 import requests
@@ -9,7 +11,81 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 PR_NUMBER = os.environ["PR_NUMBER"]
 REPO = os.environ["REPO"]
 
+# 主模型 + 备选模型
+PRIMARY_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+FALLBACK_MODELS = [
+    os.environ.get("GEMINI_FALLBACK_MODEL_1", "gemini-2.0-flash"),
+]
+
 diff_text = Path("pr.diff").read_text(encoding="utf-8", errors="ignore")
+
+def post_comment(body: str) -> None:
+    subprocess.run(
+        [
+            "gh", "pr", "comment", PR_NUMBER,
+            "--repo", REPO,
+            "--body", body,
+        ],
+        check=True,
+    )
+
+def call_gemini(model: str, prompt: str) -> str:
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/"
+        f"models/{model}:generateContent?key={GEMINI_API_KEY}"
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2},
+    }
+
+    # Google 官方文档和论坛都建议 503/500 时重试；503 常见于容量紧张/暂时过载
+    # 这里做指数退避 + 少量抖动
+    max_attempts = 4
+    backoff_seconds = 2
+
+    last_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.post(url, json=payload, timeout=120)
+
+            if resp.status_code in (500, 503):
+                last_error = f"{resp.status_code} {resp.text[:500]}"
+                if attempt < max_attempts:
+                    sleep_s = backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                    time.sleep(sleep_s)
+                    continue
+
+            if resp.status_code == 429:
+                last_error = f"429 {resp.text[:500]}"
+                if attempt < max_attempts:
+                    sleep_s = backoff_seconds * (2 ** attempt) + random.uniform(0, 1)
+                    time.sleep(sleep_s)
+                    continue
+
+            resp.raise_for_status()
+            data = resp.json()
+
+            try:
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except Exception:
+                return (
+                    "AI review failed to parse model output.\n\n```json\n"
+                    + json.dumps(data, ensure_ascii=False, indent=2)[:4000]
+                    + "\n```"
+                )
+
+        except requests.RequestException as e:
+            last_error = str(e)
+            if attempt < max_attempts:
+                sleep_s = backoff_seconds * (2 ** (attempt - 1)) + random.uniform(0, 1)
+                time.sleep(sleep_s)
+            else:
+                break
+
+    raise RuntimeError(f"Model {model} failed after retries: {last_error}")
 
 if not diff_text.strip():
     review_text = "## AI Review Summary\n- No diff found for this PR."
@@ -25,14 +101,19 @@ else:
 5. 测试缺失
 6. CI / workflow / deploy 风险
 
-请输出中文 Markdown，格式如下：
+要求：
+- 只有在确实值得人工确认时才提问
+- 不要为了评论而评论
+- 最多 3 个问题
+- 输出中文 Markdown
+
+格式如下：
 
 ## AI Review Summary
 - 一句话总结这次改动
 - 风险等级：低 / 中 / 高
 
 ## Questions
-- 最多列出 3 个值得作者确认的问题
 - 每条写清楚：
   - 文件
   - 风险点
@@ -43,38 +124,33 @@ else:
 
 以下是 PR diff：
 
-{diff_text[:90000]}
+{diff_text[:60000]}
 """.strip()
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/"
-        f"models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    )
+    models_to_try = [PRIMARY_MODEL] + [m for m in FALLBACK_MODELS if m]
+    errors = []
 
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt}
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.2
-        }
-    }
+    review_text = None
+    for model in models_to_try:
+        try:
+            review_text = call_gemini(model, prompt)
+            review_text += f"\n\n_Used model: `{model}`_"
+            break
+        except Exception as e:
+            errors.append(f"- {model}: {e}")
 
-    resp = requests.post(url, json=payload, timeout=120)
-    resp.raise_for_status()
-    data = resp.json()
-
-    try:
-        review_text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception:
+    if review_text is None:
         review_text = (
-            "AI review failed to parse model output.\n\n```json\n"
-            + json.dumps(data, ensure_ascii=False, indent=2)[:4000]
-            + "\n```"
+            "## AI Review Summary\n"
+            "- AI review could not be completed this time.\n\n"
+            "## Notes\n"
+            "- Gemini API temporarily returned server-side errors after retries.\n"
+            "- This usually indicates temporary service overload rather than a problem with your PR.\n"
+            "- Try pushing a small update or rerunning the workflow later.\n\n"
+            "<details>\n"
+            "<summary>Debug details</summary>\n\n"
+            + "\n".join(errors)[:3500]
+            + "\n</details>"
         )
 
 body = f"""{review_text}
@@ -83,11 +159,4 @@ body = f"""{review_text}
 _Auto-generated by Gemini PR review workflow._
 """
 
-subprocess.run(
-    [
-        "gh", "pr", "comment", PR_NUMBER,
-        "--repo", REPO,
-        "--body", body,
-    ],
-    check=True,
-)
+post_comment(body)

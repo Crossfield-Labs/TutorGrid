@@ -49,8 +49,11 @@ jobs:
 
       - name: Run Gemini review
         if: steps.diffcheck.outputs.skip == 'false'
+        continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          GEMINI_FALLBACK_MODEL_1: gemini-2.0-flash
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
