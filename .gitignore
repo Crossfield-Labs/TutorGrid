@@ -1,68 +1,38 @@
-# Python
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 .pytest_cache/
 .coverage
 htmlcov/
 
-# Virtual Environment
+# Virtual environments
+.venv/
+.venv-*/
 venv/
-ENV/
 env/
-.venv
+ENV/
 
-# IDEs
+# Local runtime/config data
+config.json
+scratch/
+*.log
+.env
+.env.local
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Editor and OS files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
-*.sublime-project
-*.sublime-workspace
-
-# Project specific
-config/subagent_config.json
-sessions/
-scratch/
-*.log
-.env
-.env.local
-
-# Node.js (bridge)
-node_modules/
-npm-debug.log
-package-lock.json
-yarn.lock
-
-# OS
 Thumbs.db
-.DS_Store
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-*.backup
-MAAMCP/
