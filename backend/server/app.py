@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from backend.config import get_planner_config_view, update_planner_config
 from backend.runners.router import RunnerRouter
 from backend.server.protocol import OrchestratorRequest, build_event
 from backend.sessions.manager import SessionManager
@@ -475,6 +476,7 @@ def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> b
 
 
 async def websocket_handler(websocket: WebSocketServerProtocol, path: str, required_token: str) -> None:
+    global runner_router
     if path not in {"/ws/orchestrator", "/ws/pc-agent"}:
         await websocket.close(code=1008, reason="Unsupported path")
         return
@@ -543,6 +545,38 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     node_id=request.node_id,
                     session_id=request.session_id,
                     payload={"items": session_manager.list_sessions(limit=max(1, request.params.limit or 50))},
+                )
+                continue
+
+            if request.method in {"orchestrator.config.get", "pc.config.get"}:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.config.get"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"planner": get_planner_config_view()},
+                )
+                continue
+
+            if request.method in {"orchestrator.config.set", "pc.config.set"}:
+                update_planner_config(
+                    provider=request.params.provider.strip() or "openai_compat",
+                    model=request.params.model.strip(),
+                    api_key=request.params.api_key.strip(),
+                    api_base=request.params.api_base.strip(),
+                )
+                runner_router = RunnerRouter()
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.config.set"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "message": "Config updated",
+                        "planner": get_planner_config_view(),
+                    },
                 )
                 continue
 

@@ -24,6 +24,10 @@ class OrchestratorParams:
     target: str = ""
     limit: int = 200
     cursor: str = ""
+    provider: str = ""
+    model: str = ""
+    api_key: str = ""
+    api_base: str = ""
 
 
 @dataclass(slots=True)
@@ -58,6 +62,10 @@ class OrchestratorRequest:
                 target=str(params.get("target") or ""),
                 limit=_coerce_int(params.get("limit"), 200),
                 cursor=str(params.get("cursor") or ""),
+                provider=str(params.get("provider") or ""),
+                model=str(params.get("model") or ""),
+                api_key=str(params.get("apiKey") or ""),
+                api_base=str(params.get("apiBase") or ""),
             ),
         )
 

@@ -18,6 +18,12 @@ import { Timeline } from "../features/timeline/Timeline";
 import { buildWsUrl, createClient, type SessionSnapshot, type TimelineEvent, type UiSession } from "../lib/ws-client";
 
 type ClientHandle = ReturnType<typeof createClient>;
+type PlannerSettings = {
+  provider: string;
+  model: string;
+  apiBase: string;
+  apiKey: string;
+};
 
 const theme = createTheme({
   palette: {
@@ -51,6 +57,12 @@ export function App() {
   const [view, setView] = useState<"workspace" | "settings">("workspace");
   const [composerValue, setComposerValue] = useState("");
   const [pendingTaskId, setPendingTaskId] = useState<string>("");
+  const [plannerSettings, setPlannerSettings] = useState<PlannerSettings>({
+    provider: "openai_compat",
+    model: "",
+    apiBase: "",
+    apiKey: "",
+  });
 
   const clientRef = useRef<ClientHandle | null>(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
@@ -77,6 +89,7 @@ export function App() {
       onOpen: () => {
         setConnectionState("已连接");
         requestSessionList(client);
+        requestConfig(client);
         const currentSessionId = selectedSessionIdRef.current;
         if (currentSessionId) {
           requestSessionHistory(client, currentSessionId);
@@ -94,6 +107,19 @@ export function App() {
           const items = Array.isArray(message.payload?.items) ? (message.payload.items as UiSession[]) : [];
           setSessions((current) => mergeSessionLists(current, items));
           setSelectedSessionId((current) => current || items[0]?.sessionId || "");
+          return;
+        }
+
+        if (message.event === "orchestrator.config.get" || message.event === "orchestrator.config.set") {
+          const planner = message.payload?.planner;
+          if (planner && typeof planner === "object") {
+            setPlannerSettings({
+              provider: getString((planner as Record<string, unknown>).provider) ?? "openai_compat",
+              model: getString((planner as Record<string, unknown>).model) ?? "",
+              apiBase: getString((planner as Record<string, unknown>).apiBase) ?? "",
+              apiKey: getString((planner as Record<string, unknown>).apiKey) ?? "",
+            });
+          }
           return;
         }
 
@@ -303,6 +329,23 @@ export function App() {
     setServerUrl(nextUrl);
   };
 
+  const applyPlannerSettings = () => {
+    if (!clientRef.current) {
+      return;
+    }
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.config.set",
+      params: {
+        provider: plannerSettings.provider,
+        model: plannerSettings.model,
+        apiBase: plannerSettings.apiBase,
+        apiKey: plannerSettings.apiKey,
+      },
+    });
+  };
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -377,12 +420,65 @@ export function App() {
                 onChange={(event) => setSettingsUrl(event.target.value)}
                 sx={{ mt: 2 }}
               />
+              <Typography variant="subtitle1" sx={{ mt: 3 }}>
+                Planner 设置
+              </Typography>
+              <Stack spacing={1.5} sx={{ mt: 1 }}>
+                <TextField
+                  fullWidth
+                  label="Provider"
+                  value={plannerSettings.provider}
+                  onChange={(event) =>
+                    setPlannerSettings((current) => ({
+                      ...current,
+                      provider: event.target.value,
+                    }))
+                  }
+                />
+                <TextField
+                  fullWidth
+                  label="Model"
+                  value={plannerSettings.model}
+                  onChange={(event) =>
+                    setPlannerSettings((current) => ({
+                      ...current,
+                      model: event.target.value,
+                    }))
+                  }
+                />
+                <TextField
+                  fullWidth
+                  label="API Base"
+                  value={plannerSettings.apiBase}
+                  onChange={(event) =>
+                    setPlannerSettings((current) => ({
+                      ...current,
+                      apiBase: event.target.value,
+                    }))
+                  }
+                />
+                <TextField
+                  fullWidth
+                  label="API Key"
+                  type="password"
+                  value={plannerSettings.apiKey}
+                  onChange={(event) =>
+                    setPlannerSettings((current) => ({
+                      ...current,
+                      apiKey: event.target.value,
+                    }))
+                  }
+                />
+              </Stack>
               <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 2 }}>
                 <Button variant="outlined" onClick={() => setSettingsUrl(serverUrl)}>
                   还原
                 </Button>
                 <Button variant="contained" onClick={applySettings}>
                   应用
+                </Button>
+                <Button variant="contained" color="secondary" onClick={applyPlannerSettings}>
+                  保存 API 设置
                 </Button>
               </Stack>
             </Box>
@@ -399,6 +495,15 @@ function requestSessionList(client: ClientHandle) {
     id: crypto.randomUUID(),
     method: "orchestrator.session.list",
     params: { limit: 50 },
+  });
+}
+
+function requestConfig(client: ClientHandle) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.config.get",
+    params: {},
   });
 }
 

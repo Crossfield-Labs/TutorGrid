@@ -46,11 +46,45 @@ def _config_path() -> Path:
     return Path(__file__).resolve().parents[1] / "config.json"
 
 
-def load_config() -> OrchestratorConfig:
-    data: dict[str, object] = {}
+def read_config_data() -> dict[str, object]:
     path = _config_path()
-    if path.exists():
-        data = json.loads(path.read_text(encoding="utf-8"))
+    if not path.exists():
+        return {}
+    loaded = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(loaded, dict):
+        return loaded
+    return {}
+
+
+def write_config_data(data: dict[str, object]) -> None:
+    path = _config_path()
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def update_planner_config(*, provider: str, model: str, api_key: str, api_base: str) -> None:
+    data = read_config_data()
+    planner = data.get("planner")
+    planner_data = planner if isinstance(planner, dict) else {}
+    planner_data["provider"] = provider
+    planner_data["model"] = model
+    planner_data["apiKey"] = api_key
+    planner_data["apiBase"] = api_base
+    data["planner"] = planner_data
+    write_config_data(data)
+
+
+def get_planner_config_view() -> dict[str, str]:
+    config = load_config()
+    return {
+        "provider": config.planner.provider,
+        "model": config.planner.model,
+        "apiKey": config.planner.api_key,
+        "apiBase": config.planner.api_base,
+    }
+
+
+def load_config() -> OrchestratorConfig:
+    data: dict[str, object] = read_config_data()
 
     planner_data = data.get("planner") if isinstance(data, dict) else {}
     planner_dict = planner_data if isinstance(planner_data, dict) else {}

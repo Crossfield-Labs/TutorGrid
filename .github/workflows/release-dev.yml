@@ -68,6 +68,19 @@ jobs:
         run: |
           pyinstaller --noconfirm --onefile --name pc-orchestrator-backend main.py
 
+      - name: Stage backend binary for electron package (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p frontend/backend-bin
+          cp dist/pc-orchestrator-backend frontend/backend-bin/pc-orchestrator-backend
+
+      - name: Stage backend binary for electron package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path frontend/backend-bin -Force | Out-Null
+          Copy-Item dist/pc-orchestrator-backend.exe frontend/backend-bin/pc-orchestrator-backend.exe
+
       - name: Build frontend and desktop executable
         working-directory: frontend
         run: |
