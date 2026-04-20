@@ -18,6 +18,7 @@
 - `providers.md`：模型 provider 抽象与 API 兼容层
 - `tools.md`：tool 注册、tool 边界、tool 调用形态
 - `workers.md`：worker 职责与后续委派方向
+- `tui.md`：终端客户端入口、协议联调方式和维护约束
 - `testing.md`：本地验证路径和测试分层
 - `deprecated.md`：当前存在但不建议继续扩展的目录
 
