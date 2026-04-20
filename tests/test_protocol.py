@@ -40,6 +40,31 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.limit, 25)
         self.assertEqual(request.params.cursor, "cursor-1")
 
+    def test_request_parsing_reads_memory_config_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.config.set",
+                "params": {
+                    "memoryEnabled": True,
+                    "memoryAutoCompact": True,
+                    "memoryCompactOnComplete": True,
+                    "memoryCompactOnFailure": False,
+                    "memoryRetrievalScope": "session",
+                    "memoryRetrievalStrength": "aggressive",
+                    "memoryCleanupEnabled": True,
+                    "memoryCleanupIntervalHours": 12,
+                },
+            }
+        )
+
+        self.assertTrue(request.params.memory_enabled)
+        self.assertTrue(request.params.memory_auto_compact)
+        self.assertFalse(request.params.memory_compact_on_failure)
+        self.assertEqual(request.params.memory_retrieval_scope, "session")
+        self.assertEqual(request.params.memory_retrieval_strength, "aggressive")
+        self.assertEqual(request.params.memory_cleanup_interval_hours, 12)
+
     def test_build_event_preserves_payload(self) -> None:
         event = build_event(
             event="orchestrator.session.completed",

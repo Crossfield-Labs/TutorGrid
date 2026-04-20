@@ -22,13 +22,20 @@ class PlannerRuntime:
         goal: str,
         workspace: str,
         history: list[dict[str, Any]],
+        memory_context: str = "",
     ) -> list[dict[str, Any]]:
         if self.prompt is None:
-            return history
+            if not memory_context.strip():
+                return history
+            return [
+                {"role": "system", "content": memory_context.strip()},
+                *history,
+            ]
         langchain_messages = self.prompt.format_messages(
             goal=goal or task,
             task=task,
             workspace=workspace,
+            memory_context=memory_context.strip(),
             history=deserialize_messages(history),
         )
         return serialize_messages(langchain_messages)
@@ -41,8 +48,15 @@ class PlannerRuntime:
         workspace: str,
         history: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        memory_context: str = "",
     ) -> tuple[list[dict[str, Any]], LLMResponse]:
-        messages = self.build_messages(task=task, goal=goal, workspace=workspace, history=history)
+        messages = self.build_messages(
+            task=task,
+            goal=goal,
+            workspace=workspace,
+            history=history,
+            memory_context=memory_context,
+        )
         response = await self.provider.chat(messages=messages, tools=tools)
         return messages, response
 

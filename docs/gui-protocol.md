@@ -179,6 +179,18 @@ GUI 不能只靠实时事件，还需要历史拉取。
 用途：
 - 拉 planner message history
 
+### 6. `orchestrator.memory.compact`
+
+用途：
+- 对指定会话执行历史压缩
+- 生成摘要、事实和可检索记忆块
+
+### 7. `orchestrator.memory.search`
+
+用途：
+- 按当前问题从历史记忆中召回相关块
+- 供后续 GUI 和记忆增强 planner 使用
+
 ## snapshot 字段还需要补什么
 
 当前 `backend/sessions/state.py` 已有很多字段，但为了 GUI 更稳定，建议后续补到 `build_snapshot()`：

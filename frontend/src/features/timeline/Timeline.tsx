@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { Box, Button, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Stack, TextField, Typography } from "@mui/material";
 
 import type { TimelineEvent, UiSession } from "../../lib/ws-client";
 
@@ -13,6 +13,7 @@ interface TimelineProps {
   onSnapshot: () => void;
   onExplain: () => void;
   isAwaitingInput: boolean;
+  isRunning: boolean;
 }
 
 const COMPOSER_MIN_HEIGHT = 60;
@@ -28,6 +29,7 @@ export function Timeline({
   onSnapshot,
   onExplain,
   isAwaitingInput,
+  isRunning,
 }: TimelineProps) {
   const placeholder = buildPlaceholder(session, isAwaitingInput);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -95,9 +97,12 @@ export function Timeline({
               </Typography>
             </Box>
           ) : (
-            <Typography variant="body2" color="text.secondary">
-              等待新的运行步骤。
-            </Typography>
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mt: 0.75 }}>
+              {isRunning ? <CircularProgress size={16} thickness={5} /> : null}
+              <Typography variant="body2" color="text.secondary">
+                {isRunning ? "正在处理中…" : "等待新的运行步骤。"}
+              </Typography>
+            </Stack>
           )}
         </Box>
 

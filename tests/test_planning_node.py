@@ -11,8 +11,10 @@ from backend.sessions.state import OrchestratorSessionState
 class _PlannerStub:
     def __init__(self, response: LLMResponse) -> None:
         self.response = response
+        self.last_memory_context = ""
 
-    async def plan(self, *, task: str, goal: str, workspace: str, history, tools):
+    async def plan(self, *, task: str, goal: str, workspace: str, history, tools, memory_context: str = ""):
+        self.last_memory_context = memory_context
         return list(history), self.response
 
     async def finalize_from_evidence(self, *, task: str, goal: str, workspace: str, history, evidence, reason: str) -> str:
@@ -71,6 +73,47 @@ class PlanningNodeTests(unittest.IsolatedAsyncioTestCase):
         result = await planning_node(state)
         self.assertEqual(result["stop_reason"], "completed_after_duplicate_suppression")
         self.assertTrue(result["final_answer"])
+
+    async def test_planning_injects_memory_context_before_model_call(self) -> None:
+        session = OrchestratorSessionState(
+            task_id="t1",
+            node_id="n1",
+            runner="orchestrator",
+            workspace="D:/works/pc_orchestrator_core",
+            task="讲解马拉车算法",
+            goal="讲解马拉车算法",
+        )
+        planner = _PlannerStub(LLMResponse(content="马拉车算法可以在线性时间内求最长回文子串。"))
+
+        class _MemoryServiceStub:
+            def search(self, *, query: str, limit: int = 4, session_id: str | None = None):
+                class _Result:
+                    title = "历史知识点"
+                    content = "马拉车算法通过复用回文半径，把重复扩展压缩到 O(n)。"
+                    score = 0.91
+
+                return [_Result()]
+
+        state = create_initial_state(
+            session_id=session.session_id,
+            task_id=session.task_id,
+            node_id=session.node_id,
+            workspace=session.workspace,
+            task=session.task,
+            goal=session.goal,
+            max_iterations=8,
+        )
+        state["context"] = {
+            "planner": planner,
+            "tool_definitions": [],
+            "session": session,
+            "memory_service": _MemoryServiceStub(),
+            "emit_progress": None,
+        }
+
+        result = await planning_node(state)
+        self.assertEqual(result["stop_reason"], "completed_without_bootstrap")
+        self.assertIn("Relevant long-term memory:", planner.last_memory_context)
 
 
 

@@ -14,6 +14,8 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
     planner = runtime_context.get("planner")
     tool_definitions = list(runtime_context.get("tool_definitions") or [])
     session = runtime_context.get("session")
+    memory_service = runtime_context.get("memory_service")
+    memory_config = runtime_context.get("memory_config")
     iteration = int(next_state.get("iteration") or 0) + 1
     next_state["iteration"] = iteration
     next_state["phase"] = "planning"
@@ -54,12 +56,26 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
                 f"Accepted a direction change: {text}" if intent == "redirect" else f"Accepted a follow-up message: {text}"
             )
 
+    memory_context = ""
+    if memory_service is not None and getattr(memory_config, "enabled", True):
+        retrieval_scope = str(getattr(memory_config, "retrieval_scope", "global") or "global").strip().lower()
+        retrieval_strength = str(getattr(memory_config, "retrieval_strength", "standard") or "standard").strip().lower()
+        retrieval_limit = {"conservative": 2, "standard": 4, "aggressive": 6}.get(retrieval_strength, 4)
+        memory_context = _build_memory_context(
+            memory_service.search(
+                query=task or goal,
+                limit=retrieval_limit,
+                session_id=next_state.get("session_id") if retrieval_scope == "session" else None,
+            ),
+        )
+
     messages, response = await planner.plan(
         task=task,
         goal=goal,
         workspace=workspace,
         history=history,
         tools=tool_definitions,
+        memory_context=memory_context,
     )
     if response.tool_calls:
         planned_tool_calls = [
@@ -139,6 +155,50 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         return next_state
 
     if not tool_results and iteration < max(2, max_iterations):
+        response_text = str(response.content or "").strip()
+        if _should_accept_direct_answer(task=task, goal=goal, response_text=response_text):
+            final_text = response_text
+            next_state["messages"] = append_assistant_message(messages, content=final_text)
+            next_state["planned_tool_calls"] = []
+            next_state["tool_events"] = tool_events
+            next_state["worker_sessions"] = dict(
+                session.worker_sessions if session is not None else next_state.get("worker_sessions") or {}
+            )
+            next_state["last_progress_message"] = f"Planning iteration {iteration} answered directly without tools."
+            next_state["latest_summary"] = final_text
+            next_state["final_answer"] = final_text
+            next_state["stop_reason"] = "completed_direct_answer"
+            await sync_session_from_runtime_state(
+                next_state,
+                emit_progress=runtime_context.get("emit_progress"),
+                progress=0.9,
+            )
+            return next_state
+        if not _should_bootstrap_inspection(task=task, goal=goal):
+            final_text = response_text or planner.build_fallback_summary(
+                task=task,
+                workspace=workspace,
+                evidence=tool_results,
+                reason="The planner did not request any tools, and the task does not require repository inspection.",
+            )
+            next_state["messages"] = append_assistant_message(messages, content=final_text)
+            next_state["planned_tool_calls"] = []
+            next_state["tool_events"] = tool_events
+            next_state["worker_sessions"] = dict(
+                session.worker_sessions if session is not None else next_state.get("worker_sessions") or {}
+            )
+            next_state["last_progress_message"] = (
+                f"Planning iteration {iteration} answered directly without repository inspection."
+            )
+            next_state["latest_summary"] = final_text
+            next_state["final_answer"] = final_text
+            next_state["stop_reason"] = "completed_without_bootstrap"
+            await sync_session_from_runtime_state(
+                next_state,
+                emit_progress=runtime_context.get("emit_progress"),
+                progress=0.9,
+            )
+            return next_state
         next_state["messages"] = append_assistant_message(messages, content=response.content)
         next_state["planned_tool_calls"] = [
             {"id": "bootstrap-list-files", "tool": "list_files", "arguments": {"path": "."}},
@@ -264,5 +324,66 @@ def _filter_duplicate_tool_calls(
 def _tool_signature(tool_name: Any, arguments: Any) -> str:
     normalized_arguments = arguments if isinstance(arguments, dict) else {"value": arguments}
     return f"{str(tool_name or '').strip().lower()}::{json.dumps(normalized_arguments, ensure_ascii=False, sort_keys=True)}"
+
+
+def _should_accept_direct_answer(*, task: str, goal: str, response_text: str) -> bool:
+    if not response_text or len(response_text) < 80:
+        return False
+    prompt_text = f"{task}\n{goal}".strip().lower()
+    direct_answer_signals = (
+        "讲解",
+        "解释",
+        "介绍",
+        "什么是",
+        "如何理解",
+        "原理",
+        "思路",
+        "算法",
+        "区别",
+        "why",
+        "what is",
+        "explain",
+    )
+    return any(signal in prompt_text for signal in direct_answer_signals)
+
+
+def _should_bootstrap_inspection(*, task: str, goal: str) -> bool:
+    prompt_text = f"{task}\n{goal}".strip().lower()
+    inspection_signals = (
+        "项目",
+        "仓库",
+        "代码",
+        "源码",
+        "目录",
+        "文件",
+        "模块",
+        "readme",
+        "server",
+        "runtime",
+        "backend",
+        "frontend",
+        "repo",
+        "repository",
+        "codebase",
+        "project",
+        "source",
+        "file",
+        "folder",
+        "module",
+    )
+    return any(signal in prompt_text for signal in inspection_signals)
+
+
+def _build_memory_context(results: list[Any]) -> str:
+    if not results:
+        return "No relevant long-term memory was retrieved."
+    lines = ["Relevant long-term memory:"]
+    for item in results[:4]:
+        title = str(getattr(item, "title", "") or "记忆片段").strip()
+        content = str(getattr(item, "content", "") or "").strip().replace("\n", " ")
+        score = float(getattr(item, "score", 0.0) or 0.0)
+        preview = content[:240] + ("..." if len(content) > 240 else "")
+        lines.append(f"- {title} (score={score:.3f}): {preview}")
+    return "\n".join(lines)
 
 

@@ -305,4 +305,59 @@
 4. 运行失败后可以查到结构化错误
 5. planner messages 可以恢复
 
+## 记忆层补充
+
+第一版记忆层走：
+- `SQLite`
+- 本地压缩后的会话摘要/事实/知识块
+- 本地可重复的轻量 embedding 与相似度检索
+
+新增建议目录：
+- `backend/memory/`
+
+第一版原则：
+1. 原始 event log 不直接入向量检索
+2. 先清洗、压缩、拍扁，再入记忆表
+3. 先用 SQLite 保存 embedding 和文档元数据
+4. 检索阶段可以先在 Python 层算相似度，不急着引入更重的外部向量库
+
+第一版表建议：
+- `memory_compactions`
+  - `session_id`
+  - `summary_text`
+  - `facts_json`
+  - `source_item_count`
+  - `updated_at`
+- `memory_documents`
+  - `document_id`
+  - `session_id`
+  - `document_type`
+  - `title`
+  - `content`
+  - `metadata_json`
+  - `embedding_json`
+  - `token_estimate`
+  - `created_at`
+  - `updated_at`
+
+建议分级：
+- `L1` 临时记忆：当前会话短期上下文，不长期入库
+- `L2` 会话记忆：单个 session 的摘要、事实、关键块
+- `L3` 项目记忆：同项目或同工作区复用的稳定背景
+- `L4` 长期记忆：用户偏好、学习状态、长期约束
+
+整理原则：
+1. 原始 trace 只做事实来源，不直接做召回主体
+2. 先去噪，再压缩，再拍扁成记忆块
+3. 自动整理至少支持：
+   - 会话完成后
+   - 会话失败后
+   - 手动触发
+4. 后续应补：
+   - 去重
+   - 合并
+   - 降级
+   - 归档
+   - 过期处理
+
 

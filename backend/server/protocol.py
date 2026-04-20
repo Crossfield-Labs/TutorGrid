@@ -28,6 +28,14 @@ class OrchestratorParams:
     model: str = ""
     api_key: str = ""
     api_base: str = ""
+    memory_enabled: bool = True
+    memory_auto_compact: bool = True
+    memory_compact_on_complete: bool = True
+    memory_compact_on_failure: bool = True
+    memory_retrieval_scope: str = ""
+    memory_retrieval_strength: str = ""
+    memory_cleanup_enabled: bool = True
+    memory_cleanup_interval_hours: int = 24
 
 
 @dataclass(slots=True)
@@ -66,6 +74,14 @@ class OrchestratorRequest:
                 model=str(params.get("model") or ""),
                 api_key=str(params.get("apiKey") or ""),
                 api_base=str(params.get("apiBase") or ""),
+                memory_enabled=bool(params.get("memoryEnabled", True)),
+                memory_auto_compact=bool(params.get("memoryAutoCompact", True)),
+                memory_compact_on_complete=bool(params.get("memoryCompactOnComplete", True)),
+                memory_compact_on_failure=bool(params.get("memoryCompactOnFailure", True)),
+                memory_retrieval_scope=str(params.get("memoryRetrievalScope") or ""),
+                memory_retrieval_strength=str(params.get("memoryRetrievalStrength") or ""),
+                memory_cleanup_enabled=bool(params.get("memoryCleanupEnabled", True)),
+                memory_cleanup_interval_hours=_coerce_int(params.get("memoryCleanupIntervalHours"), 24),
             ),
         )
 

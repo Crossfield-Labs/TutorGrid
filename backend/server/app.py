@@ -7,7 +7,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from backend.config import get_planner_config_view, update_planner_config
+from backend.config import get_runtime_config_view, update_memory_config, update_planner_config
+from backend.config import load_config
+from backend.memory.service import MemoryService
 from backend.runners.router import RunnerRouter
 from backend.server.protocol import OrchestratorRequest, build_event
 from backend.sessions.manager import SessionManager
@@ -21,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
 trace_store = JsonlTraceStore(TRACE_ROOT)
+memory_service = MemoryService()
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
@@ -437,6 +440,7 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
                 "snapshot": session.build_snapshot(),
             },
         )
+        _maybe_compact_memory(session, reason="completed")
         await _emit_projection_updates(session)
     except asyncio.CancelledError:
         session.error = "Session cancelled"
@@ -462,10 +466,29 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
             event="orchestrator.session.failed",
             payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
+        _maybe_compact_memory(session, reason="failed")
         await _emit_projection_updates(session)
     finally:
         session_waiters.pop(session.session_id, None)
         session_tasks.pop(session.session_id, None)
+
+
+def _maybe_compact_memory(session: OrchestratorSessionState, *, reason: str) -> None:
+    config = load_config()
+    memory = config.memory
+    if not memory.enabled or not memory.auto_compact:
+        return
+    if reason == "completed" and not memory.compact_on_complete:
+        return
+    if reason == "failed" and not memory.compact_on_failure:
+        return
+    history_items = trace_store.list_session_history(session.session_id, limit=500)
+    memory_service.compact_session(
+        session_id=session.session_id,
+        task=session.task,
+        goal=session.goal,
+        history_items=history_items,
+    )
 
 
 def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> bool:
@@ -555,7 +578,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     task_id=request.task_id,
                     node_id=request.node_id,
                     session_id=request.session_id,
-                    payload={"planner": get_planner_config_view()},
+                    payload=get_runtime_config_view(),
                 )
                 continue
 
@@ -566,6 +589,16 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     api_key=request.params.api_key.strip(),
                     api_base=request.params.api_base.strip(),
                 )
+                update_memory_config(
+                    enabled=request.params.memory_enabled,
+                    auto_compact=request.params.memory_auto_compact,
+                    compact_on_complete=request.params.memory_compact_on_complete,
+                    compact_on_failure=request.params.memory_compact_on_failure,
+                    retrieval_scope=request.params.memory_retrieval_scope.strip() or "global",
+                    retrieval_strength=request.params.memory_retrieval_strength.strip() or "standard",
+                    cleanup_enabled=request.params.memory_cleanup_enabled,
+                    cleanup_interval_hours=max(1, request.params.memory_cleanup_interval_hours),
+                )
                 runner_router = RunnerRouter()
                 await send_event(
                     websocket,
@@ -575,7 +608,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     session_id=request.session_id,
                     payload={
                         "message": "Config updated",
-                        "planner": get_planner_config_view(),
+                        **get_runtime_config_view(),
                     },
                 )
                 continue
@@ -592,6 +625,69 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                             request.session_id,
                             limit=max(1, request.params.limit or 200),
                         )
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.memory.compact", "pc.memory.compact"} and request.session_id:
+                snapshot = session_manager.get_snapshot(request.session_id)
+                if snapshot is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "Session not found"},
+                    )
+                    continue
+                history_items = trace_store.list_session_history(
+                    request.session_id,
+                    limit=max(1, request.params.limit or 500),
+                )
+                payload = memory_service.compact_session(
+                    session_id=request.session_id,
+                    task=str(snapshot.get("task") or ""),
+                    goal=str(snapshot.get("goal") or ""),
+                    history_items=history_items,
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.memory.compact"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.memory.search", "pc.memory.search"}:
+                results = memory_service.search(
+                    query=request.params.text,
+                    limit=max(1, request.params.limit or 5),
+                    session_id=request.session_id or None,
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.memory.search"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "query": request.params.text,
+                        "items": [
+                            {
+                                "documentId": item.document_id,
+                                "sessionId": item.session_id,
+                                "documentType": item.document_type,
+                                "title": item.title,
+                                "content": item.content,
+                                "metadata": item.metadata,
+                                "score": item.score,
+                                "updatedAt": item.updated_at,
+                            }
+                            for item in results
+                        ],
                     },
                 )
                 continue

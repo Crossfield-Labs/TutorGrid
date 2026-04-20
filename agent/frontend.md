@@ -65,6 +65,12 @@
 3. 会话级 trace 调试视图
 4. 自动拉起 Python 后端
 
+设置页约束：
+- 继续统一使用 MUI 组件实现
+- 布局优先使用 `Paper / Divider / FormControl / Select / Switch / Alert / LinearProgress`
+- 保存、加载、同步状态时，优先使用 Material 的标准反馈组件，不要手搓进度条和状态条
+- 运行时设置现在至少覆盖：连接、模型/API、记忆召回、自动整理策略
+
 ## 前端最需要后端先补的接口
 
 1. trace 拉取

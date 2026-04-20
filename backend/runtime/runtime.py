@@ -4,6 +4,7 @@ from typing import Awaitable, Callable
 
 from backend.config import load_config
 from backend.llm.planner import PlannerRuntime
+from backend.memory.service import MemoryService
 from backend.runtime.graph import build_runtime_graph
 from backend.runtime.state import RuntimeState, create_initial_state
 from backend.sessions.state import OrchestratorSessionState
@@ -32,6 +33,7 @@ class OrchestratorRuntime:
         self.graph_build = build_runtime_graph()
         self.planner = PlannerRuntime(self.config)
         self.worker_registry = WorkerRegistry(self.config)
+        self.memory_service = MemoryService()
         self.tools = build_langchain_tools(
             workspace=session.workspace,
             shell_timeout_seconds=self.config.shell_timeout_seconds,
@@ -70,6 +72,8 @@ class OrchestratorRuntime:
             "session": self.session,
             "emit_progress": self.emit_progress,
             "emit_substep": self.emit_substep,
+            "memory_service": self.memory_service,
+            "memory_config": self.config.memory,
         }
         recursion_limit = max(50, int(self.config.max_iterations) * 6)
         result = await self.graph_build.graph.ainvoke(state, config={"recursion_limit": recursion_limit})

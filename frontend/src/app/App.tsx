@@ -1,10 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Box,
   Button,
   Chip,
   CssBaseline,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  InputLabel,
+  LinearProgress,
+  MenuItem,
+  Paper,
+  Select,
   Stack,
+  Switch,
   Tab,
   Tabs,
   TextField,
@@ -23,6 +33,17 @@ type PlannerSettings = {
   model: string;
   apiBase: string;
   apiKey: string;
+};
+
+type MemorySettings = {
+  enabled: boolean;
+  autoCompact: boolean;
+  compactOnComplete: boolean;
+  compactOnFailure: boolean;
+  retrievalScope: string;
+  retrievalStrength: string;
+  cleanupEnabled: boolean;
+  cleanupIntervalHours: number;
 };
 
 const theme = createTheme({
@@ -63,6 +84,19 @@ export function App() {
     apiBase: "",
     apiKey: "",
   });
+  const [memorySettings, setMemorySettings] = useState<MemorySettings>({
+    enabled: true,
+    autoCompact: true,
+    compactOnComplete: true,
+    compactOnFailure: true,
+    retrievalScope: "global",
+    retrievalStrength: "standard",
+    cleanupEnabled: true,
+    cleanupIntervalHours: 24,
+  });
+  const [isConfigLoading, setIsConfigLoading] = useState(true);
+  const [isConfigSaving, setIsConfigSaving] = useState(false);
+  const [settingsFeedback, setSettingsFeedback] = useState<string>("");
 
   const clientRef = useRef<ClientHandle | null>(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
@@ -75,9 +109,11 @@ export function App() {
     () => sessions.find((session) => session.sessionId === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
+  const terminalStatuses = new Set(["COMPLETED", "FAILED", "CANCELLED"]);
   const selectedSnapshot = selectedSessionId ? snapshotsBySession[selectedSessionId] ?? selectedSession?.snapshot ?? null : null;
   const selectedTimeline = selectedSessionId ? timelinesBySession[selectedSessionId] ?? [] : [];
   const selectedLiveEvent = selectedSessionId ? liveEventsBySession[selectedSessionId] ?? null : null;
+  const selectedStatus = selectedSnapshot?.status ?? selectedSession?.status ?? "";
 
   useEffect(() => {
     setSettingsUrl(serverUrl);
@@ -89,6 +125,7 @@ export function App() {
       onOpen: () => {
         setConnectionState("已连接");
         requestSessionList(client);
+        setIsConfigLoading(true);
         requestConfig(client);
         const currentSessionId = selectedSessionIdRef.current;
         if (currentSessionId) {
@@ -112,6 +149,7 @@ export function App() {
 
         if (message.event === "orchestrator.config.get" || message.event === "orchestrator.config.set") {
           const planner = message.payload?.planner;
+          const memory = message.payload?.memory;
           if (planner && typeof planner === "object") {
             setPlannerSettings({
               provider: getString((planner as Record<string, unknown>).provider) ?? "openai_compat",
@@ -119,6 +157,23 @@ export function App() {
               apiBase: getString((planner as Record<string, unknown>).apiBase) ?? "",
               apiKey: getString((planner as Record<string, unknown>).apiKey) ?? "",
             });
+          }
+          if (memory && typeof memory === "object") {
+            setMemorySettings({
+              enabled: Boolean((memory as Record<string, unknown>).enabled ?? true),
+              autoCompact: Boolean((memory as Record<string, unknown>).autoCompact ?? true),
+              compactOnComplete: Boolean((memory as Record<string, unknown>).compactOnComplete ?? true),
+              compactOnFailure: Boolean((memory as Record<string, unknown>).compactOnFailure ?? true),
+              retrievalScope: getString((memory as Record<string, unknown>).retrievalScope) ?? "global",
+              retrievalStrength: getString((memory as Record<string, unknown>).retrievalStrength) ?? "standard",
+              cleanupEnabled: Boolean((memory as Record<string, unknown>).cleanupEnabled ?? true),
+              cleanupIntervalHours: Number((memory as Record<string, unknown>).cleanupIntervalHours ?? 24) || 24,
+            });
+          }
+          setIsConfigLoading(false);
+          if (message.event === "orchestrator.config.set") {
+            setIsConfigSaving(false);
+            setSettingsFeedback("设置已保存。");
           }
           return;
         }
@@ -254,7 +309,7 @@ export function App() {
       return;
     }
     const trimmed = composerValue.trim();
-    const hasActiveSession = Boolean(selectedSessionId);
+    const hasActiveSession = Boolean(selectedSessionId) && !terminalStatuses.has(selectedStatus);
     const awaitingInput = Boolean(selectedSnapshot?.awaitingInput);
 
     if (!hasActiveSession) {
@@ -326,6 +381,7 @@ export function App() {
     if (!nextUrl || nextUrl === serverUrl) {
       return;
     }
+    setSettingsFeedback("");
     setServerUrl(nextUrl);
   };
 
@@ -333,6 +389,8 @@ export function App() {
     if (!clientRef.current) {
       return;
     }
+    setIsConfigSaving(true);
+    setSettingsFeedback("");
     clientRef.current.send({
       type: "req",
       id: crypto.randomUUID(),
@@ -342,6 +400,14 @@ export function App() {
         model: plannerSettings.model,
         apiBase: plannerSettings.apiBase,
         apiKey: plannerSettings.apiKey,
+        memoryEnabled: memorySettings.enabled,
+        memoryAutoCompact: memorySettings.autoCompact,
+        memoryCompactOnComplete: memorySettings.compactOnComplete,
+        memoryCompactOnFailure: memorySettings.compactOnFailure,
+        memoryRetrievalScope: memorySettings.retrievalScope,
+        memoryRetrievalStrength: memorySettings.retrievalStrength,
+        memoryCleanupEnabled: memorySettings.cleanupEnabled,
+        memoryCleanupIntervalHours: memorySettings.cleanupIntervalHours,
       },
     });
   };
@@ -400,88 +466,247 @@ export function App() {
               inputValue={composerValue}
               onInputChange={setComposerValue}
               onSubmit={handleSubmit}
-              onSnapshot={requestSnapshot}
-              onExplain={requestExplain}
-              isAwaitingInput={Boolean(selectedSnapshot?.awaitingInput)}
-            />
+            onSnapshot={requestSnapshot}
+            onExplain={requestExplain}
+            isAwaitingInput={Boolean(selectedSnapshot?.awaitingInput)}
+            isRunning={Boolean(selectedSessionId) && !terminalStatuses.has(selectedStatus)}
+          />
             <StatePanel session={selectedSession} snapshot={selectedSnapshot} />
           </Box>
         ) : (
           <Box sx={{ p: 2.5, overflow: "auto" }}>
-            <Box sx={{ maxWidth: 760, p: 2.5, border: "1px solid", borderColor: "divider", bgcolor: "background.paper", borderRadius: 2 }}>
-              <Typography variant="h6">连接设置</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                在这里配置桌面端连接的 WebSocket 地址。
-              </Typography>
-              <TextField
-                fullWidth
-                label="WebSocket"
-                value={settingsUrl}
-                onChange={(event) => setSettingsUrl(event.target.value)}
-                sx={{ mt: 2 }}
-              />
-              <Typography variant="subtitle1" sx={{ mt: 3 }}>
-                Planner 设置
-              </Typography>
-              <Stack spacing={1.5} sx={{ mt: 1 }}>
-                <TextField
-                  fullWidth
-                  label="Provider"
-                  value={plannerSettings.provider}
-                  onChange={(event) =>
-                    setPlannerSettings((current) => ({
-                      ...current,
-                      provider: event.target.value,
-                    }))
-                  }
-                />
-                <TextField
-                  fullWidth
-                  label="Model"
-                  value={plannerSettings.model}
-                  onChange={(event) =>
-                    setPlannerSettings((current) => ({
-                      ...current,
-                      model: event.target.value,
-                    }))
-                  }
-                />
-                <TextField
-                  fullWidth
-                  label="API Base"
-                  value={plannerSettings.apiBase}
-                  onChange={(event) =>
-                    setPlannerSettings((current) => ({
-                      ...current,
-                      apiBase: event.target.value,
-                    }))
-                  }
-                />
-                <TextField
-                  fullWidth
-                  label="API Key"
-                  type="password"
-                  value={plannerSettings.apiKey}
-                  onChange={(event) =>
-                    setPlannerSettings((current) => ({
-                      ...current,
-                      apiKey: event.target.value,
-                    }))
-                  }
-                />
-              </Stack>
-              <Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 2 }}>
-                <Button variant="outlined" onClick={() => setSettingsUrl(serverUrl)}>
-                  还原
-                </Button>
-                <Button variant="contained" onClick={applySettings}>
-                  应用
-                </Button>
-                <Button variant="contained" color="secondary" onClick={applyPlannerSettings}>
-                  保存 API 设置
-                </Button>
-              </Stack>
-            </Box>
+            <Stack spacing={2} sx={{ maxWidth: 860 }}>
+              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
+                {isConfigLoading || isConfigSaving ? <LinearProgress /> : null}
+                <Box sx={{ p: 2.5 }}>
+                  <Typography variant="h6">设置</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    连接、模型和记忆策略统一在这里配置。
+                  </Typography>
+                  {settingsFeedback ? <Alert severity="success" sx={{ mt: 2 }}>{settingsFeedback}</Alert> : null}
+                </Box>
+                <Divider />
+                <Box sx={{ p: 2.5, display: "grid", gap: 3 }}>
+                  <Box>
+                    <Typography variant="subtitle1">连接</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                      桌面端会连接这里的 WebSocket 服务地址。
+                    </Typography>
+                    <Stack spacing={2}>
+                      <TextField
+                        fullWidth
+                        label="WebSocket 地址"
+                        value={settingsUrl}
+                        onChange={(event) => setSettingsUrl(event.target.value)}
+                      />
+                      <Stack direction="row" justifyContent="flex-end" spacing={1}>
+                        <Button variant="outlined" onClick={() => setSettingsUrl(serverUrl)}>
+                          还原
+                        </Button>
+                        <Button variant="contained" onClick={applySettings}>
+                          应用连接
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Typography variant="subtitle1">模型与 API</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                      这里控制后端 planner 的 provider、模型和 API 连接信息。
+                    </Typography>
+                    <Stack spacing={2}>
+                      <TextField
+                        fullWidth
+                        label="Provider"
+                        value={plannerSettings.provider}
+                        onChange={(event) =>
+                          setPlannerSettings((current) => ({
+                            ...current,
+                            provider: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        fullWidth
+                        label="Model"
+                        value={plannerSettings.model}
+                        onChange={(event) =>
+                          setPlannerSettings((current) => ({
+                            ...current,
+                            model: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        fullWidth
+                        label="API Base"
+                        value={plannerSettings.apiBase}
+                        onChange={(event) =>
+                          setPlannerSettings((current) => ({
+                            ...current,
+                            apiBase: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        fullWidth
+                        label="API Key"
+                        type="password"
+                        value={plannerSettings.apiKey}
+                        onChange={(event) =>
+                          setPlannerSettings((current) => ({
+                            ...current,
+                            apiKey: event.target.value,
+                          }))
+                        }
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Typography variant="subtitle1">记忆</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                      控制是否读取历史记忆、何时自动整理，以及召回范围与强度。
+                    </Typography>
+                    <Stack spacing={2}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={memorySettings.enabled}
+                            onChange={(event) =>
+                              setMemorySettings((current) => ({
+                                ...current,
+                                enabled: event.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="启用记忆召回"
+                      />
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={memorySettings.autoCompact}
+                            onChange={(event) =>
+                              setMemorySettings((current) => ({
+                                ...current,
+                                autoCompact: event.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="启用自动记忆整理"
+                      />
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={memorySettings.compactOnComplete}
+                              onChange={(event) =>
+                                setMemorySettings((current) => ({
+                                  ...current,
+                                  compactOnComplete: event.target.checked,
+                                }))
+                              }
+                            />
+                          }
+                          label="会话完成后整理"
+                        />
+                        <FormControlLabel
+                          control={
+                            <Switch
+                              checked={memorySettings.compactOnFailure}
+                              onChange={(event) =>
+                                setMemorySettings((current) => ({
+                                  ...current,
+                                  compactOnFailure: event.target.checked,
+                                }))
+                              }
+                            />
+                          }
+                          label="会话失败后整理"
+                        />
+                      </Stack>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                        <FormControl fullWidth>
+                          <InputLabel id="memory-scope-label">记忆召回范围</InputLabel>
+                          <Select
+                            labelId="memory-scope-label"
+                            label="记忆召回范围"
+                            value={memorySettings.retrievalScope}
+                            onChange={(event) =>
+                              setMemorySettings((current) => ({
+                                ...current,
+                                retrievalScope: String(event.target.value),
+                              }))
+                            }
+                          >
+                            <MenuItem value="session">当前会话</MenuItem>
+                            <MenuItem value="global">全局记忆</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <FormControl fullWidth>
+                          <InputLabel id="memory-strength-label">记忆召回强度</InputLabel>
+                          <Select
+                            labelId="memory-strength-label"
+                            label="记忆召回强度"
+                            value={memorySettings.retrievalStrength}
+                            onChange={(event) =>
+                              setMemorySettings((current) => ({
+                                ...current,
+                                retrievalStrength: String(event.target.value),
+                              }))
+                            }
+                          >
+                            <MenuItem value="conservative">保守</MenuItem>
+                            <MenuItem value="standard">标准</MenuItem>
+                            <MenuItem value="aggressive">激进</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Stack>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={memorySettings.cleanupEnabled}
+                            onChange={(event) =>
+                              setMemorySettings((current) => ({
+                                ...current,
+                                cleanupEnabled: event.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="启用周期性记忆整理"
+                      />
+                      <TextField
+                        fullWidth
+                        type="number"
+                        label="记忆整理周期（小时）"
+                        value={memorySettings.cleanupIntervalHours}
+                        onChange={(event) =>
+                          setMemorySettings((current) => ({
+                            ...current,
+                            cleanupIntervalHours: Math.max(1, Number(event.target.value) || 24),
+                          }))
+                        }
+                        helperText="当前用于后端记忆整理策略，后续可扩展为后台定时任务。"
+                      />
+                    </Stack>
+                  </Box>
+                </Box>
+                <Divider />
+                <Box sx={{ p: 2, display: "flex", justifyContent: "flex-end" }}>
+                  <Button variant="contained" color="primary" onClick={applyPlannerSettings} disabled={isConfigSaving}>
+                    保存运行时设置
+                  </Button>
+                </Box>
+              </Paper>
+            </Stack>
           </Box>
         )}
       </Box>
@@ -636,6 +861,20 @@ function mapRealtimeEvent(eventName: string, payload: Record<string, unknown>): 
   if (eventName === "orchestrator.session.followup.accepted" && !getString(payload.text)) {
     return null;
   }
+  if (eventName.includes(".subnode.")) {
+    const kind = getString(payload.kind) ?? "";
+    const status = getString(payload.status) ?? "";
+    const summary = summarizeSubstep(kind, status);
+    return {
+      id: `${eventName}-${crypto.randomUUID()}`,
+      kind: "event",
+      title: summary.title,
+      event: eventName,
+      status: summary.status,
+      detail: summary.detail,
+      createdAt: new Date().toISOString(),
+    };
+  }
   return {
     id: `${eventName}-${crypto.randomUUID()}`,
     kind: normalizeEventKind(eventName),
@@ -696,6 +935,30 @@ function formatPayloadDetail(payload: Record<string, unknown>): string {
     return payload.error;
   }
   return JSON.stringify(payload, null, 2);
+}
+
+function summarizeSubstep(kind: string, status: string) {
+  const normalizedKind = kind.trim().toLowerCase();
+  const normalizedStatus = status.trim().toLowerCase();
+  if (normalizedKind === "tool") {
+    return {
+      title: normalizedStatus === "completed" ? "当前步骤已完成" : "正在处理当前步骤",
+      status: normalizedStatus || "running",
+      detail: normalizedStatus === "completed" ? "已完成一次中间处理。" : "正在执行必要的中间处理。",
+    };
+  }
+  if (normalizedKind === "worker") {
+    return {
+      title: "正在调用执行端",
+      status: normalizedStatus || "running",
+      detail: "正在协调执行端完成当前任务。",
+    };
+  }
+  return {
+    title: "正在处理中",
+    status: normalizedStatus || "running",
+    detail: "系统正在推进当前会话。",
+  };
 }
 
 function normalizeEventKind(kind: string): TimelineEvent["kind"] {

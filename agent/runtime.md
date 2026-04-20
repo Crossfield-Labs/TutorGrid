@@ -21,6 +21,7 @@
 - 用真实的 LLM 规划逐步替换 bootstrap 行为
 - 增加真实 tool loop、follow-up 消费、worker 委派
 - 最终覆盖旧 runtime 的全部能力
+- bootstrap 检查只应用在明显是项目/代码/目录分析的任务上；普通概念讲解类问题应直接回答，不要默认读仓库文件
 
 修改时注意：
 - 保持 graph state 和 session state 的分层

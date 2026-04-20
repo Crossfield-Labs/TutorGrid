@@ -17,8 +17,21 @@ class PlannerConfig:
 
 
 @dataclass(slots=True)
+class MemoryConfig:
+    enabled: bool = True
+    auto_compact: bool = True
+    compact_on_complete: bool = True
+    compact_on_failure: bool = True
+    retrieval_scope: str = "global"
+    retrieval_strength: str = "standard"
+    cleanup_enabled: bool = True
+    cleanup_interval_hours: int = 24
+
+
+@dataclass(slots=True)
 class OrchestratorConfig:
     planner: PlannerConfig
+    memory: MemoryConfig
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
     opencode_model: str = ""
@@ -73,13 +86,51 @@ def update_planner_config(*, provider: str, model: str, api_key: str, api_base: 
     write_config_data(data)
 
 
-def get_planner_config_view() -> dict[str, str]:
+def update_memory_config(
+    *,
+    enabled: bool,
+    auto_compact: bool,
+    compact_on_complete: bool,
+    compact_on_failure: bool,
+    retrieval_scope: str,
+    retrieval_strength: str,
+    cleanup_enabled: bool,
+    cleanup_interval_hours: int,
+) -> None:
+    data = read_config_data()
+    memory = data.get("memory")
+    memory_data = memory if isinstance(memory, dict) else {}
+    memory_data["enabled"] = enabled
+    memory_data["autoCompact"] = auto_compact
+    memory_data["compactOnComplete"] = compact_on_complete
+    memory_data["compactOnFailure"] = compact_on_failure
+    memory_data["retrievalScope"] = retrieval_scope
+    memory_data["retrievalStrength"] = retrieval_strength
+    memory_data["cleanupEnabled"] = cleanup_enabled
+    memory_data["cleanupIntervalHours"] = cleanup_interval_hours
+    data["memory"] = memory_data
+    write_config_data(data)
+
+
+def get_runtime_config_view() -> dict[str, object]:
     config = load_config()
     return {
-        "provider": config.planner.provider,
-        "model": config.planner.model,
-        "apiKey": config.planner.api_key,
-        "apiBase": config.planner.api_base,
+        "planner": {
+            "provider": config.planner.provider,
+            "model": config.planner.model,
+            "apiKey": config.planner.api_key,
+            "apiBase": config.planner.api_base,
+        },
+        "memory": {
+            "enabled": config.memory.enabled,
+            "autoCompact": config.memory.auto_compact,
+            "compactOnComplete": config.memory.compact_on_complete,
+            "compactOnFailure": config.memory.compact_on_failure,
+            "retrievalScope": config.memory.retrieval_scope,
+            "retrievalStrength": config.memory.retrieval_strength,
+            "cleanupEnabled": config.memory.cleanup_enabled,
+            "cleanupIntervalHours": config.memory.cleanup_interval_hours,
+        },
     }
 
 
@@ -88,6 +139,8 @@ def load_config() -> OrchestratorConfig:
 
     planner_data = data.get("planner") if isinstance(data, dict) else {}
     planner_dict = planner_data if isinstance(planner_data, dict) else {}
+    memory_data = data.get("memory") if isinstance(data, dict) else {}
+    memory_dict = memory_data if isinstance(memory_data, dict) else {}
     planner = PlannerConfig(
         provider=os.environ.get("ORCHESTRATOR_PROVIDER", str(planner_dict.get("provider") or "openai_compat")),
         model=os.environ.get("ORCHESTRATOR_MODEL", str(planner_dict.get("model") or "")),
@@ -96,8 +149,50 @@ def load_config() -> OrchestratorConfig:
         temperature=float(os.environ.get("ORCHESTRATOR_TEMPERATURE", planner_dict.get("temperature") or 0.2)),
         max_tokens=int(os.environ.get("ORCHESTRATOR_MAX_TOKENS", planner_dict.get("maxTokens") or 4096)),
     )
+    memory = MemoryConfig(
+        enabled=str(os.environ.get("ORCHESTRATOR_MEMORY_ENABLED", memory_dict.get("enabled", True))).strip().lower()
+        not in {"0", "false", "no", ""},
+        auto_compact=str(os.environ.get("ORCHESTRATOR_MEMORY_AUTO_COMPACT", memory_dict.get("autoCompact", True)))
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        compact_on_complete=str(
+            os.environ.get("ORCHESTRATOR_MEMORY_COMPACT_ON_COMPLETE", memory_dict.get("compactOnComplete", True))
+        )
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        compact_on_failure=str(
+            os.environ.get("ORCHESTRATOR_MEMORY_COMPACT_ON_FAILURE", memory_dict.get("compactOnFailure", True))
+        )
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        retrieval_scope=str(
+            os.environ.get("ORCHESTRATOR_MEMORY_RETRIEVAL_SCOPE", memory_dict.get("retrievalScope") or "global")
+        ),
+        retrieval_strength=str(
+            os.environ.get(
+                "ORCHESTRATOR_MEMORY_RETRIEVAL_STRENGTH",
+                memory_dict.get("retrievalStrength") or "standard",
+            )
+        ),
+        cleanup_enabled=str(
+            os.environ.get("ORCHESTRATOR_MEMORY_CLEANUP_ENABLED", memory_dict.get("cleanupEnabled", True))
+        )
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        cleanup_interval_hours=int(
+            os.environ.get(
+                "ORCHESTRATOR_MEMORY_CLEANUP_INTERVAL_HOURS",
+                memory_dict.get("cleanupIntervalHours") or 24,
+            )
+        ),
+    )
     return OrchestratorConfig(
         planner=planner,
+        memory=memory,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
         opencode_model=str(os.environ.get("ORCHESTRATOR_OPENCODE_MODEL", data.get("opencodeModel") or "")),
