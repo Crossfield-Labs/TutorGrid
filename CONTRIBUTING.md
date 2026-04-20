@@ -11,8 +11,8 @@
 - 模块边界、运行方式、测试路径变化时，要同步更新 `agent/*.md`
 
 推荐协作流程：
-1. 先读 `README.md`
-2. 再读 `AGENTS.md`
+1. 先读 [README.md](./README.md)
+2. 再读 [AGENTS.md](./AGENTS.md)
 3. 再读 `agent/` 下对应模块文档
 4. 完成代码改动
 5. 如果行为变化了，同时更新 `agent/` 或 `docs/`
@@ -29,6 +29,6 @@
 - `docs/`：详细设计、人类长期维护文档
 - `agent/`：给 agent 快速定位模块和约束的文档
 
-Agent 接手时，先从 `AGENTS.md` 开始，再进入 `agent/README.md`。
+Agent 接手时，先从 [AGENTS.md](./AGENTS.md) 开始，再进入 [agent/README.md](agent/README.md)。
 
 
