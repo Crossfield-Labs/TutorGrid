@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 
 from backend.sessions.state import OrchestratorSessionState
-from backend.storage.models import SessionRow
+from backend.storage.models import SessionRow, build_artifact_rows, build_error_rows, build_message_rows
 
 
 class SQLiteSessionStore:
@@ -61,6 +61,46 @@ class SQLiteSessionStore:
                     snapshot_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     UNIQUE(session_id, snapshot_version)
+                );
+
+                CREATE TABLE IF NOT EXISTS session_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    role TEXT NOT NULL,
+                    message_type TEXT NOT NULL,
+                    content_text TEXT NOT NULL,
+                    content_json TEXT NOT NULL,
+                    tool_name TEXT NOT NULL,
+                    tool_call_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(session_id, seq)
+                );
+
+                CREATE TABLE IF NOT EXISTS session_errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    error_layer TEXT NOT NULL,
+                    error_code TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    details_json TEXT NOT NULL,
+                    retryable INTEGER NOT NULL,
+                    phase TEXT NOT NULL,
+                    worker TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(session_id, seq, message)
+                );
+
+                CREATE TABLE IF NOT EXISTS session_artifacts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    change_type TEXT NOT NULL,
+                    size INTEGER,
+                    summary TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(session_id, path)
                 );
                 """
             )
@@ -117,6 +157,9 @@ class SQLiteSessionStore:
                 """,
                 row.to_record(),
             )
+            self._replace_messages(connection, session)
+            self._sync_errors(connection, session)
+            self._replace_artifacts(connection, session)
             connection.commit()
 
     def save_snapshot(self, session: OrchestratorSessionState) -> None:
@@ -185,4 +228,145 @@ class SQLiteSessionStore:
         if row is None:
             return None
         return json.loads(row["snapshot_json"])
+
+    def list_session_messages(self, session_id: str, *, limit: int = 200) -> list[dict[str, object]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT seq, role, message_type, content_text, content_json, tool_name, tool_call_id, created_at
+                FROM session_messages
+                WHERE session_id = ?
+                ORDER BY seq ASC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+        return [
+            {
+                "seq": row["seq"],
+                "role": row["role"],
+                "messageType": row["message_type"],
+                "contentText": row["content_text"],
+                "contentJson": json.loads(row["content_json"] or "{}"),
+                "toolName": row["tool_name"],
+                "toolCallId": row["tool_call_id"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_session_errors(self, session_id: str, *, limit: int = 100) -> list[dict[str, object]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT seq, error_layer, error_code, message, details_json, retryable, phase, worker, created_at
+                FROM session_errors
+                WHERE session_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+        return [
+            {
+                "seq": row["seq"],
+                "errorLayer": row["error_layer"],
+                "errorCode": row["error_code"],
+                "message": row["message"],
+                "details": json.loads(row["details_json"] or "{}"),
+                "retryable": bool(row["retryable"]),
+                "phase": row["phase"],
+                "worker": row["worker"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def list_session_artifacts(self, session_id: str, *, limit: int = 100) -> list[dict[str, object]]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT path, change_type, size, summary, created_at
+                FROM session_artifacts
+                WHERE session_id = ?
+                ORDER BY created_at DESC, path ASC
+                LIMIT ?
+                """,
+                (session_id, limit),
+            ).fetchall()
+        return [
+            {
+                "path": row["path"],
+                "changeType": row["change_type"],
+                "size": row["size"],
+                "summary": row["summary"],
+                "createdAt": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def _replace_messages(self, connection: sqlite3.Connection, session: OrchestratorSessionState) -> None:
+        connection.execute("DELETE FROM session_messages WHERE session_id = ?", (session.session_id,))
+        for row in build_message_rows(session):
+            connection.execute(
+                """
+                INSERT INTO session_messages (
+                    session_id, seq, role, message_type, content_text, content_json,
+                    tool_name, tool_call_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["session_id"],
+                    row["seq"],
+                    row["role"],
+                    row["message_type"],
+                    row["content_text"],
+                    json.dumps(row["content_json"], ensure_ascii=False),
+                    row["tool_name"],
+                    row["tool_call_id"],
+                    row["created_at"],
+                ),
+            )
+
+    def _sync_errors(self, connection: sqlite3.Connection, session: OrchestratorSessionState) -> None:
+        for row in build_error_rows(session):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO session_errors (
+                    session_id, seq, error_layer, error_code, message, details_json,
+                    retryable, phase, worker, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["session_id"],
+                    row["seq"],
+                    row["error_layer"],
+                    row["error_code"],
+                    row["message"],
+                    json.dumps(row["details_json"], ensure_ascii=False),
+                    1 if row["retryable"] else 0,
+                    row["phase"],
+                    row["worker"],
+                    row["created_at"],
+                ),
+            )
+
+    def _replace_artifacts(self, connection: sqlite3.Connection, session: OrchestratorSessionState) -> None:
+        connection.execute("DELETE FROM session_artifacts WHERE session_id = ?", (session.session_id,))
+        for row in build_artifact_rows(session):
+            connection.execute(
+                """
+                INSERT INTO session_artifacts (
+                    session_id, path, change_type, size, summary, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["session_id"],
+                    row["path"],
+                    row["change_type"],
+                    row["size"],
+                    row["summary"],
+                    row["created_at"],
+                ),
+            )
 

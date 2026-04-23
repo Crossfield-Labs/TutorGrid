@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from backend.runners.router import RunnerRouter
+from backend.runners.python_runner import PythonRunner
 from backend.runners.shell_runner import ShellRunner
 from backend.runners.subagent_runner import SubAgentRunner
 
@@ -18,6 +19,10 @@ class RunnerRouterTests(unittest.TestCase):
 
     def test_unknown_runner_falls_back_to_shell(self) -> None:
         self.assertIsInstance(self.router.get("unknown-runner"), ShellRunner)
+
+    def test_python_runner_aliases_resolve(self) -> None:
+        self.assertIsInstance(self.router.get("python"), PythonRunner)
+        self.assertIsInstance(self.router.get("python_runner"), PythonRunner)
 
 
 if __name__ == "__main__":

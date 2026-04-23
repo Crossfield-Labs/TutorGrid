@@ -43,7 +43,44 @@ class JsonlTraceStore:
         with trace_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
+    def list_session_trace(self, session_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        entries = self._collect_entries(session_id)
+        if limit > 0:
+            entries = entries[-limit:]
+        return [
+            {
+                "seq": index + 1,
+                "timestamp": str(entry.get("timestamp") or ""),
+                "sessionId": str(entry.get("sessionId") or ""),
+                "taskId": str(entry.get("taskId") or ""),
+                "nodeId": str(entry.get("nodeId") or ""),
+                "runner": str(entry.get("runner") or ""),
+                "event": str(entry.get("event") or ""),
+                "payload": entry.get("payload") or {},
+            }
+            for index, entry in enumerate(entries)
+        ]
+
     def list_session_history(self, session_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        entries = self._collect_entries(session_id)
+        if not entries:
+            return []
+        if limit > 0:
+            entries = entries[-limit:]
+        return [
+            {
+                "seq": index + 1,
+                "kind": self._normalize_event_kind(str(entry.get("event") or "")),
+                "event": str(entry.get("event") or ""),
+                "title": self._build_history_title(str(entry.get("event") or ""), entry.get("payload") or {}),
+                "status": self._build_history_status(str(entry.get("event") or ""), entry.get("payload") or {}),
+                "detail": self._build_history_detail(entry.get("payload") or {}),
+                "createdAt": str(entry.get("timestamp") or ""),
+            }
+            for index, entry in enumerate(entries)
+        ]
+
+    def _collect_entries(self, session_id: str) -> list[dict[str, Any]]:
         entries: list[dict[str, Any]] = []
         if not self.root.exists():
             return entries
@@ -60,23 +97,8 @@ class JsonlTraceStore:
                     if entry.get("sessionId") != session_id:
                         continue
                     entries.append(entry)
-        if not entries:
-            return []
         entries.sort(key=lambda item: str(item.get("timestamp") or ""))
-        if limit > 0:
-            entries = entries[-limit:]
-        return [
-            {
-                "seq": index + 1,
-                "kind": self._normalize_event_kind(str(entry.get("event") or "")),
-                "event": str(entry.get("event") or ""),
-                "title": self._build_history_title(str(entry.get("event") or ""), entry.get("payload") or {}),
-                "status": self._build_history_status(str(entry.get("event") or ""), entry.get("payload") or {}),
-                "detail": self._build_history_detail(entry.get("payload") or {}),
-                "createdAt": str(entry.get("timestamp") or ""),
-            }
-            for index, entry in enumerate(entries)
-        ]
+        return entries
 
     @staticmethod
     def _normalize_event_kind(event: str) -> str:

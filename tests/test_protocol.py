@@ -65,6 +65,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.memory_retrieval_strength, "aggressive")
         self.assertEqual(request.params.memory_cleanup_interval_hours, 12)
 
+    def test_request_parsing_reads_push_and_profile_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.profile.get",
+                "params": {
+                    "pushEnabled": True,
+                    "pushOnSessionComplete": True,
+                    "pushOnSessionFailure": False,
+                    "profileLevel": "L4",
+                    "profileKey": "workspace-key",
+                },
+            }
+        )
+
+        self.assertTrue(request.params.push_enabled)
+        self.assertTrue(request.params.push_on_session_complete)
+        self.assertFalse(request.params.push_on_session_failure)
+        self.assertEqual(request.params.profile_level, "L4")
+        self.assertEqual(request.params.profile_key, "workspace-key")
+
     def test_build_event_preserves_payload(self) -> None:
         event = build_event(
             event="orchestrator.session.completed",

@@ -36,6 +36,11 @@ class OrchestratorParams:
     memory_retrieval_strength: str = ""
     memory_cleanup_enabled: bool = True
     memory_cleanup_interval_hours: int = 24
+    push_enabled: bool = True
+    push_on_session_complete: bool = True
+    push_on_session_failure: bool = False
+    profile_level: str = ""
+    profile_key: str = ""
 
 
 @dataclass(slots=True)
@@ -82,6 +87,11 @@ class OrchestratorRequest:
                 memory_retrieval_strength=str(params.get("memoryRetrievalStrength") or ""),
                 memory_cleanup_enabled=bool(params.get("memoryCleanupEnabled", True)),
                 memory_cleanup_interval_hours=_coerce_int(params.get("memoryCleanupIntervalHours"), 24),
+                push_enabled=bool(params.get("pushEnabled", True)),
+                push_on_session_complete=bool(params.get("pushOnSessionComplete", True)),
+                push_on_session_failure=bool(params.get("pushOnSessionFailure", False)),
+                profile_level=str(params.get("profileLevel") or ""),
+                profile_key=str(params.get("profileKey") or ""),
             ),
         )
 

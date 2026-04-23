@@ -83,6 +83,10 @@
 - `orchestrator.session.worker`
 - `orchestrator.session.summary`
 - `orchestrator.session.artifact_summary`
+- `orchestrator.session.artifact.created`
+- `orchestrator.session.artifact.updated`
+- `orchestrator.session.artifact.removed`
+- `orchestrator.session.tile`
 - `orchestrator.session.permission`
 - `orchestrator.session.mcp_status`
 - `orchestrator.session.worker_runtime`
@@ -169,15 +173,52 @@ GUI 不能只靠实时事件，还需要历史拉取。
 用途：
 - 拉原始 trace / 调试事件
 
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `timestamp`
+  - `sessionId`
+  - `taskId`
+  - `nodeId`
+  - `runner`
+  - `event`
+  - `payload`
+
 ### 4. `orchestrator.session.errors`
 
 用途：
 - 拉结构化错误
 
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `layer`
+  - `code`
+  - `message`
+  - `details`
+  - `retryable`
+  - `phase`
+  - `worker`
+  - `createdAt`
+
 ### 5. `orchestrator.session.messages`
 
 用途：
 - 拉 planner message history
+
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `role`
+  - `messageType`
+  - `contentText`
+  - `contentJson`
+  - `toolName`
+  - `toolCallId`
+  - `createdAt`
 
 ### 6. `orchestrator.memory.compact`
 
@@ -220,6 +261,7 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - `snapshot`
 - `error`
 - `artifact`
+- `tile`
 
 后端不一定真的改成这些名字，但最终要能映射到这个统一前端模型。
 

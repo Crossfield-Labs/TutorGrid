@@ -66,4 +66,13 @@ class SessionManager:
             return session.build_snapshot()
         return self._store.get_session_snapshot(session_id)
 
+    def list_messages(self, session_id: str, *, limit: int = 200) -> list[dict[str, Any]]:
+        return self._store.list_session_messages(session_id, limit=limit)
+
+    def list_errors(self, session_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        return self._store.list_session_errors(session_id, limit=limit)
+
+    def list_artifacts(self, session_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
+        return self._store.list_session_artifacts(session_id, limit=limit)
+
 

@@ -14,6 +14,7 @@ class PlannerConfig:
     api_base: str = ""
     temperature: float = 0.2
     max_tokens: int = 4096
+    provider_options: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -29,11 +30,47 @@ class MemoryConfig:
 
 
 @dataclass(slots=True)
+class PushConfig:
+    enabled: bool = True
+    on_session_complete: bool = True
+    on_session_failure: bool = False
+
+
+@dataclass(slots=True)
 class OrchestratorConfig:
     planner: PlannerConfig
     memory: MemoryConfig
+    push: PushConfig
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
+    python_command: str = "python"
+    python_runner_timeout_seconds: int = 60
+    python_runner_output_limit_bytes: int = 16384
+    python_runner_workspace_root: str = ""
+    python_runner_allowed_env: list[str] = field(
+        default_factory=lambda: [
+            "APPDATA",
+            "COMSPEC",
+            "HOME",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "LOCALAPPDATA",
+            "OS",
+            "PATH",
+            "PATHEXT",
+            "PROCESSOR_ARCHITECTURE",
+            "PROCESSOR_IDENTIFIER",
+            "PROGRAMDATA",
+            "PROGRAMFILES",
+            "PROGRAMFILES(X86)",
+            "PYTHONIOENCODING",
+            "SYSTEMROOT",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "WINDIR",
+        ]
+    )
     opencode_model: str = ""
     opencode_agent: str = ""
     codex_command: str = "codex"
@@ -74,6 +111,18 @@ def write_config_data(data: dict[str, object]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _parse_json_object(raw: object) -> dict[str, object]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return dict(loaded) if isinstance(loaded, dict) else {}
+
+
 def update_planner_config(*, provider: str, model: str, api_key: str, api_base: str) -> None:
     data = read_config_data()
     planner = data.get("planner")
@@ -112,6 +161,22 @@ def update_memory_config(
     write_config_data(data)
 
 
+def update_push_config(
+    *,
+    enabled: bool,
+    on_session_complete: bool,
+    on_session_failure: bool,
+) -> None:
+    data = read_config_data()
+    push = data.get("push")
+    push_data = push if isinstance(push, dict) else {}
+    push_data["enabled"] = enabled
+    push_data["onSessionComplete"] = on_session_complete
+    push_data["onSessionFailure"] = on_session_failure
+    data["push"] = push_data
+    write_config_data(data)
+
+
 def get_runtime_config_view() -> dict[str, object]:
     config = load_config()
     return {
@@ -131,6 +196,11 @@ def get_runtime_config_view() -> dict[str, object]:
             "cleanupEnabled": config.memory.cleanup_enabled,
             "cleanupIntervalHours": config.memory.cleanup_interval_hours,
         },
+        "push": {
+            "enabled": config.push.enabled,
+            "onSessionComplete": config.push.on_session_complete,
+            "onSessionFailure": config.push.on_session_failure,
+        },
     }
 
 
@@ -141,6 +211,8 @@ def load_config() -> OrchestratorConfig:
     planner_dict = planner_data if isinstance(planner_data, dict) else {}
     memory_data = data.get("memory") if isinstance(data, dict) else {}
     memory_dict = memory_data if isinstance(memory_data, dict) else {}
+    push_data = data.get("push") if isinstance(data, dict) else {}
+    push_dict = push_data if isinstance(push_data, dict) else {}
     planner = PlannerConfig(
         provider=os.environ.get("ORCHESTRATOR_PROVIDER", str(planner_dict.get("provider") or "openai_compat")),
         model=os.environ.get("ORCHESTRATOR_MODEL", str(planner_dict.get("model") or "")),
@@ -148,6 +220,9 @@ def load_config() -> OrchestratorConfig:
         api_base=os.environ.get("ORCHESTRATOR_API_BASE", str(planner_dict.get("apiBase") or "")),
         temperature=float(os.environ.get("ORCHESTRATOR_TEMPERATURE", planner_dict.get("temperature") or 0.2)),
         max_tokens=int(os.environ.get("ORCHESTRATOR_MAX_TOKENS", planner_dict.get("maxTokens") or 4096)),
+        provider_options=_parse_json_object(
+            os.environ.get("ORCHESTRATOR_PROVIDER_OPTIONS_JSON", planner_dict.get("providerOptions") or {})
+        ),
     )
     memory = MemoryConfig(
         enabled=str(os.environ.get("ORCHESTRATOR_MEMORY_ENABLED", memory_dict.get("enabled", True))).strip().lower()
@@ -190,11 +265,56 @@ def load_config() -> OrchestratorConfig:
             )
         ),
     )
+    push = PushConfig(
+        enabled=str(os.environ.get("ORCHESTRATOR_PUSH_ENABLED", push_dict.get("enabled", True))).strip().lower()
+        not in {"0", "false", "no", ""},
+        on_session_complete=str(
+            os.environ.get("ORCHESTRATOR_PUSH_ON_SESSION_COMPLETE", push_dict.get("onSessionComplete", True))
+        )
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        on_session_failure=str(
+            os.environ.get("ORCHESTRATOR_PUSH_ON_SESSION_FAILURE", push_dict.get("onSessionFailure", False))
+        )
+        .strip()
+        .lower()
+        in {"1", "true", "yes"},
+    )
     return OrchestratorConfig(
         planner=planner,
         memory=memory,
+        push=push,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
+        python_command=os.environ.get("ORCHESTRATOR_PYTHON_COMMAND", str(data.get("pythonCommand") or "python")),
+        python_runner_timeout_seconds=int(
+            os.environ.get(
+                "ORCHESTRATOR_PYTHON_RUNNER_TIMEOUT",
+                data.get("pythonRunnerTimeoutSeconds") or 60,
+            )
+        ),
+        python_runner_output_limit_bytes=int(
+            os.environ.get(
+                "ORCHESTRATOR_PYTHON_RUNNER_OUTPUT_LIMIT_BYTES",
+                data.get("pythonRunnerOutputLimitBytes") or 16384,
+            )
+        ),
+        python_runner_workspace_root=str(
+            os.environ.get(
+                "ORCHESTRATOR_PYTHON_RUNNER_WORKSPACE_ROOT",
+                data.get("pythonRunnerWorkspaceRoot") or "",
+            )
+        ),
+        python_runner_allowed_env=[
+            item.strip()
+            for item in os.environ.get(
+                "ORCHESTRATOR_PYTHON_RUNNER_ALLOWED_ENV",
+                ",".join(data.get("pythonRunnerAllowedEnv") or []),
+            ).split(",")
+            if item.strip()
+        ]
+        or OrchestratorConfig.__dataclass_fields__["python_runner_allowed_env"].default_factory(),
         opencode_model=str(os.environ.get("ORCHESTRATOR_OPENCODE_MODEL", data.get("opencodeModel") or "")),
         opencode_agent=str(os.environ.get("ORCHESTRATOR_OPENCODE_AGENT", data.get("opencodeAgent") or "")),
         codex_command=os.environ.get("ORCHESTRATOR_CODEX_COMMAND", str(data.get("codexCommand") or "codex")),

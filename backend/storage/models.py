@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from dataclasses import dataclass
+from typing import Any
 
 from backend.sessions.state import OrchestratorSessionState
 
@@ -71,4 +72,89 @@ class SessionRow:
 
     def to_record(self) -> dict[str, object]:
         return asdict(self)
+
+
+def build_message_rows(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, item in enumerate(list(session.context.get("planner_messages") or []), start=1):
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "session_id": session.session_id,
+                "seq": index,
+                "role": str(item.get("role") or "user"),
+                "message_type": _detect_message_type(item),
+                "content_text": str(item.get("content") or ""),
+                "content_json": item,
+                "tool_name": str(item.get("name") or ""),
+                "tool_call_id": str(item.get("tool_call_id") or ""),
+                "created_at": session.updated_at,
+            }
+        )
+    return rows
+
+
+def build_error_rows(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    error_text = str(session.error or "").strip()
+    if not error_text:
+        return []
+    return [
+        {
+            "session_id": session.session_id,
+            "seq": 1,
+            "error_layer": "runtime",
+            "error_code": session.stop_reason or "runtime_error",
+            "message": error_text,
+            "details_json": {
+                "phase": session.phase,
+                "runner": session.runner,
+                "activeWorker": session.active_worker,
+            },
+            "retryable": session.stop_reason not in {"cancelled"},
+            "phase": session.phase,
+            "worker": session.active_worker,
+            "created_at": session.updated_at,
+        }
+    ]
+
+
+def build_artifact_rows(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    artifact_map: dict[str, dict[str, Any]] = {}
+    for path in list(session.artifacts):
+        artifact_map[str(path)] = {
+            "session_id": session.session_id,
+            "path": str(path),
+            "change_type": "unknown",
+            "size": None,
+            "summary": session.latest_artifact_summary,
+            "created_at": session.updated_at,
+        }
+
+    for run in list(session.worker_runs or []):
+        for artifact in list(run.get("artifacts") or []):
+            if not isinstance(artifact, dict):
+                continue
+            path = str(artifact.get("path") or "").strip()
+            if not path:
+                continue
+            artifact_map[path] = {
+                "session_id": session.session_id,
+                "path": path,
+                "change_type": str(artifact.get("change_type") or "unknown"),
+                "size": artifact.get("size"),
+                "summary": session.latest_artifact_summary,
+                "created_at": session.updated_at,
+            }
+    return list(artifact_map.values())
+
+
+def _detect_message_type(item: dict[str, Any]) -> str:
+    if item.get("tool_calls"):
+        return "tool_call"
+    if str(item.get("role") or "").lower() == "tool":
+        return "tool_result"
+    if str(item.get("role") or "").lower() == "system":
+        return "system"
+    return "message"
 

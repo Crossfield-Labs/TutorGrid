@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
 from backend.sessions.manager import SessionManager
 from backend.storage.sqlite_store import SQLiteSessionStore
+from tests.temp_paths import workspace_temp_dir
 
 
 class SessionListTests(unittest.TestCase):
     def test_session_manager_lists_recent_sessions(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with workspace_temp_dir("sessions-") as temp_dir:
             store = SQLiteSessionStore(Path(temp_dir) / "orchestrator.sqlite3")
             manager = SessionManager(store=store)
             first = manager.create(
