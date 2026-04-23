@@ -10,6 +10,7 @@
 2. 让桌面端成为可用入口，而不是调试壳
 3. 补齐记忆、压缩、整理和检索能力
 4. 收口协议、学习画像、主动推送、沙箱与端到端测试
+5. 补齐最小 harness 结构，让任务驱动执行、产物落盘和基础评测有统一入口
 
 ## 本轮已完成
 
@@ -174,8 +175,8 @@
 
 - 记忆相关改动，至少同步更新：
   - `docs/persistence.md`
-  - `agent/memory.md`
-  - `agent/gaps.md`
+  - `harness/docs/memory.md`
+  - `harness/docs/gaps.md`
 - 设置页相关改动，至少同步更新：
-  - `agent/frontend.md`
+  - `harness/docs/frontend.md`
 - 如果改变了“当前主线任务”，同步更新本文件

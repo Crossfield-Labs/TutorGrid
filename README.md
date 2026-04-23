@@ -6,7 +6,7 @@
 - 项目概览、当前范围、启动方式放在这里
 - 协作规则放在 [AGENTS.md](./AGENTS.md) 和 [CONTRIBUTING.md](./CONTRIBUTING.md)
 - 更详细的设计、协议、演进文档放在 [docs/](docs/)
-- 面向 agent 的模块导航放在 [agent/](agent/)
+- 面向 agent 的模块导航与 harness 入口放在 [harness/](harness/)
 
 当前范围：
 - `backend/server/`：WebSocket 入口与协议处理
@@ -15,6 +15,7 @@
 - `backend/db/`、`backend/storage/`、`backend/memory/`：ORM 持久化、会话存储与记忆层
 - `backend/llm/`、`backend/tools/`、`backend/workers/`、`backend/providers/`：执行能力栈
 - `backend/runners/`：把外部请求接入运行时
+- `harness/`：任务定义、统一执行入口、结果产物与基础评测
 - `frontend/`：桌面应用前端（Electron + React + TypeScript）
 - 下一阶段重点：`GUI + 持久化 + 上下文压缩`
 
@@ -48,7 +49,7 @@ npm run dev
 - 协作方式：[CONTRIBUTING.md](./CONTRIBUTING.md)
 - agent 接手入口：[AGENTS.md](./AGENTS.md)
 - 详细项目文档：[docs/README.md](docs/README.md)
-- GUI 与下一阶段路线：[docs/roadmap.md](docs/roadmap.md)
-- agent 模块导航：[agent/README.md](agent/README.md)
+- Harness 说明：[docs/harness.md](docs/harness.md)
+- harness 模块导航：[harness/docs/README.md](harness/docs/README.md)
 
 

@@ -13,7 +13,9 @@
 - 当前技术栈：`Electron + Vite + React + TypeScript + MUI`
 - 当前路线：桌面应用优先
 
-详细产品路线看：`../docs/roadmap.md`
+详细前后端协作与协议边界，优先参考：
+- `../../docs/gui-protocol.md`
+- `../../docs/harness.md`
 
 ## 前端实现规范（必须遵守）
 

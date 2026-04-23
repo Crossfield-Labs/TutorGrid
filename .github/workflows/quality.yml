@@ -36,16 +36,25 @@ jobs:
         run: |
           python -c "import json, pathlib; [json.loads(pathlib.Path(name).read_text(encoding='utf-8')) for name in ('config.example.json',)]"
 
+      - name: Validate harness task files
+        run: |
+          python -c "import json, pathlib; [json.loads(path.read_text(encoding='utf-8')) for path in pathlib.Path('harness/tasks').glob('*.json')]"
+
       - name: Compile project source tree
         run: |
-          python -m compileall backend agent docs tests main.py
+          python -m compileall backend harness docs tests scripts main.py
 
       - name: Import smoke check
         run: |
-          python -c "import main, backend.config, backend.server.app, backend.server.protocol, backend.runtime.runtime, backend.runners.router, backend.workers.registry, backend.sessions.manager"
+          python -c "import main, backend.config, backend.server.app, backend.server.protocol, backend.runtime.runtime, backend.runners.router, backend.workers.registry, backend.sessions.manager, harness.runner, harness.evaluator, harness.models"
 
       - name: CLI smoke check
         run: |
           python main.py --help
           python -m backend.dev.run_runtime --help
+          python -m harness.runner --help
+
+      - name: Markdown link sanity
+        run: |
+          python scripts/check_markdown_links.py
 

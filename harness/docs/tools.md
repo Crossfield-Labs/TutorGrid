@@ -22,5 +22,5 @@
 修改时注意：
 - 一旦对 planner/runtime 暴露过的 tool 名称稳定下来，就不要随意改
 - tool 复杂度上升时要尽早补参数校验
-- 新增 tool 后，要同步更新本文件和 `agent/README.md`
+- 新增 tool 后，要同步更新本文件和 `harness/docs/README.md`
 

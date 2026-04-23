@@ -1,10 +1,12 @@
-# Agent 文档导航
+# Harness 导航
 
-这个目录是给 agent 看的模块导航层，目标是让 agent 在接手代码前更快定位结构和边界。
+这个目录同时承担两层职责：
+- 给 agent 看的模块导航层
+- 给任务驱动执行用的 harness 入口层
 
 建议阅读路径：
-1. `../README.md`
-2. `../AGENTS.md`
+1. `../../README.md`
+2. `../../AGENTS.md`
 3. 进入本目录读取对应模块文档
 
 模块文档：
@@ -20,16 +22,15 @@
 - `providers.md`：模型 provider 抽象与 API 兼容层
 - `tools.md`：tool 注册、tool 边界、tool 调用形态
 - `workers.md`：worker 职责与后续委派方向
+- `harness.md`：任务定义、统一执行入口、结果产物和基础评测
 - `tui.md`：终端客户端入口、协议联调方式和维护约束
 - `testing.md`：本地验证路径和测试分层
 - `deprecated.md`：当前存在但不建议继续扩展的目录
 
 连续开发建议：
-1. 先读 `../docs/roadmap.md`，明确当前产品优先级
-2. 再读 `../docs/persistence.md` 和 `../docs/gui-protocol.md`
-3. 再读 `gaps.md`，明确当前还没补齐的行为缺口
-4. 再读对应模块文档，定位代码入口
-5. 修改后同步回写 `gaps.md` 的状态，避免下一个接手者重复判断
+1. 先读 `../../docs/persistence.md`、`../../docs/gui-protocol.md`、`../../docs/harness.md`
+2. 再读 `gaps.md`，明确当前还没补齐的行为缺口
+3. 再读对应模块文档，定位代码入口
+4. 修改后同步回写 `gaps.md` 的状态，避免下一个接手者重复判断
 
 当新的顶层模块变得重要时，要把它补进这个导航文件。
-

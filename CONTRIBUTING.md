@@ -8,14 +8,14 @@
 - `README.md` 是给人看的根入口
 - `AGENTS.md` 是给 agent 看的根入口
 - 详细架构和长文档放在 `docs/`
-- 模块边界、运行方式、测试路径变化时，要同步更新 `agent/*.md`
+- 模块边界、运行方式、测试路径变化时，要同步更新 `harness/docs/*.md`
 
 推荐协作流程：
 1. 先读 [README.md](./README.md)
 2. 再读 [AGENTS.md](./AGENTS.md)
-3. 再读 `agent/` 下对应模块文档
+3. 再读 `harness/docs/` 下对应模块文档
 4. 完成代码改动
-5. 如果行为变化了，同时更新 `agent/` 或 `docs/`
+5. 如果行为变化了，同时更新 `harness/docs/` 或 `docs/`
 6. 至少做一轮最小本地验证
 
 最小验证基线：
@@ -27,8 +27,9 @@
 文档分层：
 - 根目录文档：入口、协作方式、短说明
 - `docs/`：详细设计、人类长期维护文档
-- `agent/`：给 agent 快速定位模块和约束的文档
+- `harness/`：任务执行入口与代码
+- `harness/docs/`：给 agent 快速定位模块、任务和约束的文档
 
-Agent 接手时，先从 [AGENTS.md](./AGENTS.md) 开始，再进入 [agent/README.md](agent/README.md)。
+Agent 接手时，先从 [AGENTS.md](./AGENTS.md) 开始，再进入 [harness/docs/README.md](harness/docs/README.md)。
 
 

@@ -1,0 +1,41 @@
+{
+  "taskId": "harness-ws-smoke",
+  "nodeId": "harness-node",
+  "runner": "orchestrator",
+  "workspace": ".",
+  "task": "Explain arrays",
+  "goal": "Explain arrays",
+  "wsUrl": "ws://127.0.0.1:3210/ws/orchestrator",
+  "timeoutSeconds": 30,
+  "querySnapshot": true,
+  "queryHistory": true,
+  "queryTrace": true,
+  "queryErrors": true,
+  "queryArtifacts": true,
+  "historyLimit": 50,
+  "traceLimit": 50,
+  "errorsLimit": 50,
+  "artifactsLimit": 50,
+  "expectation": {
+    "requiredEvents": [
+      "orchestrator.session.started",
+      "orchestrator.session.completed",
+      "orchestrator.session.snapshot",
+      "orchestrator.session.history"
+    ],
+    "terminalEvent": "orchestrator.session.completed",
+    "terminalStatus": "COMPLETED",
+    "requireFrameMetadata": true,
+    "requireMessageStream": true,
+    "minHistoryItems": 1,
+    "minTraceItems": 1,
+    "requiredSnapshotFields": [
+      "status",
+      "phase",
+      "snapshotVersion"
+    ],
+    "requiredHistoryKinds": [
+      "substep"
+    ]
+  }
+}

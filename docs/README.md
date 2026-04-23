@@ -15,4 +15,5 @@
 当前优先阅读：
 - `persistence.md`：session / message / snapshot / error / trace 的持久化模型
 - `gui-protocol.md`：GUI 第一版需要的协议、字段和历史查询能力
+- `harness.md`：任务定义、统一执行入口、结果产物和基础评测
 
