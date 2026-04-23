@@ -60,23 +60,23 @@
 7. MUI 组件化重构（移除主流程对手写 `app.css` 的依赖）
 
 当前还没落地：
-1. 错误详情
-2. artifact 预览
-3. 会话级 trace 调试视图
-4. 自动拉起 Python 后端
+1. artifact 预览
+2. 更细的 trace/错误筛选能力
+3. 打包态下的内置后端联调验证
 
 设置页约束：
 - 继续统一使用 MUI 组件实现
 - 布局优先使用 `Paper / Divider / FormControl / Select / Switch / Alert / LinearProgress`
 - 保存、加载、同步状态时，优先使用 Material 的标准反馈组件，不要手搓进度条和状态条
 - 运行时设置现在至少覆盖：连接、模型/API、记忆召回、自动整理策略
+- 记忆区需要提供显式的“立即整理记忆”入口
+- Inspector 需要支持概览、trace、errors、artifacts 四类真实数据页签
 
 ## 前端最需要后端先补的接口
 
-1. trace 拉取
-2. 错误详情
-3. 历史消息恢复
-4. artifact 详情
+1. 历史消息恢复
+2. artifact 详情
+3. 归档/删除/改名持久化
 
 ## LangGraph 在前端阶段的作用
 

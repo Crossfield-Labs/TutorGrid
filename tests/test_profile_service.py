@@ -8,7 +8,7 @@ from tests.temp_paths import workspace_temp_dir
 
 
 class LearningProfileServiceTests(unittest.TestCase):
-    def test_refresh_profiles_persists_l1_l2_l4(self) -> None:
+    def test_refresh_profiles_persists_l1_l2_l3_l4(self) -> None:
         with workspace_temp_dir("profile-") as temp_dir:
             service = LearningProfileService(path=temp_dir / "orchestrator.sqlite3")
             session = OrchestratorSessionState(
@@ -34,10 +34,40 @@ class LearningProfileServiceTests(unittest.TestCase):
 
             self.assertIn("L1", profiles)
             self.assertIn("L2", profiles)
+            self.assertIn("L3", profiles)
             self.assertIn("L4", profiles)
             self.assertEqual(profiles["L1"]["profileKey"], session.session_id)
             self.assertTrue(profiles["L2"]["facts"])
+            self.assertTrue(profiles["L3"]["summary"]["trackedTopics"])
             self.assertTrue(profiles["L4"]["summary"]["focusAreas"])
+
+    def test_refresh_profiles_rolls_multiple_sessions_into_project_and_long_term_memory(self) -> None:
+        with workspace_temp_dir("profile-") as temp_dir:
+            service = LearningProfileService(path=temp_dir / "orchestrator.sqlite3")
+            sessions = [
+                ("讲解马拉车算法", "理解线性时间原理", "马拉车算法通过维护中心和右边界实现线性时间。"),
+                ("复习 KMP 算法", "理解 next 数组", "KMP 通过前后缀复用减少回退。"),
+            ]
+            latest_profiles: dict[str, dict[str, object]] = {}
+            for index, (task, goal, detail) in enumerate(sessions, start=1):
+                session = OrchestratorSessionState(
+                    task_id=f"task-{index}",
+                    node_id=f"node-{index}",
+                    runner="orchestrator",
+                    workspace="study-space",
+                    task=task,
+                    goal=goal,
+                )
+                session.status = "COMPLETED"
+                latest_profiles = service.refresh_profiles(
+                    session=session,
+                    history_items=[{"kind": "summary", "detail": detail}],
+                    reason="completed",
+                )
+
+            self.assertIn("讲解马拉车算法", latest_profiles["L3"]["summary"]["trackedTopics"])
+            self.assertIn("复习 KMP 算法", latest_profiles["L3"]["summary"]["trackedTopics"])
+            self.assertTrue(latest_profiles["L4"]["summary"]["recurringTopics"])
 
     def test_list_profiles_returns_recent_records(self) -> None:
         with workspace_temp_dir("profile-") as temp_dir:

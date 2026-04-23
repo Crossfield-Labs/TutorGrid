@@ -34,6 +34,7 @@ class LearningPushSchedulerTests(unittest.TestCase):
 
             self.assertEqual(len(pushes), 1)
             self.assertEqual(pushes[0]["pushType"], "learning_followup")
+            self.assertIn("trackedTopics", pushes[0]["payload"])
             stored = scheduler.list_pushes(session_id=session.session_id, limit=10)
             self.assertEqual(len(stored), 1)
             self.assertIn("recommendation", stored[0]["payload"])

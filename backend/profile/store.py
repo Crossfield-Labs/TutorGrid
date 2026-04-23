@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from contextlib import closing
-import json
-import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from backend.db.models import LearningProfileModel, LearningPushRecordModel
+from backend.db.session import OrchestratorDatabase
 
 
 @dataclass(slots=True)
@@ -39,47 +42,7 @@ class PushRecord:
 class SQLiteLearningProfileStore:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS learning_profiles (
-                    profile_level TEXT NOT NULL,
-                    profile_key TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    workspace TEXT NOT NULL,
-                    topic TEXT NOT NULL,
-                    summary_json TEXT NOT NULL,
-                    facts_json TEXT NOT NULL,
-                    metadata_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (profile_level, profile_key)
-                );
-
-                CREATE TABLE IF NOT EXISTS learning_push_records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    profile_level TEXT NOT NULL,
-                    profile_key TEXT NOT NULL,
-                    push_type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    message TEXT NOT NULL,
-                    payload_json TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                """
-            )
-            connection.commit()
+        self.database = OrchestratorDatabase(path)
 
     def upsert_profile(
         self,
@@ -95,51 +58,44 @@ class SQLiteLearningProfileStore:
         created_at: str,
         updated_at: str,
     ) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                INSERT INTO learning_profiles (
-                    profile_level, profile_key, session_id, workspace, topic,
-                    summary_json, facts_json, metadata_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(profile_level, profile_key) DO UPDATE SET
-                    session_id=excluded.session_id,
-                    workspace=excluded.workspace,
-                    topic=excluded.topic,
-                    summary_json=excluded.summary_json,
-                    facts_json=excluded.facts_json,
-                    metadata_json=excluded.metadata_json,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    profile_level,
-                    profile_key,
-                    session_id,
-                    workspace,
-                    topic,
-                    json.dumps(summary, ensure_ascii=False),
-                    json.dumps(facts, ensure_ascii=False),
-                    json.dumps(metadata, ensure_ascii=False),
-                    created_at,
-                    updated_at,
-                ),
+        with self.database.SessionLocal() as db:
+            statement = sqlite_insert(LearningProfileModel).values(
+                profile_level=profile_level,
+                profile_key=profile_key,
+                session_id=session_id,
+                workspace=workspace,
+                topic=topic,
+                summary_json=summary,
+                facts_json=facts,
+                metadata_json=metadata,
+                created_at=created_at,
+                updated_at=updated_at,
             )
-            connection.commit()
+            db.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["profile_level", "profile_key"],
+                    set_={
+                        "session_id": session_id,
+                        "workspace": workspace,
+                        "topic": topic,
+                        "summary_json": summary,
+                        "facts_json": facts,
+                        "metadata_json": metadata,
+                        "updated_at": updated_at,
+                    },
+                )
+            )
+            db.commit()
 
     def get_profile(self, *, profile_level: str, profile_key: str) -> LearningProfileRecord | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT profile_level, profile_key, session_id, workspace, topic,
-                       summary_json, facts_json, metadata_json, created_at, updated_at
-                FROM learning_profiles
-                WHERE profile_level = ? AND profile_key = ?
-                """,
-                (profile_level, profile_key),
-            ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_profile(row)
+        with self.database.SessionLocal() as db:
+            row = db.scalars(
+                select(LearningProfileModel).where(
+                    LearningProfileModel.profile_level == profile_level,
+                    LearningProfileModel.profile_key == profile_key,
+                )
+            ).first()
+        return self._row_to_profile(row) if row is not None else None
 
     def list_profiles(
         self,
@@ -147,21 +103,11 @@ class SQLiteLearningProfileStore:
         profile_level: str | None = None,
         limit: int = 50,
     ) -> list[LearningProfileRecord]:
-        query = """
-            SELECT profile_level, profile_key, session_id, workspace, topic,
-                   summary_json, facts_json, metadata_json, created_at, updated_at
-            FROM learning_profiles
-        """
-        params: tuple[Any, ...]
-        if profile_level:
-            query += " WHERE profile_level = ?"
-            params = (profile_level, limit)
-            query += " ORDER BY updated_at DESC LIMIT ?"
-        else:
-            params = (limit,)
-            query += " ORDER BY updated_at DESC LIMIT ?"
-        with closing(self._connect()) as connection:
-            rows = connection.execute(query, params).fetchall()
+        with self.database.SessionLocal() as db:
+            statement = select(LearningProfileModel).order_by(LearningProfileModel.updated_at.desc()).limit(limit)
+            if profile_level:
+                statement = statement.where(LearningProfileModel.profile_level == profile_level)
+            rows = db.scalars(statement).all()
         return [self._row_to_profile(row) for row in rows]
 
     def create_push_record(
@@ -177,83 +123,55 @@ class SQLiteLearningProfileStore:
         status: str,
         created_at: str,
     ) -> PushRecord:
-        with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                """
-                INSERT INTO learning_push_records (
-                    session_id, profile_level, profile_key, push_type, title,
-                    message, payload_json, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    session_id,
-                    profile_level,
-                    profile_key,
-                    push_type,
-                    title,
-                    message,
-                    json.dumps(payload, ensure_ascii=False),
-                    status,
-                    created_at,
-                ),
+        with self.database.SessionLocal() as db:
+            row = LearningPushRecordModel(
+                session_id=session_id,
+                profile_level=profile_level,
+                profile_key=profile_key,
+                push_type=push_type,
+                title=title,
+                message=message,
+                payload_json=payload,
+                status=status,
+                created_at=created_at,
             )
-            connection.commit()
-            push_id = int(cursor.lastrowid)
-        return PushRecord(
-            push_id=push_id,
-            session_id=session_id,
-            profile_level=profile_level,
-            profile_key=profile_key,
-            push_type=push_type,
-            title=title,
-            message=message,
-            payload=payload,
-            status=status,
-            created_at=created_at,
-        )
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+        return self._row_to_push(row)
 
     def list_push_records(self, *, session_id: str | None = None, limit: int = 50) -> list[PushRecord]:
-        query = """
-            SELECT id, session_id, profile_level, profile_key, push_type, title,
-                   message, payload_json, status, created_at
-            FROM learning_push_records
-        """
-        params: tuple[Any, ...]
-        if session_id:
-            query += " WHERE session_id = ?"
-            params = (session_id, limit)
-            query += " ORDER BY id DESC LIMIT ?"
-        else:
-            params = (limit,)
-            query += " ORDER BY id DESC LIMIT ?"
-        with closing(self._connect()) as connection:
-            rows = connection.execute(query, params).fetchall()
+        with self.database.SessionLocal() as db:
+            statement = select(LearningPushRecordModel).order_by(LearningPushRecordModel.id.desc()).limit(limit)
+            if session_id:
+                statement = statement.where(LearningPushRecordModel.session_id == session_id)
+            rows = db.scalars(statement).all()
         return [self._row_to_push(row) for row in rows]
 
-    def _row_to_profile(self, row: sqlite3.Row) -> LearningProfileRecord:
+    def _row_to_profile(self, row: LearningProfileModel) -> LearningProfileRecord:
         return LearningProfileRecord(
-            profile_level=str(row["profile_level"]),
-            profile_key=str(row["profile_key"]),
-            session_id=str(row["session_id"]),
-            workspace=str(row["workspace"]),
-            topic=str(row["topic"]),
-            summary=json.loads(str(row["summary_json"])),
-            facts=json.loads(str(row["facts_json"])),
-            metadata=json.loads(str(row["metadata_json"])),
-            created_at=str(row["created_at"]),
-            updated_at=str(row["updated_at"]),
+            profile_level=row.profile_level,
+            profile_key=row.profile_key,
+            session_id=row.session_id,
+            workspace=row.workspace,
+            topic=row.topic,
+            summary=dict(row.summary_json or {}),
+            facts=list(row.facts_json or []),
+            metadata=dict(row.metadata_json or {}),
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
-    def _row_to_push(self, row: sqlite3.Row) -> PushRecord:
+    def _row_to_push(self, row: LearningPushRecordModel) -> PushRecord:
         return PushRecord(
-            push_id=int(row["id"]),
-            session_id=str(row["session_id"]),
-            profile_level=str(row["profile_level"]),
-            profile_key=str(row["profile_key"]),
-            push_type=str(row["push_type"]),
-            title=str(row["title"]),
-            message=str(row["message"]),
-            payload=json.loads(str(row["payload_json"])),
-            status=str(row["status"]),
-            created_at=str(row["created_at"]),
+            push_id=int(row.id),
+            session_id=row.session_id,
+            profile_level=row.profile_level,
+            profile_key=row.profile_key,
+            push_type=row.push_type,
+            title=row.title,
+            message=row.message,
+            payload=dict(row.payload_json or {}),
+            status=row.status,
+            created_at=row.created_at,
         )

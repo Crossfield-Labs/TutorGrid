@@ -99,12 +99,68 @@ class LearningProfileService:
             updated_at=updated_at,
         )
 
-        l4_key = _topic_key(session.workspace or "global")
+        l3_key = _topic_key(f"project::{session.workspace or 'global'}")
+        existing_l3 = self.store.get_profile(profile_level="L3", profile_key=l3_key)
+        project_topic = session.task.strip() or topic or session.goal.strip() or "untitled"
+        project_facts = self._merge_project_facts(
+            existing=existing_l3,
+            topic=project_topic,
+            new_facts=l2_facts,
+            keywords=evidence["keywords"],
+        )
+        l3_summary = {
+            "workspace": session.workspace,
+            "trackedTopics": [
+                item["title"]
+                for item in project_facts
+                if item.get("category") == "topic"
+            ][:5],
+            "stableKeywords": [
+                item["title"]
+                for item in project_facts
+                if item.get("category") in {"keyword", "project_focus"}
+            ][:6],
+            "lastSessionId": session.session_id,
+            "latestTopic": project_topic,
+            "latestOutcome": snapshot.get("latestSummary", ""),
+            "reason": reason,
+        }
+        self.store.upsert_profile(
+            profile_level="L3",
+            profile_key=l3_key,
+            session_id=session.session_id,
+            workspace=session.workspace,
+            topic=project_topic,
+            summary=l3_summary,
+            facts=project_facts,
+            metadata={
+                "kind": "project",
+                "keywords": evidence["keywords"][:16],
+            },
+            created_at=existing_l3.created_at if existing_l3 is not None else session.created_at,
+            updated_at=updated_at,
+        )
+
+        l4_key = _topic_key(f"long_term::{session.workspace or 'global'}")
         existing_l4 = self.store.get_profile(profile_level="L4", profile_key=l4_key)
-        long_term_facts = self._merge_long_term_facts(existing_l4, l2_facts, evidence["keywords"])
+        long_term_facts = self._merge_long_term_facts(
+            existing_l4,
+            project_facts,
+            evidence["keywords"],
+            topic=project_topic,
+        )
         l4_summary = {
             "workspace": session.workspace,
-            "focusAreas": [fact["title"] for fact in long_term_facts[:5]],
+            "focusAreas": [
+                fact["title"]
+                for fact in long_term_facts
+                if fact.get("category") in {"focus_area", "project_focus", "keyword"}
+            ][:5],
+            "recurringTopics": [
+                fact["title"]
+                for fact in long_term_facts
+                if fact.get("category") in {"recurring_topic", "topic"}
+            ][:4],
             "lastSessionId": session.session_id,
             "lastUpdatedReason": reason,
         }
@@ -124,6 +180,7 @@ class LearningProfileService:
         return {
             "L1": self._record_payload(self.store.get_profile(profile_level="L1", profile_key=session.session_id)),
             "L2": self._record_payload(self.store.get_profile(profile_level="L2", profile_key=l2_key)),
+            "L3": self._record_payload(self.store.get_profile(profile_level="L3", profile_key=l3_key)),
             "L4": self._record_payload(self.store.get_profile(profile_level="L4", profile_key=l4_key)),
         }
 
@@ -194,6 +251,8 @@ class LearningProfileService:
         existing: LearningProfileRecord | None,
         new_facts: list[dict[str, Any]],
         keywords: list[str],
+        *,
+        topic: str,
     ) -> list[dict[str, Any]]:
         merged: dict[str, dict[str, Any]] = {}
         for item in (existing.facts if existing is not None else []):
@@ -206,17 +265,81 @@ class LearningProfileService:
                 continue
             current = merged.get(title)
             if current is None:
+                next_item = dict(item)
+                if next_item.get("category") == "topic":
+                    next_item["category"] = "recurring_topic"
+                merged[title] = next_item
+                continue
+            if isinstance(item.get("value"), int) and isinstance(current.get("value"), int):
+                current["value"] = int(current["value"]) + int(item["value"])
+            else:
+                current["value"] = item.get("value") or current.get("value")
+            if current.get("category") == "topic":
+                current["category"] = "recurring_topic"
+        merged.setdefault(
+            topic,
+            {"title": topic, "value": 1, "category": "recurring_topic"},
+        )
+        for keyword in keywords[:6]:
+            merged.setdefault(
+                keyword,
+                {"title": keyword, "value": 1, "category": "focus_area"},
+            )
+        return self._sort_facts(list(merged.values()), limit=18)
+
+    def _merge_project_facts(
+        self,
+        *,
+        existing: LearningProfileRecord | None,
+        topic: str,
+        new_facts: list[dict[str, Any]],
+        keywords: list[str],
+    ) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for item in (existing.facts if existing is not None else []):
+            title = str(item.get("title") or "").strip()
+            if title:
+                merged[title] = dict(item)
+        topic_item = merged.setdefault(
+            topic,
+            {"title": topic, "value": 0, "category": "topic"},
+        )
+        topic_item["value"] = int(topic_item.get("value", 0) or 0) + 1
+        for item in new_facts:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            current = merged.get(title)
+            if current is None:
                 merged[title] = dict(item)
                 continue
             if isinstance(item.get("value"), int) and isinstance(current.get("value"), int):
                 current["value"] = int(current["value"]) + int(item["value"])
             else:
                 current["value"] = item.get("value") or current.get("value")
-        for keyword in keywords[:6]:
-            merged.setdefault(
+        for keyword in keywords[:8]:
+            current = merged.setdefault(
                 keyword,
-                {"title": keyword, "value": 1, "category": "focus_area"},
+                {"title": keyword, "value": 0, "category": "project_focus"},
             )
-        values = list(merged.values())
-        values.sort(key=lambda item: (0 if item.get("category") == "summary" else 1, -int(item.get("value", 1)) if isinstance(item.get("value"), int) else 0))
-        return values[:16]
+            if isinstance(current.get("value"), int):
+                current["value"] = int(current["value"]) + 1
+        return self._sort_facts(list(merged.values()), limit=20)
+
+    def _sort_facts(self, facts: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+        category_rank = {
+            "summary": 0,
+            "topic": 1,
+            "recurring_topic": 1,
+            "focus_area": 2,
+            "project_focus": 2,
+            "keyword": 3,
+        }
+        facts.sort(
+            key=lambda item: (
+                category_rank.get(str(item.get("category") or ""), 9),
+                -int(item.get("value", 1)) if isinstance(item.get("value"), int) else 0,
+                str(item.get("title") or ""),
+            )
+        )
+        return facts[:limit]

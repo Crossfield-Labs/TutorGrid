@@ -25,7 +25,17 @@ import {
 import { SessionList } from "../features/sessions/SessionList";
 import { StatePanel } from "../features/state-panel/StatePanel";
 import { Timeline } from "../features/timeline/Timeline";
-import { buildWsUrl, createClient, type SessionSnapshot, type TimelineEvent, type UiSession } from "../lib/ws-client";
+import {
+  buildWsUrl,
+  createClient,
+  type ArtifactTile,
+  type SessionArtifactItem,
+  type SessionErrorItem,
+  type SessionSnapshot,
+  type TimelineEvent,
+  type TraceEntry,
+  type UiSession,
+} from "../lib/ws-client";
 
 type ClientHandle = ReturnType<typeof createClient>;
 type PlannerSettings = {
@@ -44,6 +54,11 @@ type MemorySettings = {
   retrievalStrength: string;
   cleanupEnabled: boolean;
   cleanupIntervalHours: number;
+};
+
+type SettingsFeedback = {
+  severity: "success" | "info" | "warning" | "error";
+  message: string;
 };
 
 const theme = createTheme({
@@ -72,6 +87,11 @@ export function App() {
   const [timelinesBySession, setTimelinesBySession] = useState<Record<string, TimelineEvent[]>>({});
   const [liveEventsBySession, setLiveEventsBySession] = useState<Record<string, TimelineEvent | null>>({});
   const [snapshotsBySession, setSnapshotsBySession] = useState<Record<string, SessionSnapshot>>({});
+  const [traceBySession, setTraceBySession] = useState<Record<string, TraceEntry[]>>({});
+  const [errorsBySession, setErrorsBySession] = useState<Record<string, SessionErrorItem[]>>({});
+  const [artifactsBySession, setArtifactsBySession] = useState<
+    Record<string, { items: SessionArtifactItem[]; tiles: ArtifactTile[] }>
+  >({});
   const [connectionState, setConnectionState] = useState("未连接");
   const [serverUrl, setServerUrl] = useState(defaultWsUrl);
   const [settingsUrl, setSettingsUrl] = useState(defaultWsUrl);
@@ -96,7 +116,8 @@ export function App() {
   });
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [isConfigSaving, setIsConfigSaving] = useState(false);
-  const [settingsFeedback, setSettingsFeedback] = useState<string>("");
+  const [isMemoryCleanupRunning, setIsMemoryCleanupRunning] = useState(false);
+  const [settingsFeedback, setSettingsFeedback] = useState<SettingsFeedback | null>(null);
 
   const clientRef = useRef<ClientHandle | null>(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
@@ -114,6 +135,9 @@ export function App() {
   const selectedTimeline = selectedSessionId ? timelinesBySession[selectedSessionId] ?? [] : [];
   const selectedLiveEvent = selectedSessionId ? liveEventsBySession[selectedSessionId] ?? null : null;
   const selectedStatus = selectedSnapshot?.status ?? selectedSession?.status ?? "";
+  const selectedTrace = selectedSessionId ? traceBySession[selectedSessionId] ?? [] : [];
+  const selectedErrors = selectedSessionId ? errorsBySession[selectedSessionId] ?? [] : [];
+  const selectedArtifacts = selectedSessionId ? artifactsBySession[selectedSessionId] ?? { items: [], tiles: [] } : { items: [], tiles: [] };
 
   useEffect(() => {
     setSettingsUrl(serverUrl);
@@ -131,6 +155,9 @@ export function App() {
         if (currentSessionId) {
           requestSessionHistory(client, currentSessionId);
           requestSessionSnapshot(client, currentSessionId);
+          requestSessionTrace(client, currentSessionId);
+          requestSessionErrors(client, currentSessionId);
+          requestSessionArtifacts(client, currentSessionId);
         }
       },
       onClose: () => setConnectionState("已断开"),
@@ -173,8 +200,20 @@ export function App() {
           setIsConfigLoading(false);
           if (message.event === "orchestrator.config.set") {
             setIsConfigSaving(false);
-            setSettingsFeedback("设置已保存。");
+            setSettingsFeedback({ severity: "success", message: "设置已保存。" });
           }
+          return;
+        }
+
+        if (message.event === "orchestrator.memory.cleanup") {
+          setIsMemoryCleanupRunning(false);
+          const deleted = Number(message.payload?.deletedDocuments ?? 0);
+          const duplicates = Number(message.payload?.duplicateDocuments ?? 0);
+          const emptyDocuments = Number(message.payload?.emptyDocuments ?? 0);
+          setSettingsFeedback({
+            severity: "success",
+            message: `记忆整理完成：共清理 ${deleted} 条，其中重复 ${duplicates} 条、空文档 ${emptyDocuments} 条。`,
+          });
           return;
         }
 
@@ -194,6 +233,45 @@ export function App() {
           setLiveEventsBySession((current) => ({
             ...current,
             [message.sessionId as string]: lastLiveEvent,
+          }));
+          return;
+        }
+
+        if (message.event === "orchestrator.session.trace" && message.sessionId) {
+          const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+          setTraceBySession((current) => ({
+            ...current,
+            [message.sessionId as string]: items
+              .map((item) => mapTraceItem(item as Record<string, unknown>))
+              .filter((item): item is TraceEntry => item !== null),
+          }));
+          return;
+        }
+
+        if (message.event === "orchestrator.session.errors" && message.sessionId) {
+          const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+          setErrorsBySession((current) => ({
+            ...current,
+            [message.sessionId as string]: items
+              .map((item) => mapErrorItem(item as Record<string, unknown>))
+              .filter((item): item is SessionErrorItem => item !== null),
+          }));
+          return;
+        }
+
+        if (message.event === "orchestrator.session.artifacts" && message.sessionId) {
+          const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+          const tiles = Array.isArray(message.payload?.tiles) ? message.payload.tiles : [];
+          setArtifactsBySession((current) => ({
+            ...current,
+            [message.sessionId as string]: {
+              items: items
+                .map((item) => mapArtifactItem(item as Record<string, unknown>))
+                .filter((item): item is SessionArtifactItem => item !== null),
+              tiles: tiles
+                .map((item) => mapArtifactTile(item as Record<string, unknown>))
+                .filter((item): item is ArtifactTile => item !== null),
+            },
           }));
           return;
         }
@@ -252,6 +330,17 @@ export function App() {
             [sessionId]: nextEvent,
           }));
         }
+
+        const currentSessionId = selectedSessionIdRef.current;
+        if (currentSessionId === sessionId) {
+          requestSessionTrace(client, sessionId);
+          if (message.event.endsWith(".failed")) {
+            requestSessionErrors(client, sessionId);
+          }
+          if (message.event.includes(".artifact.") || message.event.endsWith(".tile")) {
+            requestSessionArtifacts(client, sessionId);
+          }
+        }
       },
     });
 
@@ -274,6 +363,9 @@ export function App() {
     }
     requestSessionHistory(client, selectedSessionId);
     requestSessionSnapshot(client, selectedSessionId);
+    requestSessionTrace(client, selectedSessionId);
+    requestSessionErrors(client, selectedSessionId);
+    requestSessionArtifacts(client, selectedSessionId);
   }, [selectedSessionId]);
 
   const prepareNewTask = () => {
@@ -381,7 +473,7 @@ export function App() {
     if (!nextUrl || nextUrl === serverUrl) {
       return;
     }
-    setSettingsFeedback("");
+    setSettingsFeedback(null);
     setServerUrl(nextUrl);
   };
 
@@ -390,7 +482,7 @@ export function App() {
       return;
     }
     setIsConfigSaving(true);
-    setSettingsFeedback("");
+    setSettingsFeedback(null);
     clientRef.current.send({
       type: "req",
       id: crypto.randomUUID(),
@@ -409,6 +501,20 @@ export function App() {
         memoryCleanupEnabled: memorySettings.cleanupEnabled,
         memoryCleanupIntervalHours: memorySettings.cleanupIntervalHours,
       },
+    });
+  };
+
+  const runMemoryCleanup = () => {
+    if (!clientRef.current) {
+      return;
+    }
+    setIsMemoryCleanupRunning(true);
+    setSettingsFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.memory.cleanup",
+      params: {},
     });
   };
 
@@ -470,20 +576,30 @@ export function App() {
             onExplain={requestExplain}
             isAwaitingInput={Boolean(selectedSnapshot?.awaitingInput)}
             isRunning={Boolean(selectedSessionId) && !terminalStatuses.has(selectedStatus)}
-          />
-            <StatePanel session={selectedSession} snapshot={selectedSnapshot} />
+            />
+            <StatePanel
+              session={selectedSession}
+              snapshot={selectedSnapshot}
+              traceEntries={selectedTrace}
+              errorItems={selectedErrors}
+              artifactData={selectedArtifacts}
+            />
           </Box>
         ) : (
           <Box sx={{ p: 2.5, overflow: "auto" }}>
             <Stack spacing={2} sx={{ maxWidth: 860 }}>
               <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-                {isConfigLoading || isConfigSaving ? <LinearProgress /> : null}
+                {isConfigLoading || isConfigSaving || isMemoryCleanupRunning ? <LinearProgress /> : null}
                 <Box sx={{ p: 2.5 }}>
                   <Typography variant="h6">设置</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                     连接、模型和记忆策略统一在这里配置。
                   </Typography>
-                  {settingsFeedback ? <Alert severity="success" sx={{ mt: 2 }}>{settingsFeedback}</Alert> : null}
+                  {settingsFeedback ? (
+                    <Alert severity={settingsFeedback.severity} sx={{ mt: 2 }}>
+                      {settingsFeedback.message}
+                    </Alert>
+                  ) : null}
                 </Box>
                 <Divider />
                 <Box sx={{ p: 2.5, display: "grid", gap: 3 }}>
@@ -573,6 +689,18 @@ export function App() {
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
                       控制是否读取历史记忆、何时自动整理，以及召回范围与强度。
                     </Typography>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        手动执行一次记忆清理，用于去重和移除空文档。
+                      </Typography>
+                      <Button
+                        variant="outlined"
+                        onClick={runMemoryCleanup}
+                        disabled={isMemoryCleanupRunning}
+                      >
+                        立即整理记忆
+                      </Button>
+                    </Stack>
                     <Stack spacing={2}>
                       <FormControlLabel
                         control={
@@ -701,7 +829,12 @@ export function App() {
                 </Box>
                 <Divider />
                 <Box sx={{ p: 2, display: "flex", justifyContent: "flex-end" }}>
-                  <Button variant="contained" color="primary" onClick={applyPlannerSettings} disabled={isConfigSaving}>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={applyPlannerSettings}
+                    disabled={isConfigSaving || isMemoryCleanupRunning}
+                  >
                     保存运行时设置
                   </Button>
                 </Box>
@@ -749,6 +882,36 @@ function requestSessionSnapshot(client: ClientHandle, sessionId: string) {
     method: "orchestrator.session.snapshot",
     sessionId,
     params: {},
+  });
+}
+
+function requestSessionTrace(client: ClientHandle, sessionId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.session.trace",
+    sessionId,
+    params: { limit: 100 },
+  });
+}
+
+function requestSessionErrors(client: ClientHandle, sessionId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.session.errors",
+    sessionId,
+    params: { limit: 50 },
+  });
+}
+
+function requestSessionArtifacts(client: ClientHandle, sessionId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.session.artifacts",
+    sessionId,
+    params: { limit: 50 },
   });
 }
 
@@ -854,6 +1017,69 @@ function mapHistoryItem(item: Record<string, unknown>, index: number): TimelineE
     status: getString(item.status) ?? "completed",
     detail,
     createdAt,
+  };
+}
+
+function mapTraceItem(item: Record<string, unknown>): TraceEntry | null {
+  const seq = Number(item.seq ?? 0);
+  const timestamp = getString(item.timestamp);
+  const event = getString(item.event);
+  if (!timestamp || !event || !seq) {
+    return null;
+  }
+  return {
+    seq,
+    timestamp,
+    event,
+    runner: getString(item.runner),
+    payload: isRecord(item.payload) ? item.payload : {},
+  };
+}
+
+function mapErrorItem(item: Record<string, unknown>): SessionErrorItem | null {
+  const message = getString(item.message);
+  const createdAt = getString(item.createdAt);
+  if (!message || !createdAt) {
+    return null;
+  }
+  return {
+    seq: Number(item.seq ?? 0),
+    errorLayer: getString(item.errorLayer) ?? "",
+    errorCode: getString(item.errorCode) ?? "",
+    message,
+    details: isRecord(item.details) ? item.details : {},
+    retryable: Boolean(item.retryable),
+    phase: getString(item.phase) ?? "",
+    worker: getString(item.worker) ?? "",
+    createdAt,
+  };
+}
+
+function mapArtifactItem(item: Record<string, unknown>): SessionArtifactItem | null {
+  const path = getString(item.path);
+  const createdAt = getString(item.createdAt);
+  if (!path || !createdAt) {
+    return null;
+  }
+  return {
+    path,
+    changeType: getString(item.changeType) ?? "unknown",
+    size: typeof item.size === "number" ? item.size : null,
+    summary: getString(item.summary) ?? "",
+    createdAt,
+  };
+}
+
+function mapArtifactTile(item: Record<string, unknown>): ArtifactTile | null {
+  const path = getString(item.path);
+  if (!path) {
+    return null;
+  }
+  return {
+    path,
+    changeType: getString(item.changeType) ?? "unknown",
+    summary: getString(item.summary) ?? "",
+    size: typeof item.size === "number" ? item.size : null,
   };
 }
 

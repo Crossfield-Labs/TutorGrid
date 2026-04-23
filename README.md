@@ -12,6 +12,7 @@
 - `backend/server/`：WebSocket 入口与协议处理
 - `backend/sessions/`：会话状态与会话管理
 - `backend/runtime/`：基于 LangGraph 的运行时骨架
+- `backend/db/`、`backend/storage/`、`backend/memory/`：ORM 持久化、会话存储与记忆层
 - `backend/llm/`、`backend/tools/`、`backend/workers/`、`backend/providers/`：执行能力栈
 - `backend/runners/`：把外部请求接入运行时
 - `frontend/`：桌面应用前端（Electron + React + TypeScript）

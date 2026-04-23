@@ -248,8 +248,12 @@
 
 建议新增一层：
 - `backend/storage/`
+- `backend/db/`
 
 第一版建议文件：
+- `backend/db/__init__.py`
+- `backend/db/models.py`
+- `backend/db/session.py`
 - `backend/storage/__init__.py`
 - `backend/storage/base.py`
 - `backend/storage/sqlite_store.py`
@@ -294,7 +298,7 @@
 1. 不要只把整个 `session.context` 原样 dump 到数据库当唯一恢复来源。
 2. 不要让 GUI 通过解析 trace 拼会话列表。
 3. 不要把压缩结果只存在内存里。
-4. 不要先做过度通用化的 ORM 抽象。
+4. ORM 只保留轻量统一基础层，不要继续做过度通用的仓储框架。
 
 ## 第一阶段验收标准
 
@@ -345,6 +349,15 @@
 - `L2` 会话记忆：单个 session 的摘要、事实、关键块
 - `L3` 项目记忆：同项目或同工作区复用的稳定背景
 - `L4` 长期记忆：用户偏好、学习状态、长期约束
+
+当前实现：
+- `L2` 已用于单次会话的压缩、摘要和事实保留
+- `L3` 已用于同工作区/项目下的主题、稳定关键词和项目背景聚合
+- `L4` 已用于长期 focus area / recurring topic 聚合
+- 当前仍缺：
+  - 跨周期降级
+  - 归档
+  - 过期与失效处理
 
 整理原则：
 1. 原始 trace 只做事实来源，不直接做召回主体

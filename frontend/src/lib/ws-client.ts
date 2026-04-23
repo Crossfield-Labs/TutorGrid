@@ -57,6 +57,41 @@ export interface TimelineEvent {
   createdAt: string;
 }
 
+export interface TraceEntry {
+  seq: number;
+  timestamp: string;
+  event: string;
+  runner?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SessionErrorItem {
+  seq: number;
+  errorLayer: string;
+  errorCode: string;
+  message: string;
+  details: Record<string, unknown>;
+  retryable: boolean;
+  phase: string;
+  worker: string;
+  createdAt: string;
+}
+
+export interface ArtifactTile {
+  path: string;
+  changeType: string;
+  summary: string;
+  size?: number | null;
+}
+
+export interface SessionArtifactItem {
+  path: string;
+  changeType: string;
+  size?: number | null;
+  summary: string;
+  createdAt: string;
+}
+
 interface ClientOptions {
   url: string;
   onOpen?: () => void;

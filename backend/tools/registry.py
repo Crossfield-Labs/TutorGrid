@@ -12,6 +12,7 @@ except ImportError:  # pragma: no cover
     Field = None
 
 from backend.tools.delegate import delegate_task
+from backend.tools.database import query_database
 from backend.tools.filesystem import list_files, read_file
 from backend.tools.shell import run_shell
 from backend.tools.user_prompt import build_await_user_tool
@@ -48,8 +49,17 @@ if BaseModel is not None and Field is not None:
         task: str = Field(description="Focused task to delegate to the OpenCode worker.")
         session_mode: str = Field(default="", description="Optional session mode. Usually keep this empty or use 'new'.")
         session_key: str = Field(default="", description="Optional logical backend conversation key.")
+
+
+    class QueryDatabaseArgs(BaseModel):
+        table: str = Field(
+            description="Database view to inspect. Supported: sessions, session_messages, session_errors, session_artifacts, memory_documents, learning_profiles, learning_push_records."
+        )
+        session_id: str = Field(default="", description="Optional session id filter for session-scoped tables.")
+        profile_level: str = Field(default="", description="Optional profile level filter for learning_profiles.")
+        limit: int = Field(default=20, description="Maximum number of rows to return.")
 else:
-    ListFilesArgs = ReadFileArgs = RunShellArgs = AwaitUserArgs = DelegateTaskArgs = DelegateOpenCodeArgs = None
+    ListFilesArgs = ReadFileArgs = RunShellArgs = AwaitUserArgs = DelegateTaskArgs = DelegateOpenCodeArgs = QueryDatabaseArgs = None
 
 
 def build_langchain_tools(
@@ -108,6 +118,14 @@ def build_langchain_tools(
             session=session,
         )
 
+    async def _query_database(table: str, session_id: str = "", profile_level: str = "", limit: int = 20) -> str:
+        return await query_database(
+            table=table,
+            session_id=session_id,
+            profile_level=profile_level,
+            limit=limit,
+        )
+
     return [
         StructuredTool.from_function(
             coroutine=_list_files,
@@ -145,6 +163,12 @@ def build_langchain_tools(
             name="delegate_opencode",
             description="Delegate work specifically to the OpenCode worker.",
             args_schema=DelegateOpenCodeArgs,
+        ),
+        StructuredTool.from_function(
+            coroutine=_query_database,
+            name="query_database",
+            description="Inspect persisted session, memory, and learning-profile tables through the ORM-backed SQLite store.",
+            args_schema=QueryDatabaseArgs,
         ),
     ]
 

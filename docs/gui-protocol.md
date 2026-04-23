@@ -65,6 +65,9 @@
 - `permissionSummary`
 - `sessionInfoSummary`
 - `mcpStatusSummary`
+- `trace`
+- `errors`
+- `artifacts / tiles`
 
 ### 4. 输入区
 
@@ -230,6 +233,10 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - 当前 payload 同时返回：
   - `items`
   - `tiles`
+
+桌面端当前用法：
+- 右侧 Inspector 已按 `概览 / Trace / Errors / Artifacts` 四类页签消费这些结果
+- 设置页已提供“立即整理记忆”动作，直接调用 `orchestrator.memory.cleanup`
 
 ### 7. `orchestrator.tiptap.command`
 

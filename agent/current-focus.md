@@ -30,12 +30,14 @@
 
 ### 3. SQLite 记忆层
 - `backend/memory/`
+- `backend/db/`
 - 已补：
   - 历史清洗
   - 会话压缩
   - 摘要 / facts / chunk 文档生成
   - SQLite 持久化
   - 本地 embedding 与相似度检索
+  - 统一 ORM 基础层（SQLAlchemy）
 
 ### 4. 记忆接入 planner
 - `backend/llm/planner.py`
@@ -69,6 +71,7 @@
 - `backend/server/app.py`
 - `backend/server/protocol.py`
 - `backend/storage/`
+- `backend/db/`
 - 已补：
   - `session.trace`
   - `session.messages`
@@ -81,7 +84,7 @@
 - `backend/profile/`
 - `backend/scheduler/`
 - 已补：
-  - `L1/L2/L4` 学习画像
+  - `L1/L2/L3/L4` 学习画像
   - `learning.push.generated`
   - `learning.push.list`
 
@@ -124,14 +127,26 @@
   - `memory.search`
   - `interrupt`
 
+### 14. ORM 与数据库工具
+- `backend/db/`
+- `backend/tools/database.py`
+- `backend/tools/registry.py`
+- 已补：
+  - `backend/storage/sqlite_store.py`、`backend/memory/sqlite_store.py`、`backend/profile/store.py` 迁到统一 ORM 基础层
+  - `query_database` 只读数据库工具，供 runtime/agent 查询持久化数据
+
+### 13. 设置页与 Inspector 面板
+- `frontend/src/app/App.tsx`
+- `frontend/src/features/state-panel/StatePanel.tsx`
+- 已补：
+  - 设置页“立即整理记忆”按钮
+  - `trace / errors / artifacts` 真实查询接入
+  - Inspector 分页查看概览、trace、错误和产物
+
 ## 当前仍未完成
 
 ### P0
-1. 长短期记忆真正分层
-   - 现在主要还是 session 级记忆
-   - 还没形成项目级和长期级记忆升级逻辑
-
-2. 记忆整理器
+1. 记忆整理器
    - 现在已经有去重和空文档清理
    - 还没有：
      - 合并
@@ -139,27 +154,21 @@
      - 归档
      - 过期处理
 
-3. GUI 错误与 trace
-   - 还缺：
-     - 错误详情
-     - trace 拉取
-     - artifact 面板
-
 ### P1
-4. Electron 与后端联调深度仍不足
+2. Electron 与后端联调深度仍不足
    - 自动拉起已经有
    - 还需要继续验证打包后行为
 
-5. 真实 CLI/SDK 联调
+3. 真实 CLI/SDK 联调
    - codex / claude / opencode 仍需要更完整的端到端回归
 
 ## 下一步建议
 
 建议顺序：
-1. 做 `L3/L4` 记忆升级逻辑
-2. 把记忆整理器扩到合并/归档/过期
-3. 给设置页补“立即整理一次记忆”
-4. 补 `trace / errors / artifacts` GUI 面板
+1. 把记忆整理器扩到合并/归档/过期
+2. 持续强化 `L3/L4` 的升级与降级策略
+3. 做打包态 Electron + 内置后端的实机联调
+4. 补更完整的 worker 真实环境回归
 
 ## 修改时注意
 

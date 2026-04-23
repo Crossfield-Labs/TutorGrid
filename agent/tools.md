@@ -2,6 +2,7 @@
 
 主要代码：
 - `backend/tools/registry.py`
+- `backend/tools/database.py`
 - `backend/tools/filesystem.py`
 - `backend/tools/shell.py`
 - `backend/tools/web.py`
@@ -14,8 +15,9 @@
 
 关键点：
 - tool 注册要集中
-- filesystem、shell、web、user prompt、delegate 各自保持可测试
+- filesystem、shell、web、user prompt、delegate、database 各自保持可测试
 - runtime 应关注 tool 元数据与结果，而不是工具内部细节
+- `query_database` 只允许访问受控的持久化表视图，不应暴露任意 SQL 执行
 
 修改时注意：
 - 一旦对 planner/runtime 暴露过的 tool 名称稳定下来，就不要随意改

@@ -1,157 +1,102 @@
 from __future__ import annotations
 
-from contextlib import closing
-from dataclasses import asdict
 from pathlib import Path
-import json
-import sqlite3
 
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from backend.db.models import MemoryCompactionModel, MemoryDocumentModel
+from backend.db.session import OrchestratorDatabase
 from backend.memory.models import MemoryCompaction, MemoryDocument, MemorySearchResult
 
 
 class SQLiteMemoryStore:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS memory_compactions (
-                    session_id TEXT PRIMARY KEY,
-                    summary_text TEXT NOT NULL,
-                    facts_json TEXT NOT NULL,
-                    source_item_count INTEGER NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS memory_documents (
-                    document_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    document_type TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    metadata_json TEXT NOT NULL,
-                    embedding_json TEXT NOT NULL,
-                    token_estimate INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_memory_documents_session_id
-                ON memory_documents(session_id, updated_at DESC);
-                """
-            )
-            connection.commit()
+        self.database = OrchestratorDatabase(path)
 
     def save_compaction(self, compaction: MemoryCompaction) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                INSERT INTO memory_compactions (
-                    session_id, summary_text, facts_json, source_item_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(session_id) DO UPDATE SET
-                    summary_text=excluded.summary_text,
-                    facts_json=excluded.facts_json,
-                    source_item_count=excluded.source_item_count,
-                    updated_at=excluded.updated_at
-                """,
-                (
-                    compaction.session_id,
-                    compaction.summary,
-                    json.dumps(compaction.facts, ensure_ascii=False),
-                    compaction.source_item_count,
-                    compaction.updated_at,
-                ),
+        with self.database.SessionLocal() as db:
+            statement = sqlite_insert(MemoryCompactionModel).values(
+                session_id=compaction.session_id,
+                summary_text=compaction.summary,
+                facts_json=compaction.facts,
+                source_item_count=compaction.source_item_count,
+                updated_at=compaction.updated_at,
             )
-            connection.commit()
+            db.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["session_id"],
+                    set_={
+                        "summary_text": compaction.summary,
+                        "facts_json": compaction.facts,
+                        "source_item_count": compaction.source_item_count,
+                        "updated_at": compaction.updated_at,
+                    },
+                )
+            )
+            db.commit()
 
     def replace_session_documents(self, session_id: str, documents: list[MemoryDocument]) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute("DELETE FROM memory_documents WHERE session_id = ?", (session_id,))
-            for document in documents:
-                record = asdict(document)
-                connection.execute(
-                    """
-                    INSERT INTO memory_documents (
-                        document_id, session_id, document_type, title, content,
-                        metadata_json, embedding_json, token_estimate, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        record["document_id"],
-                        record["session_id"],
-                        record["document_type"],
-                        record["title"],
-                        record["content"],
-                        json.dumps(record["metadata"], ensure_ascii=False),
-                        json.dumps(record["embedding"], ensure_ascii=False),
-                        record["token_estimate"],
-                        record["created_at"],
-                        record["updated_at"],
-                    ),
+        with self.database.SessionLocal() as db:
+            db.execute(delete(MemoryDocumentModel).where(MemoryDocumentModel.session_id == session_id))
+            if documents:
+                db.add_all(
+                    [
+                        MemoryDocumentModel(
+                            document_id=document.document_id,
+                            session_id=document.session_id,
+                            document_type=document.document_type,
+                            title=document.title,
+                            content=document.content,
+                            metadata_json=document.metadata,
+                            embedding_json=document.embedding,
+                            token_estimate=document.token_estimate,
+                            created_at=document.created_at,
+                            updated_at=document.updated_at,
+                        )
+                        for document in documents
+                    ]
                 )
-            connection.commit()
+            db.commit()
 
     def list_session_documents(self, session_id: str) -> list[MemoryDocument]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT *
-                FROM memory_documents
-                WHERE session_id = ?
-                ORDER BY updated_at DESC, document_id ASC
-                """,
-                (session_id,),
-            ).fetchall()
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(MemoryDocumentModel)
+                .where(MemoryDocumentModel.session_id == session_id)
+                .order_by(MemoryDocumentModel.updated_at.desc(), MemoryDocumentModel.document_id.asc())
+            ).all()
         return [self._row_to_document(row) for row in rows]
 
     def cleanup_documents(self) -> dict[str, int]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT document_id, session_id, document_type, title, content
-                FROM memory_documents
-                ORDER BY updated_at DESC, document_id DESC
-                """
-            ).fetchall()
-
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(MemoryDocumentModel).order_by(MemoryDocumentModel.updated_at.desc(), MemoryDocumentModel.document_id.desc())
+            ).all()
             seen: set[tuple[str, str, str, str]] = set()
             duplicates: list[str] = []
             empty_documents: list[str] = []
             for row in rows:
-                document_id = str(row["document_id"])
-                title = str(row["title"] or "").strip()
-                content = str(row["content"] or "").strip()
+                title = (row.title or "").strip()
+                content = (row.content or "").strip()
                 if not title and not content:
-                    empty_documents.append(document_id)
+                    empty_documents.append(row.document_id)
                     continue
                 key = (
-                    str(row["session_id"] or ""),
-                    str(row["document_type"] or ""),
+                    row.session_id,
+                    row.document_type,
                     title.lower(),
                     content.lower(),
                 )
                 if key in seen:
-                    duplicates.append(document_id)
+                    duplicates.append(row.document_id)
                     continue
                 seen.add(key)
-
             deleted = duplicates + empty_documents
             if deleted:
-                connection.executemany(
-                    "DELETE FROM memory_documents WHERE document_id = ?",
-                    [(item,) for item in deleted],
-                )
-            connection.commit()
+                db.execute(delete(MemoryDocumentModel).where(MemoryDocumentModel.document_id.in_(deleted)))
+            db.commit()
         return {
             "deletedDocuments": len(deleted),
             "duplicateDocuments": len(duplicates),
@@ -165,58 +110,43 @@ class SQLiteMemoryStore:
         limit: int = 5,
         session_id: str | None = None,
     ) -> list[MemorySearchResult]:
-        with closing(self._connect()) as connection:
+        with self.database.SessionLocal() as db:
+            statement = select(MemoryDocumentModel).order_by(MemoryDocumentModel.updated_at.desc())
             if session_id:
-                rows = connection.execute(
-                    """
-                    SELECT *
-                    FROM memory_documents
-                    WHERE session_id = ?
-                    ORDER BY updated_at DESC
-                    """,
-                    (session_id,),
-                ).fetchall()
-            else:
-                rows = connection.execute(
-                    """
-                    SELECT *
-                    FROM memory_documents
-                    ORDER BY updated_at DESC
-                    """
-                ).fetchall()
+                statement = statement.where(MemoryDocumentModel.session_id == session_id)
+            rows = db.scalars(statement).all()
         scored_results: list[MemorySearchResult] = []
         for row in rows:
-            embedding = json.loads(row["embedding_json"])
-            score = self._cosine_similarity(query_embedding, embedding)
+            score = self._cosine_similarity(query_embedding, list(row.embedding_json or []))
             if score <= 0:
                 continue
             scored_results.append(
                 MemorySearchResult(
-                    document_id=str(row["document_id"]),
-                    session_id=str(row["session_id"]),
-                    document_type=str(row["document_type"]),
-                    title=str(row["title"]),
-                    content=str(row["content"]),
-                    metadata=json.loads(row["metadata_json"] or "{}"),
+                    document_id=row.document_id,
+                    session_id=row.session_id,
+                    document_type=row.document_type,
+                    title=row.title,
+                    content=row.content,
+                    metadata=dict(row.metadata_json or {}),
                     score=score,
-                    updated_at=str(row["updated_at"]),
+                    updated_at=row.updated_at,
                 )
             )
         scored_results.sort(key=lambda item: item.score, reverse=True)
         return scored_results[: max(1, limit)]
 
-    def _row_to_document(self, row: sqlite3.Row) -> MemoryDocument:
+    def _row_to_document(self, row: MemoryDocumentModel) -> MemoryDocument:
         return MemoryDocument(
-            document_id=str(row["document_id"]),
-            session_id=str(row["session_id"]),
-            document_type=str(row["document_type"]),
-            title=str(row["title"]),
-            content=str(row["content"]),
-            metadata=json.loads(row["metadata_json"] or "{}"),
-            embedding=json.loads(row["embedding_json"] or "[]"),
-            token_estimate=int(row["token_estimate"] or 0),
-            created_at=str(row["created_at"]),
-            updated_at=str(row["updated_at"]),
+            document_id=row.document_id,
+            session_id=row.session_id,
+            document_type=row.document_type,
+            title=row.title,
+            content=row.content,
+            metadata=dict(row.metadata_json or {}),
+            embedding=list(row.embedding_json or []),
+            token_estimate=row.token_estimate,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     def _cosine_similarity(self, left: list[float], right: list[float]) -> float:
