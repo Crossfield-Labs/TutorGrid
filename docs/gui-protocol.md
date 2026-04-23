@@ -85,6 +85,9 @@
 - `orchestrator.session.phase`
 - `orchestrator.session.worker`
 - `orchestrator.session.summary`
+- `orchestrator.session.message.started`
+- `orchestrator.session.message.delta`
+- `orchestrator.session.message.completed`
 - `orchestrator.session.artifact_summary`
 - `orchestrator.session.artifact.created`
 - `orchestrator.session.artifact.updated`
@@ -96,6 +99,44 @@
 - `orchestrator.session.snapshot`
 
 这部分应该继续保留。
+
+补充约定：
+- 所有 event frame 当前统一包含：
+  - `type`
+  - `event`
+  - `taskId`
+  - `nodeId`
+  - `sessionId`
+  - `payload`
+  - `timestamp`
+- session 相关广播事件额外包含单调递增的 `seq`
+
+### 流式消息事件
+
+为 Chat 面板和富文本 AI 输出提供统一流式事件：
+
+1. `orchestrator.session.message.started`
+2. `orchestrator.session.message.delta`
+3. `orchestrator.session.message.completed`
+
+当前 payload 字段：
+- `messageId`
+- `role`
+- `contentType`
+- `phase`
+- `snapshot`
+
+其中：
+- `delta` 只出现在 `message.delta`
+- `content`
+- `finishReason`
+只出现在 `message.completed`
+
+前端消费建议：
+- 收到 `started` 时创建占位消息
+- 收到 `delta` 时按 `messageId` 追加文本
+- 收到 `completed` 时用最终 `content` 收口
+- 不要自己从 `summary` 或 `snapshot` 猜正文
 
 ## 需要新增的历史查询能力
 

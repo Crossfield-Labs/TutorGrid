@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.runners.base import AwaitUserCallback, BaseRunner, ProgressCallback, SubstepCallback
+from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
 from backend.runtime.runtime import OrchestratorRuntime
 from backend.sessions.state import OrchestratorSessionState
 
@@ -8,9 +8,16 @@ from backend.sessions.state import OrchestratorSessionState
 class SubAgentRunner(BaseRunner):
     def __init__(self) -> None:
         self._emit_substep: SubstepCallback | None = None
+        self._emit_message_event: MessageEventCallback | None = None
 
-    def set_event_callbacks(self, *, emit_substep: SubstepCallback | None = None) -> None:
+    def set_event_callbacks(
+        self,
+        *,
+        emit_substep: SubstepCallback | None = None,
+        emit_message_event: MessageEventCallback | None = None,
+    ) -> None:
         self._emit_substep = emit_substep
+        self._emit_message_event = emit_message_event
 
     async def run(
         self,
@@ -23,6 +30,7 @@ class SubAgentRunner(BaseRunner):
             emit_progress=emit_progress,
             await_user=await_user,
             emit_substep=self._emit_substep,
+            emit_message_event=self._emit_message_event,
         )
         return await runtime.run()
 

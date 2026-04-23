@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 import time
 from typing import Any
@@ -56,6 +57,7 @@ async def send_event(
     node_id: str | None,
     session_id: str | None,
     payload: dict[str, Any] | None = None,
+    seq: int | None = None,
 ) -> None:
     await websocket.send(
         json.dumps(
@@ -65,6 +67,8 @@ async def send_event(
                 node_id=node_id,
                 session_id=session_id,
                 payload=payload,
+                seq=seq,
+                timestamp=datetime.now(timezone.utc).isoformat(),
             ),
             ensure_ascii=False,
         )
@@ -133,6 +137,12 @@ def _subscribe(session_id: str, websocket: WebSocketServerProtocol, namespace: s
     subscriber_event_namespaces[websocket] = namespace
 
 
+def _next_event_seq(session: OrchestratorSessionState) -> int:
+    sequence = int(session.context.get("_event_sequence") or 0) + 1
+    session.context["_event_sequence"] = sequence
+    return sequence
+
+
 def _unsubscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
     subscribers = session_subscribers.get(session_id)
     if not subscribers:
@@ -151,6 +161,7 @@ async def _broadcast_event(
     payload: dict[str, Any] | None = None,
 ) -> None:
     _append_session_trace(session, event=event, payload=payload)
+    seq = _next_event_seq(session)
     stale: list[WebSocketServerProtocol] = []
     for websocket in list(session_subscribers.get(session.session_id, set())):
         try:
@@ -161,6 +172,7 @@ async def _broadcast_event(
                 node_id=session.node_id,
                 session_id=session.session_id,
                 payload=payload,
+                seq=seq,
             )
         except ConnectionClosed:
             stale.append(websocket)
@@ -497,9 +509,20 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         )
         await _emit_projection_updates(session)
 
+    async def emit_message_event(kind: str, payload: dict[str, Any]) -> None:
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event=f"orchestrator.session.message.{kind}",
+            payload={
+                **payload,
+                "snapshot": session.build_snapshot(),
+            },
+        )
+
     try:
         if hasattr(runner, "set_event_callbacks"):
-            runner.set_event_callbacks(emit_substep=emit_substep)
+            runner.set_event_callbacks(emit_substep=emit_substep, emit_message_event=emit_message_event)
         result = await runner.run(session, emit_progress, await_user)
         session.result = result
         session.phase = "completed"

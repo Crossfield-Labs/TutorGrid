@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from backend.config import load_config
 from backend.llm.planner import PlannerRuntime
@@ -14,6 +14,7 @@ from backend.workers.registry import WorkerRegistry
 AwaitUserCallback = Callable[[str, str | None], Awaitable[str]]
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
 SubstepCallback = Callable[[str, str, str, str | None], Awaitable[None]]
+MessageEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
 class OrchestratorRuntime:
@@ -24,11 +25,13 @@ class OrchestratorRuntime:
         emit_progress: ProgressCallback,
         await_user: AwaitUserCallback,
         emit_substep: SubstepCallback | None = None,
+        emit_message_event: MessageEventCallback | None = None,
     ) -> None:
         self.session = session
         self.emit_progress = emit_progress
         self.await_user = await_user
         self.emit_substep = emit_substep
+        self.emit_message_event = emit_message_event
         self.config = load_config()
         self.graph_build = build_runtime_graph()
         self.planner = PlannerRuntime(self.config)
@@ -72,6 +75,7 @@ class OrchestratorRuntime:
             "session": self.session,
             "emit_progress": self.emit_progress,
             "emit_substep": self.emit_substep,
+            "emit_message_event": self.emit_message_event,
             "memory_service": self.memory_service,
             "memory_config": self.config.memory,
         }

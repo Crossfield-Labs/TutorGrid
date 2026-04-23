@@ -4,6 +4,8 @@ export interface OrchestratorEventMessage {
   taskId: string | null;
   nodeId: string | null;
   sessionId: string | null;
+  seq?: number;
+  timestamp: string;
   payload: Record<string, unknown>;
 }
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.memory.service import MemoryService
-from backend.runners.base import AwaitUserCallback, BaseRunner, ProgressCallback, SubstepCallback
+from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
 from backend.server import app as server_app
 from backend.sessions.manager import SessionManager
 from backend.sessions.state import OrchestratorSessionState
@@ -36,9 +36,16 @@ class _FakeWorkerControl:
 class _ScenarioRunner(BaseRunner):
     def __init__(self) -> None:
         self._emit_substep: SubstepCallback | None = None
+        self._emit_message_event: MessageEventCallback | None = None
 
-    def set_event_callbacks(self, *, emit_substep: SubstepCallback | None = None) -> None:
+    def set_event_callbacks(
+        self,
+        *,
+        emit_substep: SubstepCallback | None = None,
+        emit_message_event: MessageEventCallback | None = None,
+    ) -> None:
         self._emit_substep = emit_substep
+        self._emit_message_event = emit_message_event
 
     async def run(
         self,
@@ -84,6 +91,17 @@ class _ScenarioRunner(BaseRunner):
         await emit_progress("Running happy-path task", 0.3)
         if self._emit_substep is not None:
             await self._emit_substep("tool", "Prepare", "completed", "done")
+        if self._emit_message_event is not None:
+            payload = {
+                "messageId": f"{session.session_id}:assistant:1:1",
+                "role": "assistant",
+                "contentType": "text/markdown",
+                "phase": "planning",
+            }
+            await self._emit_message_event("started", payload)
+            await self._emit_message_event("delta", {**payload, "delta": "fake "})
+            await self._emit_message_event("delta", {**payload, "delta": "result"})
+            await self._emit_message_event("completed", {**payload, "content": "fake result", "finishReason": "stop"})
         session.set_latest_summary("fake summary generated")
         return "fake result"
 
@@ -162,6 +180,15 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
         session_id = str(started["sessionId"])
         completed = await self._recv_event("orchestrator.session.completed", session_id=session_id)
         self.assertEqual(completed["payload"]["result"], "fake result")
+        started_message = await self._recv_event("orchestrator.session.message.started", session_id=session_id)
+        self.assertEqual(started_message["payload"]["role"], "assistant")
+        delta_events = [
+            await self._recv_event("orchestrator.session.message.delta", session_id=session_id),
+            await self._recv_event("orchestrator.session.message.delta", session_id=session_id),
+        ]
+        self.assertEqual("".join(event["payload"]["delta"] for event in delta_events), "fake result")
+        completed_message = await self._recv_event("orchestrator.session.message.completed", session_id=session_id)
+        self.assertEqual(completed_message["payload"]["content"], "fake result")
 
         await self._send_request(
             "orchestrator.session.snapshot",

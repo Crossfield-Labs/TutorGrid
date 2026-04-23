@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from backend.llm.planner import PlannerRuntime
 from backend.llm.messages import append_assistant_message, append_user_message
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
@@ -87,6 +88,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             tool_events=tool_events,
         )
         if not filtered_tool_calls and dropped_duplicates and tool_results and _has_completion_evidence(next_state):
+            stream_state = await _start_final_answer_stream(runtime_context, state=next_state)
             forced_final = await planner.finalize_from_evidence(
                 task=task,
                 goal=goal,
@@ -94,12 +96,23 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
                 history=messages,
                 evidence=tool_results,
                 reason="The planner only suggested duplicate tool calls, and the existing evidence is already sufficient.",
+                on_text_delta=(
+                    None if stream_state is None else lambda text: _emit_final_answer_delta(runtime_context, stream_state, text)
+                ),
             )
             final_text = forced_final or planner.build_fallback_summary(
                 task=task,
                 workspace=workspace,
                 evidence=tool_results,
                 reason="Duplicate tool calls were suppressed because the same evidence had already been collected.",
+            )
+            await _finalize_final_answer_stream(
+                runtime_context,
+                state=next_state,
+                stream_state=stream_state,
+                content=final_text,
+                finish_reason="stop",
+                replay_content=not forced_final,
             )
             next_state["messages"] = append_assistant_message(messages, content=final_text)
             next_state["planned_tool_calls"] = []
@@ -158,6 +171,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         response_text = str(response.content or "").strip()
         if _should_accept_direct_answer(task=task, goal=goal, response_text=response_text):
             final_text = response_text
+            await _emit_final_answer_stream(
+                runtime_context,
+                state=next_state,
+                content=final_text,
+                finish_reason=response.finish_reason,
+            )
             next_state["messages"] = append_assistant_message(messages, content=final_text)
             next_state["planned_tool_calls"] = []
             next_state["tool_events"] = tool_events
@@ -180,6 +199,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
                 workspace=workspace,
                 evidence=tool_results,
                 reason="The planner did not request any tools, and the task does not require repository inspection.",
+            )
+            await _emit_final_answer_stream(
+                runtime_context,
+                state=next_state,
+                content=final_text,
+                finish_reason=response.finish_reason,
             )
             next_state["messages"] = append_assistant_message(messages, content=final_text)
             next_state["planned_tool_calls"] = []
@@ -219,6 +244,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         return next_state
 
     if tool_results and _should_attempt_forced_finish(next_state, iteration, max_iterations):
+        stream_state = await _start_final_answer_stream(runtime_context, state=next_state)
         forced_final = await planner.finalize_from_evidence(
             task=task,
             goal=goal,
@@ -226,14 +252,34 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             history=messages,
             evidence=tool_results,
             reason="Enough evidence has already been collected to conclude the task.",
+            on_text_delta=(
+                None if stream_state is None else lambda text: _emit_final_answer_delta(runtime_context, stream_state, text)
+            ),
         )
         if forced_final:
+            await _finalize_final_answer_stream(
+                runtime_context,
+                state=next_state,
+                stream_state=stream_state,
+                content=forced_final,
+                finish_reason="stop",
+                replay_content=False,
+            )
             next_state["messages"] = append_assistant_message(messages, content=forced_final)
             next_state["last_progress_message"] = f"Planning iteration {iteration} finalized from collected evidence."
             next_state["latest_summary"] = forced_final
             next_state["final_answer"] = forced_final
             next_state["stop_reason"] = "completed_from_evidence"
             next_state["tool_events"] = tool_events
+        else:
+            await _finalize_final_answer_stream(
+                runtime_context,
+                state=next_state,
+                stream_state=stream_state,
+                content="",
+                finish_reason="stop",
+                replay_content=False,
+            )
         await sync_session_from_runtime_state(
             next_state,
             emit_progress=runtime_context.get("emit_progress"),
@@ -247,6 +293,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             workspace=workspace,
             evidence=tool_results,
             reason=f"Reached max iterations ({max_iterations}) without a final answer.",
+        )
+        await _emit_final_answer_stream(
+            runtime_context,
+            state=next_state,
+            content=fallback,
+            finish_reason="length",
         )
         next_state["messages"] = append_assistant_message(messages, content=fallback)
         next_state["last_progress_message"] = f"Planning iteration {iteration} forced completion at max iterations."
@@ -262,6 +314,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         return next_state
 
     next_state["messages"] = append_assistant_message(messages, content=response.content)
+    await _emit_final_answer_stream(
+        runtime_context,
+        state=next_state,
+        content=str(response.content or "").strip(),
+        finish_reason=response.finish_reason,
+    )
     next_state["last_progress_message"] = f"Planning iteration {iteration} produced a final response."
     next_state["latest_summary"] = str(response.content or "").strip()
     next_state["final_answer"] = str(response.content or "").strip()
@@ -273,6 +331,95 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         progress=0.9,
     )
     return next_state
+
+
+async def _emit_final_answer_stream(
+    runtime_context: dict[str, Any],
+    *,
+    state: RuntimeState,
+    content: str,
+    finish_reason: str,
+) -> None:
+    stream_state = await _start_final_answer_stream(runtime_context, state=state)
+    await _finalize_final_answer_stream(
+        runtime_context,
+        state=state,
+        stream_state=stream_state,
+        content=content,
+        finish_reason=finish_reason,
+    )
+
+
+async def _start_final_answer_stream(
+    runtime_context: dict[str, Any],
+    *,
+    state: RuntimeState,
+) -> dict[str, str] | None:
+    emit_message_event = runtime_context.get("emit_message_event")
+    session = runtime_context.get("session")
+    if emit_message_event is None or session is None:
+        return
+    message_id = _next_message_id(state)
+    stream_state = {
+        "messageId": message_id,
+        "role": "assistant",
+        "contentType": "text/markdown",
+        "phase": str(state.get("phase") or "planning"),
+    }
+    await emit_message_event("started", stream_state)
+    return stream_state
+
+
+async def _emit_final_answer_delta(
+    runtime_context: dict[str, Any],
+    stream_state: dict[str, str],
+    text: str,
+) -> None:
+    emit_message_event = runtime_context.get("emit_message_event")
+    if emit_message_event is None or not text:
+        return
+    await emit_message_event(
+        "delta",
+        {
+            **stream_state,
+            "delta": text,
+        },
+    )
+
+
+async def _finalize_final_answer_stream(
+    runtime_context: dict[str, Any],
+    *,
+    state: RuntimeState,
+    stream_state: dict[str, str] | None,
+    content: str,
+    finish_reason: str,
+    replay_content: bool = True,
+) -> None:
+    emit_message_event = runtime_context.get("emit_message_event")
+    if emit_message_event is None or stream_state is None:
+        return
+    if content and replay_content:
+        await PlannerRuntime.replay_text_as_stream(
+            content,
+            on_text_delta=lambda text: _emit_final_answer_delta(runtime_context, stream_state, text),
+        )
+    await emit_message_event(
+        "completed",
+        {
+            **stream_state,
+            "content": content,
+            "finishReason": finish_reason or "stop",
+        },
+    )
+
+
+def _next_message_id(state: RuntimeState) -> str:
+    session_id = str(state.get("session_id") or "session")
+    iteration = int(state.get("iteration") or 0)
+    sequence = int(state.get("_message_sequence") or 0) + 1
+    state["_message_sequence"] = sequence
+    return f"{session_id}:assistant:{iteration}:{sequence}"
 
 
 def _has_completion_evidence(state: RuntimeState) -> bool:

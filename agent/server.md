@@ -36,6 +36,9 @@
   - `orchestrator.session.phase`
   - `orchestrator.session.worker`
   - `orchestrator.session.summary`
+  - `orchestrator.session.message.started`
+  - `orchestrator.session.message.delta`
+  - `orchestrator.session.message.completed`
   - `orchestrator.session.artifact_summary`
   - `orchestrator.session.artifact.created`
   - `orchestrator.session.artifact.updated`
@@ -51,6 +54,7 @@
 - 订阅、广播、连接行为放在 `app.py`
 - 新消息类型要同步反映到 snapshot 和广播逻辑
 - `session.build_snapshot()` 是投影事件的单一事实来源，新增状态字段时先补 snapshot，再补广播
+- 当前 event frame 统一带 `timestamp`，session 广播事件额外带 `seq`
 - 当前桌面 GUI 已依赖：
   - 会话列表
   - 历史时间线

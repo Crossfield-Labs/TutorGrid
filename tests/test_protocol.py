@@ -112,11 +112,14 @@ class ProtocolTests(unittest.TestCase):
             node_id="node-1",
             session_id="session-1",
             payload={"result": "ok"},
+            seq=3,
         )
 
         self.assertEqual(event["type"], "event")
         self.assertEqual(event["event"], "orchestrator.session.completed")
         self.assertEqual(event["payload"], {"result": "ok"})
+        self.assertEqual(event["seq"], 3)
+        self.assertTrue(event["timestamp"])
 
 
 if __name__ == "__main__":

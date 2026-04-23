@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
+from typing import Awaitable, Callable
 
 
 @dataclass(slots=True)
@@ -20,6 +21,9 @@ class LLMResponse:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+TextStreamCallback = Callable[[str], Awaitable[None]]
+
+
 class LLMProvider(ABC):
     def __init__(self, *, model: str, temperature: float = 0.2, max_tokens: int = 4096) -> None:
         self.model = model
@@ -32,6 +36,7 @@ class LLMProvider(ABC):
         *,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
+        on_text_delta: TextStreamCallback | None = None,
     ) -> LLMResponse:
         raise NotImplementedError
 

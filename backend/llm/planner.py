@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+from typing import Awaitable, Callable
 
 from backend.config import OrchestratorConfig
 from backend.llm.messages import deserialize_messages, serialize_messages
 from backend.llm.prompts import build_planner_prompt
 from backend.providers.base import LLMResponse
 from backend.providers.registry import ProviderRegistry
+
+FinalAnswerStreamCallback = Callable[[str], Awaitable[None]]
 
 
 class PlannerRuntime:
@@ -49,6 +53,7 @@ class PlannerRuntime:
         history: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         memory_context: str = "",
+        on_text_delta: FinalAnswerStreamCallback | None = None,
     ) -> tuple[list[dict[str, Any]], LLMResponse]:
         messages = self.build_messages(
             task=task,
@@ -57,7 +62,7 @@ class PlannerRuntime:
             history=history,
             memory_context=memory_context,
         )
-        response = await self.provider.chat(messages=messages, tools=tools)
+        response = await self.provider.chat(messages=messages, tools=tools, on_text_delta=on_text_delta)
         return messages, response
 
     async def finalize_from_evidence(
@@ -69,6 +74,7 @@ class PlannerRuntime:
         history: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
         reason: str,
+        on_text_delta: FinalAnswerStreamCallback | None = None,
     ) -> str:
         evidence_lines = []
         for item in evidence[:8]:
@@ -90,8 +96,21 @@ class PlannerRuntime:
                 ),
             }
         )
-        response = await self.provider.chat(messages=messages, tools=None)
+        response = await self.provider.chat(messages=messages, tools=None, on_text_delta=on_text_delta)
         return str(response.content or "").strip()
+
+    @staticmethod
+    async def replay_text_as_stream(
+        text: str,
+        *,
+        on_text_delta: FinalAnswerStreamCallback | None = None,
+        chunk_size: int = 24,
+    ) -> None:
+        if on_text_delta is None or not text:
+            return
+        for index in range(0, len(text), max(1, chunk_size)):
+            await on_text_delta(text[index : index + max(1, chunk_size)])
+            await asyncio.sleep(0)
 
     @staticmethod
     def build_fallback_summary(

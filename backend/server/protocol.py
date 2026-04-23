@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -111,8 +112,10 @@ def build_event(
     node_id: str | None,
     session_id: str | None,
     payload: dict[str, Any] | None = None,
+    seq: int | None = None,
+    timestamp: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    frame = {
         "type": "event",
         "event": event,
         "taskId": task_id,
@@ -120,4 +123,8 @@ def build_event(
         "sessionId": session_id,
         "payload": payload or {},
     }
+    if seq is not None:
+        frame["seq"] = seq
+    frame["timestamp"] = timestamp or datetime.now(timezone.utc).isoformat()
+    return frame
 
