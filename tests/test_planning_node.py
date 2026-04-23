@@ -12,12 +12,27 @@ class _PlannerStub:
     def __init__(self, response: LLMResponse) -> None:
         self.response = response
         self.last_memory_context = ""
+        self.streamed_chunks: list[str] = []
 
     async def plan(self, *, task: str, goal: str, workspace: str, history, tools, memory_context: str = ""):
         self.last_memory_context = memory_context
         return list(history), self.response
 
-    async def finalize_from_evidence(self, *, task: str, goal: str, workspace: str, history, evidence, reason: str) -> str:
+    async def finalize_from_evidence(
+        self,
+        *,
+        task: str,
+        goal: str,
+        workspace: str,
+        history,
+        evidence,
+        reason: str,
+        on_text_delta=None,
+    ) -> str:
+        if on_text_delta is not None:
+            await on_text_delta("根据已有证据")
+            await on_text_delta("可以收口。")
+            self.streamed_chunks.extend(["根据已有证据", "可以收口。"])
         return "根据已有证据可以收口。"
 
     def build_fallback_summary(self, *, task: str, workspace: str, evidence, reason: str) -> str:
@@ -58,6 +73,11 @@ class PlanningNodeTests(unittest.IsolatedAsyncioTestCase):
         state["iteration"] = 4
         state["tool_results"] = [{"tool": "list_files", "result": "files"}]
         state["tool_events"] = [{"tool": "list_files", "arguments": {"path": "."}, "result": "files"}]
+        message_events: list[tuple[str, dict]] = []
+
+        async def emit_message_event(kind: str, payload: dict) -> None:
+            message_events.append((kind, payload))
+
         state["context"] = {
             "planner": _PlannerStub(
                 LLMResponse(
@@ -68,11 +88,14 @@ class PlanningNodeTests(unittest.IsolatedAsyncioTestCase):
             "tool_definitions": [],
             "session": session,
             "emit_progress": None,
+            "emit_message_event": emit_message_event,
         }
 
         result = await planning_node(state)
         self.assertEqual(result["stop_reason"], "completed_after_duplicate_suppression")
         self.assertTrue(result["final_answer"])
+        self.assertEqual("".join(state["context"]["planner"].streamed_chunks), "根据已有证据可以收口。")
+        self.assertEqual([kind for kind, _ in message_events], ["started", "delta", "delta", "completed"])
 
     async def test_planning_injects_memory_context_before_model_call(self) -> None:
         session = OrchestratorSessionState(
