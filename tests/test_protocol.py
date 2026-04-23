@@ -65,6 +65,25 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.memory_retrieval_strength, "aggressive")
         self.assertEqual(request.params.memory_cleanup_interval_hours, 12)
 
+    def test_request_parsing_reads_tiptap_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.tiptap.command",
+                "params": {
+                    "commandName": "explain-selection",
+                    "selectionText": "马拉车算法",
+                    "documentText": "这是整篇文档",
+                    "execute": True,
+                },
+            }
+        )
+
+        self.assertEqual(request.params.command_name, "explain-selection")
+        self.assertEqual(request.params.selection_text, "马拉车算法")
+        self.assertEqual(request.params.document_text, "这是整篇文档")
+        self.assertTrue(request.params.execute)
+
     def test_request_parsing_reads_push_and_profile_params(self) -> None:
         request = OrchestratorRequest.from_dict(
             {

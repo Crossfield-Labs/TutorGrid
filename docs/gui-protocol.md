@@ -194,8 +194,8 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - 已支持 `items`
 - 每个 item 当前包含：
   - `seq`
-  - `layer`
-  - `code`
+  - `errorLayer`
+  - `errorCode`
   - `message`
   - `details`
   - `retryable`
@@ -220,13 +220,53 @@ GUI 不能只靠实时事件，还需要历史拉取。
   - `toolCallId`
   - `createdAt`
 
-### 6. `orchestrator.memory.compact`
+### 6. `orchestrator.session.artifacts`
+
+用途：
+- 拉结构化产物和磁贴数据
+
+当前实现：
+- 已支持 `items`
+- 当前 payload 同时返回：
+  - `items`
+  - `tiles`
+
+### 7. `orchestrator.tiptap.command`
+
+用途：
+- 让 TipTap/富文本编辑器把 AI 命令统一交给后端解释
+- 支持先预览命令，再决定执行
+
+当前实现：
+- 已支持
+- 输入字段：
+  - `commandName`
+  - `selectionText`
+  - `documentText`
+  - `execute`
+- 响应字段：
+  - `commandName`
+  - `title`
+  - `task`
+  - `selectionText`
+  - `documentText`
+  - `executed`
+  - `mode`
+  - 可选 `sessionId`
+
+### 8. `orchestrator.memory.cleanup`
+
+用途：
+- 手动触发一次记忆整理
+- 当前主要做重复文档和空文档清理
+
+### 9. `orchestrator.memory.compact`
 
 用途：
 - 对指定会话执行历史压缩
 - 生成摘要、事实和可检索记忆块
 
-### 7. `orchestrator.memory.search`
+### 10. `orchestrator.memory.search`
 
 用途：
 - 按当前问题从历史记忆中召回相关块

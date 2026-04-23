@@ -9,6 +9,7 @@
 1. 让后端更像真正的学习型 Agent runtime
 2. 让桌面端成为可用入口，而不是调试壳
 3. 补齐记忆、压缩、整理和检索能力
+4. 收口协议、学习画像、主动推送、沙箱与端到端测试
 
 ## 本轮已完成
 
@@ -64,6 +65,65 @@
   - 召回强度
   - 周期性整理开关和间隔
 
+### 7. 协议与事件层收口
+- `backend/server/app.py`
+- `backend/server/protocol.py`
+- `backend/storage/`
+- 已补：
+  - `session.trace`
+  - `session.messages`
+  - `session.errors`
+  - `session.artifacts`
+  - `artifact.created/updated/removed`
+  - `session.tile`
+
+### 8. 学习画像与主动推送
+- `backend/profile/`
+- `backend/scheduler/`
+- 已补：
+  - `L1/L2/L4` 学习画像
+  - `learning.push.generated`
+  - `learning.push.list`
+
+### 9. Worker/Provider 扩展
+- `backend/providers/registry.py`
+- `backend/runners/python_runner.py`
+- 已补：
+  - 国产 provider alias 映射到 `openai_compat`
+  - Python Runner 最小沙箱
+  - workspace root 限制
+  - 超时与输出截断
+
+### 10. TipTap AI 命令后端
+- `backend/editor/tiptap.py`
+- `backend/server/app.py`
+- 已补：
+  - `orchestrator.tiptap.command`
+  - 预览模式与执行模式
+  - 将编辑器命令翻译成新会话任务或现有会话 follow-up
+
+### 11. 记忆整理器
+- `backend/memory/sqlite_store.py`
+- `backend/memory/service.py`
+- 已补：
+  - `memory.cleanup`
+  - 重复文档去重
+  - 空文档清理
+
+### 12. WebSocket 端到端测试
+- `tests/test_websocket_e2e.py`
+- `scripts/e2e_ws.py`
+- 已补：
+  - `start`
+  - `input`
+  - `snapshot`
+  - `history`
+  - `trace`
+  - `errors`
+  - `memory.compact`
+  - `memory.search`
+  - `interrupt`
+
 ## 当前仍未完成
 
 ### P0
@@ -72,9 +132,8 @@
    - 还没形成项目级和长期级记忆升级逻辑
 
 2. 记忆整理器
-   - 现在有自动 compact 触发
+   - 现在已经有去重和空文档清理
    - 还没有：
-     - 去重
      - 合并
      - 降级
      - 归档
@@ -98,7 +157,7 @@
 
 建议顺序：
 1. 做 `L3/L4` 记忆升级逻辑
-2. 做记忆整理器（去重/合并/归档）
+2. 把记忆整理器扩到合并/归档/过期
 3. 给设置页补“立即整理一次记忆”
 4. 补 `trace / errors / artifacts` GUI 面板
 

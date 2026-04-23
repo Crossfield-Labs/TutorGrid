@@ -18,6 +18,10 @@ class OrchestratorParams:
     task: str = ""
     goal: str = ""
     command: str = ""
+    command_name: str = ""
+    document_text: str = ""
+    selection_text: str = ""
+    execute: bool = False
     text: str = ""
     input_mode: str = "text"
     input_intent: str = "reply"
@@ -69,6 +73,10 @@ class OrchestratorRequest:
                 task=str(params.get("task") or ""),
                 goal=str(params.get("goal") or ""),
                 command=str(params.get("command") or ""),
+                command_name=str(params.get("commandName") or ""),
+                document_text=str(params.get("documentText") or ""),
+                selection_text=str(params.get("selectionText") or ""),
+                execute=bool(params.get("execute", False)),
                 text=str(params.get("text") or ""),
                 input_mode=str(params.get("inputMode") or "text"),
                 input_intent=str(params.get("inputIntent") or "reply"),

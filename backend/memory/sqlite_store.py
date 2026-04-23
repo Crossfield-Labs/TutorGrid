@@ -114,6 +114,50 @@ class SQLiteMemoryStore:
             ).fetchall()
         return [self._row_to_document(row) for row in rows]
 
+    def cleanup_documents(self) -> dict[str, int]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                """
+                SELECT document_id, session_id, document_type, title, content
+                FROM memory_documents
+                ORDER BY updated_at DESC, document_id DESC
+                """
+            ).fetchall()
+
+            seen: set[tuple[str, str, str, str]] = set()
+            duplicates: list[str] = []
+            empty_documents: list[str] = []
+            for row in rows:
+                document_id = str(row["document_id"])
+                title = str(row["title"] or "").strip()
+                content = str(row["content"] or "").strip()
+                if not title and not content:
+                    empty_documents.append(document_id)
+                    continue
+                key = (
+                    str(row["session_id"] or ""),
+                    str(row["document_type"] or ""),
+                    title.lower(),
+                    content.lower(),
+                )
+                if key in seen:
+                    duplicates.append(document_id)
+                    continue
+                seen.add(key)
+
+            deleted = duplicates + empty_documents
+            if deleted:
+                connection.executemany(
+                    "DELETE FROM memory_documents WHERE document_id = ?",
+                    [(item,) for item in deleted],
+                )
+            connection.commit()
+        return {
+            "deletedDocuments": len(deleted),
+            "duplicateDocuments": len(duplicates),
+            "emptyDocuments": len(empty_documents),
+        }
+
     def search(
         self,
         *,
