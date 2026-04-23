@@ -61,3 +61,40 @@ export interface SessionSnapshotRequest {
   sessionId: string;
   params: Record<string, never>;
 }
+
+export interface SessionTraceRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.session.trace";
+  sessionId: string;
+  params: {
+    limit?: number;
+  };
+}
+
+export interface SessionErrorsRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.session.errors";
+  sessionId: string;
+  params: {
+    limit?: number;
+  };
+}
+
+export interface SessionArtifactsRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.session.artifacts";
+  sessionId: string;
+  params: {
+    limit?: number;
+  };
+}
+
+export interface MemoryCleanupRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.memory.cleanup";
+  params: Record<string, never>;
+}

@@ -18,6 +18,10 @@ class OrchestratorParams:
     task: str = ""
     goal: str = ""
     command: str = ""
+    command_name: str = ""
+    document_text: str = ""
+    selection_text: str = ""
+    execute: bool = False
     text: str = ""
     input_mode: str = "text"
     input_intent: str = "reply"
@@ -36,6 +40,11 @@ class OrchestratorParams:
     memory_retrieval_strength: str = ""
     memory_cleanup_enabled: bool = True
     memory_cleanup_interval_hours: int = 24
+    push_enabled: bool = True
+    push_on_session_complete: bool = True
+    push_on_session_failure: bool = False
+    profile_level: str = ""
+    profile_key: str = ""
 
 
 @dataclass(slots=True)
@@ -64,6 +73,10 @@ class OrchestratorRequest:
                 task=str(params.get("task") or ""),
                 goal=str(params.get("goal") or ""),
                 command=str(params.get("command") or ""),
+                command_name=str(params.get("commandName") or ""),
+                document_text=str(params.get("documentText") or ""),
+                selection_text=str(params.get("selectionText") or ""),
+                execute=bool(params.get("execute", False)),
                 text=str(params.get("text") or ""),
                 input_mode=str(params.get("inputMode") or "text"),
                 input_intent=str(params.get("inputIntent") or "reply"),
@@ -82,6 +95,11 @@ class OrchestratorRequest:
                 memory_retrieval_strength=str(params.get("memoryRetrievalStrength") or ""),
                 memory_cleanup_enabled=bool(params.get("memoryCleanupEnabled", True)),
                 memory_cleanup_interval_hours=_coerce_int(params.get("memoryCleanupIntervalHours"), 24),
+                push_enabled=bool(params.get("pushEnabled", True)),
+                push_on_session_complete=bool(params.get("pushOnSessionComplete", True)),
+                push_on_session_failure=bool(params.get("pushOnSessionFailure", False)),
+                profile_level=str(params.get("profileLevel") or ""),
+                profile_key=str(params.get("profileKey") or ""),
             ),
         )
 

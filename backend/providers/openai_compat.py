@@ -21,10 +21,14 @@ class OpenAICompatProvider(LLMProvider):
         model: str,
         temperature: float = 0.2,
         max_tokens: int = 4096,
+        extra_body: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(model=model, temperature=temperature, max_tokens=max_tokens)
         self.api_key = api_key
         self.api_base = api_base.rstrip("/")
+        self.extra_body = dict(extra_body or {})
+        self.extra_headers = dict(extra_headers or {})
         self.max_retries = 3
         self.retry_backoff_seconds = 1.0
         self.circuit_breaker_threshold = 3
@@ -46,6 +50,8 @@ class OpenAICompatProvider(LLMProvider):
         }
         if tools:
             payload["tools"] = tools
+        if self.extra_body:
+            payload.update(self.extra_body)
         response = await self._post_json_with_retry(payload)
         choices = response.get("choices") or []
         message = choices[0].get("message") if choices else {}
@@ -80,6 +86,7 @@ class OpenAICompatProvider(LLMProvider):
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}",
+                **self.extra_headers,
             },
             method="POST",
         )

@@ -61,3 +61,6 @@ class MemoryService:
             return []
         query_embedding = self.embedder.embed_text(query_text)
         return self.store.search(query_embedding=query_embedding, limit=limit, session_id=session_id)
+
+    def cleanup(self) -> dict[str, int]:
+        return self.store.cleanup_documents()

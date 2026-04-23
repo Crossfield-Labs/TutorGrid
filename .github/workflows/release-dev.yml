@@ -3,10 +3,7 @@ name: release-dev
 on:
   push:
     branches:
-      - main
-      - master
-      - ref
-      - "ref/**"
+      - "**"
     tags-ignore:
       - "v*"
   workflow_dispatch:

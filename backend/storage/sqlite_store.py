@@ -1,188 +1,212 @@
 from __future__ import annotations
 
-from contextlib import closing
-import json
-import sqlite3
 from pathlib import Path
 
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+from backend.db.models import (
+    SessionArtifactModel,
+    SessionErrorModel,
+    SessionMessageModel,
+    SessionModel,
+    SessionSnapshotModel,
+)
+from backend.db.session import OrchestratorDatabase
 from backend.sessions.state import OrchestratorSessionState
-from backend.storage.models import SessionRow
+from backend.storage.models import SessionRow, build_artifact_rows, build_error_rows, build_message_rows
 
 
 class SQLiteSessionStore:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._ensure_schema()
-
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    def _ensure_schema(self) -> None:
-        with closing(self._connect()) as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS sessions (
-                    session_id TEXT PRIMARY KEY,
-                    task_id TEXT NOT NULL,
-                    node_id TEXT NOT NULL,
-                    runner TEXT NOT NULL,
-                    workspace TEXT NOT NULL,
-                    task TEXT NOT NULL,
-                    goal TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    stop_reason TEXT NOT NULL,
-                    latest_summary TEXT NOT NULL,
-                    latest_artifact_summary TEXT NOT NULL,
-                    permission_summary TEXT NOT NULL,
-                    session_info_summary TEXT NOT NULL,
-                    mcp_status_summary TEXT NOT NULL,
-                    active_worker TEXT NOT NULL,
-                    active_session_mode TEXT NOT NULL,
-                    active_worker_profile TEXT NOT NULL,
-                    active_worker_task_id TEXT NOT NULL,
-                    active_worker_can_interrupt INTEGER NOT NULL,
-                    awaiting_input INTEGER NOT NULL,
-                    pending_user_prompt TEXT NOT NULL,
-                    snapshot_version INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    completed_at TEXT NOT NULL,
-                    error TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS session_snapshots (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    snapshot_version INTEGER NOT NULL,
-                    snapshot_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    UNIQUE(session_id, snapshot_version)
-                );
-                """
-            )
-            connection.commit()
+        self.database = OrchestratorDatabase(path)
 
     def save_session(self, session: OrchestratorSessionState) -> None:
-        row = SessionRow.from_session(session)
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                INSERT INTO sessions (
-                    session_id, task_id, node_id, runner, workspace, task, goal,
-                    status, phase, stop_reason, latest_summary, latest_artifact_summary,
-                    permission_summary, session_info_summary, mcp_status_summary,
-                    active_worker, active_session_mode, active_worker_profile,
-                    active_worker_task_id, active_worker_can_interrupt, awaiting_input,
-                    pending_user_prompt, snapshot_version, created_at, updated_at,
-                    completed_at, error
-                ) VALUES (
-                    :session_id, :task_id, :node_id, :runner, :workspace, :task, :goal,
-                    :status, :phase, :stop_reason, :latest_summary, :latest_artifact_summary,
-                    :permission_summary, :session_info_summary, :mcp_status_summary,
-                    :active_worker, :active_session_mode, :active_worker_profile,
-                    :active_worker_task_id, :active_worker_can_interrupt, :awaiting_input,
-                    :pending_user_prompt, :snapshot_version, :created_at, :updated_at,
-                    :completed_at, :error
+        row = SessionRow.from_session(session).to_record()
+        with self.database.SessionLocal() as db:
+            statement = sqlite_insert(SessionModel).values(**row)
+            db.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["session_id"],
+                    set_={key: value for key, value in row.items() if key != "session_id"},
                 )
-                ON CONFLICT(session_id) DO UPDATE SET
-                    task_id=excluded.task_id,
-                    node_id=excluded.node_id,
-                    runner=excluded.runner,
-                    workspace=excluded.workspace,
-                    task=excluded.task,
-                    goal=excluded.goal,
-                    status=excluded.status,
-                    phase=excluded.phase,
-                    stop_reason=excluded.stop_reason,
-                    latest_summary=excluded.latest_summary,
-                    latest_artifact_summary=excluded.latest_artifact_summary,
-                    permission_summary=excluded.permission_summary,
-                    session_info_summary=excluded.session_info_summary,
-                    mcp_status_summary=excluded.mcp_status_summary,
-                    active_worker=excluded.active_worker,
-                    active_session_mode=excluded.active_session_mode,
-                    active_worker_profile=excluded.active_worker_profile,
-                    active_worker_task_id=excluded.active_worker_task_id,
-                    active_worker_can_interrupt=excluded.active_worker_can_interrupt,
-                    awaiting_input=excluded.awaiting_input,
-                    pending_user_prompt=excluded.pending_user_prompt,
-                    snapshot_version=excluded.snapshot_version,
-                    updated_at=excluded.updated_at,
-                    completed_at=excluded.completed_at,
-                    error=excluded.error
-                """,
-                row.to_record(),
             )
-            connection.commit()
+            self._replace_messages(db, session)
+            self._sync_errors(db, session)
+            self._replace_artifacts(db, session)
+            db.commit()
 
     def save_snapshot(self, session: OrchestratorSessionState) -> None:
         snapshot = session.build_snapshot()
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                INSERT OR REPLACE INTO session_snapshots (
-                    session_id, snapshot_version, snapshot_json, created_at
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (
-                    session.session_id,
-                    session.snapshot_version,
-                    json.dumps(snapshot, ensure_ascii=False),
-                    session.updated_at,
-                ),
+        with self.database.SessionLocal() as db:
+            statement = sqlite_insert(SessionSnapshotModel).values(
+                session_id=session.session_id,
+                snapshot_version=session.snapshot_version,
+                snapshot_json=snapshot,
+                created_at=session.updated_at,
             )
-            connection.commit()
+            db.execute(
+                statement.on_conflict_do_update(
+                    index_elements=["session_id", "snapshot_version"],
+                    set_={
+                        "snapshot_json": snapshot,
+                        "created_at": session.updated_at,
+                    },
+                )
+            )
+            db.commit()
 
     def list_sessions(self, *, limit: int = 50) -> list[dict[str, object]]:
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                """
-                SELECT
-                    session_id,
-                    task,
-                    runner,
-                    status,
-                    phase,
-                    latest_summary,
-                    active_worker,
-                    updated_at
-                FROM sessions
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(SessionModel).order_by(SessionModel.updated_at.desc()).limit(limit)
+            ).all()
         return [
             {
-                "sessionId": row["session_id"],
-                "task": row["task"],
-                "runner": row["runner"],
-                "status": row["status"],
-                "phase": row["phase"],
-                "latestSummary": row["latest_summary"],
-                "activeWorker": row["active_worker"],
-                "updatedAt": row["updated_at"],
+                "sessionId": row.session_id,
+                "task": row.task,
+                "runner": row.runner,
+                "status": row.status,
+                "phase": row.phase,
+                "latestSummary": row.latest_summary,
+                "activeWorker": row.active_worker,
+                "updatedAt": row.updated_at,
             }
             for row in rows
         ]
 
     def get_session_snapshot(self, session_id: str) -> dict[str, object] | None:
-        with closing(self._connect()) as connection:
-            row = connection.execute(
-                """
-                SELECT snapshot_json
-                FROM session_snapshots
-                WHERE session_id = ?
-                ORDER BY snapshot_version DESC
-                LIMIT 1
-                """,
-                (session_id,),
-            ).fetchone()
-        if row is None:
-            return None
-        return json.loads(row["snapshot_json"])
+        with self.database.SessionLocal() as db:
+            row = db.scalars(
+                select(SessionSnapshotModel)
+                .where(SessionSnapshotModel.session_id == session_id)
+                .order_by(SessionSnapshotModel.snapshot_version.desc())
+                .limit(1)
+            ).first()
+        return dict(row.snapshot_json) if row is not None else None
 
+    def list_session_messages(self, session_id: str, *, limit: int = 200) -> list[dict[str, object]]:
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(SessionMessageModel)
+                .where(SessionMessageModel.session_id == session_id)
+                .order_by(SessionMessageModel.seq.asc())
+                .limit(limit)
+            ).all()
+        return [
+            {
+                "seq": row.seq,
+                "role": row.role,
+                "messageType": row.message_type,
+                "contentText": row.content_text,
+                "contentJson": dict(row.content_json or {}),
+                "toolName": row.tool_name,
+                "toolCallId": row.tool_call_id,
+                "createdAt": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def list_session_errors(self, session_id: str, *, limit: int = 100) -> list[dict[str, object]]:
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(SessionErrorModel)
+                .where(SessionErrorModel.session_id == session_id)
+                .order_by(SessionErrorModel.id.desc())
+                .limit(limit)
+            ).all()
+        return [
+            {
+                "seq": row.seq,
+                "errorLayer": row.error_layer,
+                "errorCode": row.error_code,
+                "message": row.message,
+                "details": dict(row.details_json or {}),
+                "retryable": bool(row.retryable),
+                "phase": row.phase,
+                "worker": row.worker,
+                "createdAt": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def list_session_artifacts(self, session_id: str, *, limit: int = 100) -> list[dict[str, object]]:
+        with self.database.SessionLocal() as db:
+            rows = db.scalars(
+                select(SessionArtifactModel)
+                .where(SessionArtifactModel.session_id == session_id)
+                .order_by(SessionArtifactModel.created_at.desc(), SessionArtifactModel.path.asc())
+                .limit(limit)
+            ).all()
+        return [
+            {
+                "path": row.path,
+                "changeType": row.change_type,
+                "size": row.size,
+                "summary": row.summary,
+                "createdAt": row.created_at,
+            }
+            for row in rows
+        ]
+
+    def _replace_messages(self, db, session: OrchestratorSessionState) -> None:
+        db.execute(delete(SessionMessageModel).where(SessionMessageModel.session_id == session.session_id))
+        rows = build_message_rows(session)
+        if not rows:
+            return
+        db.add_all(
+            [
+                SessionMessageModel(
+                    session_id=row["session_id"],
+                    seq=row["seq"],
+                    role=row["role"],
+                    message_type=row["message_type"],
+                    content_text=row["content_text"],
+                    content_json=row["content_json"],
+                    tool_name=row["tool_name"],
+                    tool_call_id=row["tool_call_id"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+        )
+
+    def _sync_errors(self, db, session: OrchestratorSessionState) -> None:
+        for row in build_error_rows(session):
+            statement = sqlite_insert(SessionErrorModel).values(
+                session_id=row["session_id"],
+                seq=row["seq"],
+                error_layer=row["error_layer"],
+                error_code=row["error_code"],
+                message=row["message"],
+                details_json=row["details_json"],
+                retryable=bool(row["retryable"]),
+                phase=row["phase"],
+                worker=row["worker"],
+                created_at=row["created_at"],
+            )
+            db.execute(
+                statement.on_conflict_do_nothing(
+                    index_elements=["session_id", "seq", "message"],
+                )
+            )
+
+    def _replace_artifacts(self, db, session: OrchestratorSessionState) -> None:
+        db.execute(delete(SessionArtifactModel).where(SessionArtifactModel.session_id == session.session_id))
+        rows = build_artifact_rows(session)
+        if not rows:
+            return
+        db.add_all(
+            [
+                SessionArtifactModel(
+                    session_id=row["session_id"],
+                    path=row["path"],
+                    change_type=row["change_type"],
+                    size=row["size"],
+                    summary=row["summary"],
+                    created_at=row["created_at"],
+                )
+                for row in rows
+            ]
+        )

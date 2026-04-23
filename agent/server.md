@@ -17,16 +17,30 @@
   - `orchestrator.session.start`
   - `orchestrator.session.list`
   - `orchestrator.session.history`
+  - `orchestrator.session.trace`
+  - `orchestrator.session.messages`
+  - `orchestrator.session.errors`
+  - `orchestrator.session.artifacts`
   - `orchestrator.session.input`
   - `orchestrator.session.snapshot`
   - `orchestrator.session.cancel`
   - `orchestrator.session.interrupt`
+  - `orchestrator.tiptap.command`
+  - `orchestrator.memory.cleanup`
+  - `orchestrator.memory.compact`
+  - `orchestrator.memory.search`
+  - `orchestrator.profile.get`
+  - `orchestrator.learning.push.list`
 - 当前已投影的主要事件：
   - `orchestrator.session.progress`
   - `orchestrator.session.phase`
   - `orchestrator.session.worker`
   - `orchestrator.session.summary`
   - `orchestrator.session.artifact_summary`
+  - `orchestrator.session.artifact.created`
+  - `orchestrator.session.artifact.updated`
+  - `orchestrator.session.artifact.removed`
+  - `orchestrator.session.tile`
   - `orchestrator.session.permission`
   - `orchestrator.session.mcp_status`
   - `orchestrator.session.worker_runtime`
@@ -41,5 +55,6 @@
   - 会话列表
   - 历史时间线
   - snapshot 详情
-- 下一阶段会继续补 trace 和错误查询，详见 `../docs/gui-protocol.md`
+- 编辑器侧命令通过 `orchestrator.tiptap.command` 进入后端，支持预览和执行两种模式
+- 记忆整理支持自动触发和 `orchestrator.memory.cleanup` 手动触发
 

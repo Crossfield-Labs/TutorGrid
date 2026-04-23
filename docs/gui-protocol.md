@@ -65,6 +65,9 @@
 - `permissionSummary`
 - `sessionInfoSummary`
 - `mcpStatusSummary`
+- `trace`
+- `errors`
+- `artifacts / tiles`
 
 ### 4. 输入区
 
@@ -83,6 +86,10 @@
 - `orchestrator.session.worker`
 - `orchestrator.session.summary`
 - `orchestrator.session.artifact_summary`
+- `orchestrator.session.artifact.created`
+- `orchestrator.session.artifact.updated`
+- `orchestrator.session.artifact.removed`
+- `orchestrator.session.tile`
 - `orchestrator.session.permission`
 - `orchestrator.session.mcp_status`
 - `orchestrator.session.worker_runtime`
@@ -169,23 +176,104 @@ GUI 不能只靠实时事件，还需要历史拉取。
 用途：
 - 拉原始 trace / 调试事件
 
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `timestamp`
+  - `sessionId`
+  - `taskId`
+  - `nodeId`
+  - `runner`
+  - `event`
+  - `payload`
+
 ### 4. `orchestrator.session.errors`
 
 用途：
 - 拉结构化错误
+
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `errorLayer`
+  - `errorCode`
+  - `message`
+  - `details`
+  - `retryable`
+  - `phase`
+  - `worker`
+  - `createdAt`
 
 ### 5. `orchestrator.session.messages`
 
 用途：
 - 拉 planner message history
 
-### 6. `orchestrator.memory.compact`
+当前实现：
+- 已支持 `items`
+- 每个 item 当前包含：
+  - `seq`
+  - `role`
+  - `messageType`
+  - `contentText`
+  - `contentJson`
+  - `toolName`
+  - `toolCallId`
+  - `createdAt`
+
+### 6. `orchestrator.session.artifacts`
+
+用途：
+- 拉结构化产物和磁贴数据
+
+当前实现：
+- 已支持 `items`
+- 当前 payload 同时返回：
+  - `items`
+  - `tiles`
+
+桌面端当前用法：
+- 右侧 Inspector 已按 `概览 / Trace / Errors / Artifacts` 四类页签消费这些结果
+- 设置页已提供“立即整理记忆”动作，直接调用 `orchestrator.memory.cleanup`
+
+### 7. `orchestrator.tiptap.command`
+
+用途：
+- 让 TipTap/富文本编辑器把 AI 命令统一交给后端解释
+- 支持先预览命令，再决定执行
+
+当前实现：
+- 已支持
+- 输入字段：
+  - `commandName`
+  - `selectionText`
+  - `documentText`
+  - `execute`
+- 响应字段：
+  - `commandName`
+  - `title`
+  - `task`
+  - `selectionText`
+  - `documentText`
+  - `executed`
+  - `mode`
+  - 可选 `sessionId`
+
+### 8. `orchestrator.memory.cleanup`
+
+用途：
+- 手动触发一次记忆整理
+- 当前主要做重复文档和空文档清理
+
+### 9. `orchestrator.memory.compact`
 
 用途：
 - 对指定会话执行历史压缩
 - 生成摘要、事实和可检索记忆块
 
-### 7. `orchestrator.memory.search`
+### 10. `orchestrator.memory.search`
 
 用途：
 - 按当前问题从历史记忆中召回相关块
@@ -220,6 +308,7 @@ GUI 不能只靠实时事件，还需要历史拉取。
 - `snapshot`
 - `error`
 - `artifact`
+- `tile`
 
 后端不一定真的改成这些名字，但最终要能映射到这个统一前端模型。
 

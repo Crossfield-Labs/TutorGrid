@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
 from backend.memory.service import MemoryService
+from tests.temp_paths import workspace_temp_dir
 
 
 class MemoryServiceTests(unittest.TestCase):
     def test_compact_session_filters_noise_and_persists_documents(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with workspace_temp_dir("memory-") as temp_dir:
             service = MemoryService(path=Path(temp_dir) / "memory.sqlite3")
             result = service.compact_session(
                 session_id="session-1",

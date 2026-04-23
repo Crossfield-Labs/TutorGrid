@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from pathlib import Path
+
+from backend.config import OrchestratorConfig, load_config
+from backend.runners.base import AwaitUserCallback, BaseRunner, ProgressCallback
+from backend.sessions.state import OrchestratorSessionState
+
+
+class PythonRunner(BaseRunner):
+    async def run(
+        self,
+        session: OrchestratorSessionState,
+        emit_progress: ProgressCallback,
+        await_user: AwaitUserCallback,
+    ) -> str:
+        _ = await_user
+        config = load_config()
+        workspace_path = self._resolve_workspace(session.workspace, config)
+        code = self._extract_python_code(session)
+
+        if not code:
+            raise RuntimeError("Python runner requires code in session.context['python_code'] or a fenced ```python block.")
+
+        await emit_progress(f"Running isolated Python task in {workspace_path}", 0.12)
+
+        process = await asyncio.create_subprocess_exec(
+            config.python_command,
+            "-I",
+            "-B",
+            "-u",
+            "-c",
+            code,
+            cwd=str(workspace_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=self._build_env(config),
+        )
+
+        try:
+            stdout_data, stderr_data = await asyncio.wait_for(
+                process.communicate(),
+                timeout=max(1, config.python_runner_timeout_seconds),
+            )
+        except asyncio.TimeoutError as error:
+            process.kill()
+            await process.communicate()
+            raise RuntimeError(
+                f"Python runner timed out after {config.python_runner_timeout_seconds}s."
+            ) from error
+
+        stdout_text = self._truncate_output(stdout_data, config.python_runner_output_limit_bytes)
+        stderr_text = self._truncate_output(stderr_data, config.python_runner_output_limit_bytes)
+
+        if stdout_text:
+            await emit_progress(stdout_text, 0.75)
+        if stderr_text:
+            await emit_progress(stderr_text, 0.9)
+
+        if process.returncode != 0:
+            raise RuntimeError(stderr_text or stdout_text or f"Python runner exited with code {process.returncode}")
+        return stdout_text or "Python runner completed successfully."
+
+    @staticmethod
+    def _extract_python_code(session: OrchestratorSessionState) -> str:
+        context_code = str(session.context.get("python_code") or "").strip()
+        if context_code:
+            return context_code
+
+        task = session.task or ""
+        marker = "```python"
+        if marker in task:
+            _, _, remainder = task.partition(marker)
+            code, _, _ = remainder.partition("```")
+            return code.strip()
+        return ""
+
+    @staticmethod
+    def _resolve_workspace(workspace: str, config: OrchestratorConfig) -> Path:
+        workspace_path = Path(workspace or ".").resolve()
+        workspace_path.mkdir(parents=True, exist_ok=True)
+
+        configured_root = str(config.python_runner_workspace_root or "").strip()
+        if not configured_root:
+            return workspace_path
+
+        allowed_root = Path(configured_root).resolve()
+        try:
+            workspace_path.relative_to(allowed_root)
+        except ValueError as error:
+            raise RuntimeError(
+                f"Python runner workspace must stay within configured root: {allowed_root}"
+            ) from error
+        return workspace_path
+
+    @staticmethod
+    def _build_env(config: OrchestratorConfig) -> dict[str, str]:
+        allowed = {item.strip().upper() for item in config.python_runner_allowed_env if item.strip()}
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in allowed
+        }
+        env.setdefault("PYTHONIOENCODING", "utf-8")
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        return env
+
+    @staticmethod
+    def _truncate_output(data: bytes, limit_bytes: int) -> str:
+        if not data:
+            return ""
+        limit = max(256, limit_bytes)
+        truncated = len(data) > limit
+        payload = data[:limit]
+        text = payload.decode("utf-8", errors="replace").strip()
+        if truncated:
+            text = f"{text}\n...[output truncated]"
+        return text

@@ -5,16 +5,21 @@ import asyncio
 import json
 from collections import defaultdict
 from pathlib import Path
+import time
 from typing import Any
 
-from backend.config import get_runtime_config_view, update_memory_config, update_planner_config
+from backend.config import get_runtime_config_view, update_memory_config, update_planner_config, update_push_config
 from backend.config import load_config
+from backend.editor import TipTapAICommandService
+from backend.profile.service import LearningProfileService
 from backend.memory.service import MemoryService
+from backend.scheduler.service import LearningPushScheduler
 from backend.runners.router import RunnerRouter
 from backend.server.protocol import OrchestratorRequest, build_event
 from backend.sessions.manager import SessionManager
 from backend.sessions.state import OrchestratorSessionState
 from backend.storage.jsonl_trace import JsonlTraceStore
+from backend.storage.models import build_artifact_rows
 from websockets.exceptions import ConnectionClosed
 from websockets.legacy.server import WebSocketServerProtocol, serve
 
@@ -24,11 +29,15 @@ TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
 trace_store = JsonlTraceStore(TRACE_ROOT)
 memory_service = MemoryService()
+profile_service = LearningProfileService()
+push_scheduler = LearningPushScheduler()
+tiptap_service = TipTapAICommandService()
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
 session_subscribers: dict[str, set[WebSocketServerProtocol]] = defaultdict(set)
 subscriber_event_namespaces: dict[WebSocketServerProtocol, str] = {}
+_last_memory_cleanup_monotonic = 0.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -201,6 +210,67 @@ def _build_explanation_message(session: OrchestratorSessionState) -> str:
     return "\n".join(lines)
 
 
+def _build_artifact_tiles(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": row["path"],
+            "title": Path(str(row["path"])).name or str(row["path"]),
+            "changeType": row["change_type"],
+            "size": row["size"],
+            "summary": row["summary"],
+            "createdAt": row["created_at"],
+        }
+        for row in build_artifact_rows(session)
+    ]
+
+
+async def _emit_artifact_projection_updates(
+    session: OrchestratorSessionState,
+    *,
+    previous_tiles: list[dict[str, Any]],
+    current_tiles: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+) -> None:
+    previous_by_path = {str(item.get("path") or ""): item for item in previous_tiles if item.get("path")}
+    current_by_path = {str(item.get("path") or ""): item for item in current_tiles if item.get("path")}
+
+    for path in sorted(set(current_by_path) - set(previous_by_path)):
+        tile = current_by_path[path]
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.artifact.created",
+            payload={"message": tile.get("summary") or tile.get("title") or path, "artifact": tile, "snapshot": snapshot},
+        )
+
+    for path in sorted(set(current_by_path).intersection(previous_by_path)):
+        if current_by_path[path] == previous_by_path[path]:
+            continue
+        tile = current_by_path[path]
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.artifact.updated",
+            payload={"message": tile.get("summary") or tile.get("title") or path, "artifact": tile, "snapshot": snapshot},
+        )
+
+    for path in sorted(set(previous_by_path) - set(current_by_path)):
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.artifact.removed",
+            payload={"message": path, "artifact": {"path": path}, "snapshot": snapshot},
+        )
+
+    if previous_tiles != current_tiles:
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.tile",
+            payload={
+                "message": snapshot["latestArtifactSummary"] or f"{len(current_tiles)} artifact tile(s) available",
+                "tiles": current_tiles,
+                "snapshot": snapshot,
+            },
+        )
+
+
 def _classify_input_handling(*, input_intent: str, waiter_active: bool) -> str:
     normalized_intent = (input_intent or "reply").strip().lower() or "reply"
     if normalized_intent == "explain":
@@ -224,6 +294,8 @@ async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
     snapshot = session.build_snapshot()
     previous = session.context.get("_projection_state")
     previous_state = previous if isinstance(previous, dict) else {}
+    current_tiles = _build_artifact_tiles(session)
+    previous_tiles = list(previous_state.get("artifactTiles") or [])
 
     if previous_state.get("phase") != snapshot["phase"]:
         await _broadcast_event(
@@ -287,6 +359,13 @@ async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
             },
         )
 
+    await _emit_artifact_projection_updates(
+        session,
+        previous_tiles=previous_tiles,
+        current_tiles=current_tiles,
+        snapshot=snapshot,
+    )
+
     if previous_state.get("permissionSummary") != snapshot["permissionSummary"] and snapshot["permissionSummary"]:
         await _broadcast_event(
             session,
@@ -345,6 +424,7 @@ async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
         "sessionInfoSummary": snapshot["sessionInfoSummary"],
         "mcpStatusSummary": snapshot["mcpStatusSummary"],
         "snapshotVersion": snapshot["snapshotVersion"],
+        "artifactTiles": current_tiles,
     }
 
 
@@ -441,6 +521,8 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
             },
         )
         _maybe_compact_memory(session, reason="completed")
+        profiles = _refresh_learning_profiles(session, reason="completed")
+        await _maybe_generate_learning_pushes(session, reason="completed", profiles=profiles)
         await _emit_projection_updates(session)
     except asyncio.CancelledError:
         session.error = "Session cancelled"
@@ -467,6 +549,8 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
             payload={"message": session.error, "error": session.error, "runner": session.runner, "snapshot": session.build_snapshot()},
         )
         _maybe_compact_memory(session, reason="failed")
+        profiles = _refresh_learning_profiles(session, reason="failed")
+        await _maybe_generate_learning_pushes(session, reason="failed", profiles=profiles)
         await _emit_projection_updates(session)
     finally:
         session_waiters.pop(session.session_id, None)
@@ -489,6 +573,50 @@ def _maybe_compact_memory(session: OrchestratorSessionState, *, reason: str) -> 
         goal=session.goal,
         history_items=history_items,
     )
+    _maybe_cleanup_memory(force=False)
+
+
+def _maybe_cleanup_memory(*, force: bool) -> dict[str, int] | None:
+    global _last_memory_cleanup_monotonic
+    config = load_config()
+    memory = config.memory
+    if not memory.enabled or not memory.cleanup_enabled:
+        return None
+    now = time.monotonic()
+    interval_seconds = max(1, memory.cleanup_interval_hours) * 3600
+    if not force and _last_memory_cleanup_monotonic and now - _last_memory_cleanup_monotonic < interval_seconds:
+        return None
+    result = memory_service.cleanup()
+    _last_memory_cleanup_monotonic = now
+    return result
+
+
+def _refresh_learning_profiles(session: OrchestratorSessionState, *, reason: str) -> dict[str, dict[str, Any]]:
+    history_items = trace_store.list_session_history(session.session_id, limit=500)
+    return profile_service.refresh_profiles(session=session, history_items=history_items, reason=reason)
+
+
+async def _maybe_generate_learning_pushes(
+    session: OrchestratorSessionState,
+    *,
+    reason: str,
+    profiles: dict[str, dict[str, Any]],
+) -> None:
+    config = load_config()
+    push = config.push
+    if not push.enabled:
+        return
+    if reason == "completed" and not push.on_session_complete:
+        return
+    if reason == "failed" and not push.on_session_failure:
+        return
+    pushes = push_scheduler.generate_pushes(session=session, profiles=profiles, reason=reason)
+    for push_record in pushes:
+        await _broadcast_event(
+            session,
+            event="orchestrator.learning.push.generated",
+            payload=push_record,
+        )
 
 
 def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> bool:
@@ -599,6 +727,11 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     cleanup_enabled=request.params.memory_cleanup_enabled,
                     cleanup_interval_hours=max(1, request.params.memory_cleanup_interval_hours),
                 )
+                update_push_config(
+                    enabled=request.params.push_enabled,
+                    on_session_complete=request.params.push_on_session_complete,
+                    on_session_failure=request.params.push_on_session_failure,
+                )
                 runner_router = RunnerRouter()
                 await send_event(
                     websocket,
@@ -610,6 +743,107 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         "message": "Config updated",
                         **get_runtime_config_view(),
                     },
+                )
+                continue
+
+            if request.method in {"orchestrator.profile.get", "pc.profile.get"}:
+                items = []
+                if request.params.profile_level and request.params.profile_key:
+                    profile = profile_service.get_profile(
+                        profile_level=request.params.profile_level,
+                        profile_key=request.params.profile_key,
+                    )
+                    if profile:
+                        items.append(profile)
+                else:
+                    items = profile_service.list_profiles(
+                        profile_level=request.params.profile_level.strip() or None,
+                        limit=max(1, request.params.limit or 50),
+                    )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.get"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"items": items},
+                )
+                continue
+
+            if request.method in {"orchestrator.learning.push.list", "pc.learning.push.list"}:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.learning.push.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "items": push_scheduler.list_pushes(
+                            session_id=request.session_id,
+                            limit=max(1, request.params.limit or 50),
+                        )
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.tiptap.command", "pc.tiptap.command"}:
+                resolved = tiptap_service.resolve(
+                    command_name=request.params.command_name,
+                    selection_text=request.params.selection_text,
+                    document_text=request.params.document_text,
+                    instruction_text=request.params.text or request.params.task,
+                )
+                payload: dict[str, Any] = {
+                    **resolved.to_payload(),
+                    "executed": False,
+                    "mode": "preview",
+                }
+                if request.params.execute:
+                    if request.session_id:
+                        session = session_manager.get(request.session_id)
+                    else:
+                        session = None
+                    if session is not None:
+                        session_manager.enqueue_followup(
+                            session.session_id,
+                            text=resolved.task,
+                            intent="instruction",
+                            target=request.params.target,
+                        )
+                        payload.update(
+                            {
+                                "executed": True,
+                                "mode": "followup",
+                                "sessionId": session.session_id,
+                            }
+                        )
+                    else:
+                        session = session_manager.create(
+                            task_id=request.task_id or "tiptap-task",
+                            node_id=request.node_id or "tiptap-node",
+                            runner=request.params.runner,
+                            workspace=_ensure_workspace(request.params.workspace),
+                            task=resolved.task,
+                            goal=resolved.title,
+                        )
+                        _subscribe(session.session_id, websocket, event_namespace)
+                        subscribed_session_ids.add(session.session_id)
+                        session_task = asyncio.create_task(_run_session(session.session_id, websocket))
+                        session_tasks[session.session_id] = session_task
+                        payload.update(
+                            {
+                                "executed": True,
+                                "mode": "start",
+                                "sessionId": session.session_id,
+                            }
+                        )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.tiptap.command"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=payload.get("sessionId") or request.session_id,
+                    payload=payload,
                 )
                 continue
 
@@ -626,6 +860,89 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                             limit=max(1, request.params.limit or 200),
                         )
                     },
+                )
+                continue
+
+            if request.method in {"orchestrator.session.trace", "pc.session.trace"} and request.session_id:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.trace"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "items": trace_store.list_session_trace(
+                            request.session_id,
+                            limit=max(1, request.params.limit or 200),
+                        )
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.session.messages", "pc.session.messages"} and request.session_id:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.messages"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "items": session_manager.list_messages(
+                            request.session_id,
+                            limit=max(1, request.params.limit or 200),
+                        )
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.session.errors", "pc.session.errors"} and request.session_id:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.errors"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "items": session_manager.list_errors(
+                            request.session_id,
+                            limit=max(1, request.params.limit or 100),
+                        )
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.session.artifacts", "pc.session.artifacts"} and request.session_id:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.session.artifacts"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "items": session_manager.list_artifacts(
+                            request.session_id,
+                            limit=max(1, request.params.limit or 100),
+                        ),
+                        "tiles": _build_artifact_tiles(session_manager.get(request.session_id))
+                        if session_manager.get(request.session_id) is not None
+                        else [],
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.memory.cleanup", "pc.memory.cleanup"}:
+                cleanup_result = _maybe_cleanup_memory(force=True) or {
+                    "deletedDocuments": 0,
+                    "duplicateDocuments": 0,
+                    "emptyDocuments": 0,
+                }
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.memory.cleanup"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=cleanup_result,
                 )
                 continue
 
@@ -856,11 +1173,13 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         },
                     )
                     continue
-                result = await control.interrupt()
+                _subscribe(session.session_id, websocket, event_namespace)
+                subscribed_session_ids.add(session.session_id)
                 session.stop_reason = "interrupt_requested"
                 session.latest_summary = request.params.text or "Interrupt requested."
                 session.phase = "interrupting"
                 session_manager.update(session)
+                result = await control.interrupt()
                 await _broadcast_event(
                     session,
                     event="orchestrator.session.followup.accepted",
