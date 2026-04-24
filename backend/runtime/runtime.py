@@ -5,6 +5,7 @@ from typing import Any, Awaitable, Callable
 from backend.config import load_config
 from backend.llm.planner import PlannerRuntime
 from backend.memory.service import MemoryService
+from backend.observability import get_langsmith_tracer
 from backend.runtime.graph import build_runtime_graph
 from backend.runtime.state import RuntimeState, create_initial_state
 from backend.sessions.state import OrchestratorSessionState
@@ -37,6 +38,7 @@ class OrchestratorRuntime:
         self.planner = PlannerRuntime(self.config)
         self.worker_registry = WorkerRegistry(self.config)
         self.memory_service = MemoryService()
+        self.tracer = get_langsmith_tracer()
         self.tools = build_langchain_tools(
             workspace=session.workspace,
             shell_timeout_seconds=self.config.shell_timeout_seconds,
@@ -51,6 +53,19 @@ class OrchestratorRuntime:
         await self.emit_progress("Bootstrapping LangGraph runtime", 0.05)
         if not self.graph_build.available:
             raise RuntimeError("LangGraph is not installed in the orchestrator environment.")
+        run_id = self.tracer.start_run(
+            name="runtime.session",
+            run_type="chain",
+            inputs={
+                "sessionId": self.session.session_id,
+                "taskId": self.session.task_id,
+                "workspace": self.session.workspace,
+                "task": self.session.task,
+                "goal": self.session.goal,
+            },
+            metadata={"module": "runtime", "runner": self.session.runner},
+            tags=["runtime", "session"],
+        )
 
         state = create_initial_state(
             session_id=self.session.session_id,
@@ -78,12 +93,35 @@ class OrchestratorRuntime:
             "emit_message_event": self.emit_message_event,
             "memory_service": self.memory_service,
             "memory_config": self.config.memory,
+            "tracer": self.tracer,
+            "langsmith_parent_run_id": run_id,
         }
         recursion_limit = max(50, int(self.config.max_iterations) * 6)
-        result = await self.graph_build.graph.ainvoke(state, config={"recursion_limit": recursion_limit})
-        final_state = RuntimeState(**{**dict(state), **dict(result)})
-        self._apply_runtime_state(final_state)
-        return self.session.result
+        try:
+            result = await self.graph_build.graph.ainvoke(state, config={"recursion_limit": recursion_limit})
+            final_state = RuntimeState(**{**dict(state), **dict(result)})
+            self._apply_runtime_state(final_state)
+            self.tracer.end_run(
+                run_id,
+                outputs={
+                    "sessionId": self.session.session_id,
+                    "phase": str(final_state.get("phase") or ""),
+                    "status": str(final_state.get("status") or ""),
+                    "stopReason": str(final_state.get("stop_reason") or ""),
+                    "iteration": int(final_state.get("iteration") or 0),
+                },
+                metadata={"module": "runtime", "runner": self.session.runner},
+            )
+            return self.session.result
+        except Exception as exc:
+            self.tracer.end_run(
+                run_id,
+                outputs={"sessionId": self.session.session_id},
+                error=(str(exc).strip() or "runtime graph failed")[:1200],
+                metadata={"module": "runtime", "runner": self.session.runner},
+                tags=["error"],
+            )
+            raise
 
     def _apply_runtime_state(self, final_state: RuntimeState) -> None:
         self.session.phase = str(final_state.get("phase") or self.session.phase or "completed")

@@ -117,6 +117,7 @@ export function App() {
   const [isConfigLoading, setIsConfigLoading] = useState(true);
   const [isConfigSaving, setIsConfigSaving] = useState(false);
   const [isMemoryCleanupRunning, setIsMemoryCleanupRunning] = useState(false);
+  const [isMemoryReindexing, setIsMemoryReindexing] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<SettingsFeedback | null>(null);
 
   const clientRef = useRef<ClientHandle | null>(null);
@@ -198,22 +199,47 @@ export function App() {
             });
           }
           setIsConfigLoading(false);
-          if (message.event === "orchestrator.config.set") {
-            setIsConfigSaving(false);
-            setSettingsFeedback({ severity: "success", message: "设置已保存。" });
-          }
-          return;
+        if (message.event === "orchestrator.config.set") {
+          setIsConfigSaving(false);
+          setSettingsFeedback({ severity: "success", message: "设置已保存。" });
         }
+        return;
+      }
 
-        if (message.event === "orchestrator.memory.cleanup") {
-          setIsMemoryCleanupRunning(false);
-          const deleted = Number(message.payload?.deletedDocuments ?? 0);
-          const duplicates = Number(message.payload?.duplicateDocuments ?? 0);
-          const emptyDocuments = Number(message.payload?.emptyDocuments ?? 0);
+      if (message.event === "orchestrator.memory.cleanup") {
+        setIsMemoryCleanupRunning(false);
+        const deleted = Number(message.payload?.deletedDocuments ?? 0);
+        const duplicates = Number(message.payload?.duplicateDocuments ?? 0);
+        const emptyDocuments = Number(message.payload?.emptyDocuments ?? 0);
           setSettingsFeedback({
             severity: "success",
             message: `记忆整理完成：共清理 ${deleted} 条，其中重复 ${duplicates} 条、空文档 ${emptyDocuments} 条。`,
           });
+          return;
+        }
+
+        if (message.event === "orchestrator.memory.reindex") {
+          const backend = getString(message.payload?.indexBackend) ?? "none";
+          const documentCount = Number(message.payload?.documentCount ?? 0) || 0;
+          setIsMemoryReindexing(false);
+          setSettingsFeedback({
+            severity: "success",
+            message: `Memory 索引重建完成：backend=${backend}, documents=${documentCount}`,
+          });
+          return;
+        }
+
+        if (message.event === "orchestrator.session.failed" && isMemoryReindexing) {
+          const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+          setIsMemoryReindexing(false);
+          setSettingsFeedback({ severity: "error", message: `Memory 索引重建失败：${errorMessage}` });
+          return;
+        }
+
+        if (message.event === "orchestrator.session.failed" && isMemoryCleanupRunning) {
+          const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+          setIsMemoryCleanupRunning(false);
+          setSettingsFeedback({ severity: "error", message: `记忆整理失败：${errorMessage}` });
           return;
         }
 
@@ -514,6 +540,20 @@ export function App() {
       type: "req",
       id: crypto.randomUUID(),
       method: "orchestrator.memory.cleanup",
+      params: {},
+    });
+  };
+
+  const applyMemoryReindex = () => {
+    if (!clientRef.current || isMemoryReindexing) {
+      return;
+    }
+    setIsMemoryReindexing(true);
+    setSettingsFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.memory.reindex",
       params: {},
     });
   };
@@ -829,14 +869,30 @@ export function App() {
                 </Box>
                 <Divider />
                 <Box sx={{ p: 2, display: "flex", justifyContent: "flex-end" }}>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={applyPlannerSettings}
-                    disabled={isConfigSaving || isMemoryCleanupRunning}
-                  >
-                    保存运行时设置
-                  </Button>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Button
+                      variant="outlined"
+                      onClick={runMemoryCleanup}
+                      disabled={isMemoryCleanupRunning || isConfigSaving || isConfigLoading}
+                    >
+                      {isMemoryCleanupRunning ? "整理中..." : "整理记忆"}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      onClick={applyMemoryReindex}
+                      disabled={isMemoryReindexing || isConfigSaving || isConfigLoading}
+                    >
+                      {isMemoryReindexing ? "重建中..." : "重建记忆索引"}
+                    </Button>
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={applyPlannerSettings}
+                      disabled={isConfigSaving || isMemoryCleanupRunning || isMemoryReindexing}
+                    >
+                      保存运行时设置
+                    </Button>
+                  </Stack>
                 </Box>
               </Paper>
             </Stack>

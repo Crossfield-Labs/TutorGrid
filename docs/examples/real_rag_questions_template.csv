@@ -1,0 +1,3 @@
+id,question,expected_phrases,limit,difficulty,type,notes
+q-001,"What is the core idea of observer pattern?","one-to-many dependency|publish-subscribe",8,easy,definition,"from week01 lecture"
+q-002,"When should strategy pattern be used?","encapsulate algorithms|runtime algorithm switching",8,medium,scenario,"from design pattern chapter"

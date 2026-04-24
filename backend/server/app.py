@@ -12,9 +12,12 @@ from typing import Any
 from backend.config import get_runtime_config_view, update_memory_config, update_planner_config, update_push_config
 from backend.config import load_config
 from backend.editor import TipTapAICommandService
-from backend.profile.service import LearningProfileService
-from backend.memory.service import MemoryService
 from backend.scheduler.service import LearningPushScheduler
+from backend.knowledge.service import KnowledgeBaseService
+from backend.learning_profile.service import LearningProfileService
+from backend.memory.service import MemoryService
+from backend.profile.service import LearningProfileService as LegacyLearningProfileService
+from backend.rag.service import RagService
 from backend.runners.router import RunnerRouter
 from backend.server.protocol import OrchestratorRequest, build_event
 from backend.sessions.manager import SessionManager
@@ -30,9 +33,12 @@ TRACE_ROOT = ROOT / "scratch" / "session-trace"
 session_manager = SessionManager()
 trace_store = JsonlTraceStore(TRACE_ROOT)
 memory_service = MemoryService()
-profile_service = LearningProfileService()
+profile_service = LegacyLearningProfileService()
 push_scheduler = LearningPushScheduler()
 tiptap_service = TipTapAICommandService()
+knowledge_service = KnowledgeBaseService()
+learning_profile_service = LearningProfileService()
+rag_service = RagService(knowledge_service=knowledge_service)
 runner_router = RunnerRouter()
 session_waiters: dict[str, asyncio.Future[str]] = {}
 session_tasks: dict[str, asyncio.Task[None]] = {}
@@ -300,6 +306,19 @@ def _classify_input_handling(*, input_intent: str, waiter_active: bool) -> str:
     if normalized_intent in {"redirect", "comment", "instruction"}:
         return "queue_followup"
     return "unsupported"
+
+
+def _coerce_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 async def _emit_projection_updates(session: OrchestratorSessionState) -> None:
@@ -650,7 +669,7 @@ def _is_authorized(websocket: WebSocketServerProtocol, required_token: str) -> b
 
 
 async def websocket_handler(websocket: WebSocketServerProtocol, path: str, required_token: str) -> None:
-    global runner_router
+    global runner_router, memory_service, knowledge_service, learning_profile_service, profile_service, rag_service
     if path not in {"/ws/orchestrator", "/ws/pc-agent"}:
         await websocket.close(code=1008, reason="Unsupported path")
         return
@@ -755,7 +774,13 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     on_session_complete=request.params.push_on_session_complete,
                     on_session_failure=request.params.push_on_session_failure,
                 )
+                # Rebuild runtime services so new planner/embedding settings apply immediately.
+                memory_service = MemoryService()
+                knowledge_service = KnowledgeBaseService()
+                learning_profile_service = LearningProfileService()
+                profile_service = LegacyLearningProfileService()
                 runner_router = RunnerRouter()
+                rag_service = RagService(knowledge_service=knowledge_service)
                 await send_event(
                     websocket,
                     event=event_name("orchestrator.config.set"),
@@ -770,26 +795,46 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 continue
 
             if request.method in {"orchestrator.profile.get", "pc.profile.get"}:
-                items = []
-                if request.params.profile_level and request.params.profile_key:
-                    profile = profile_service.get_profile(
-                        profile_level=request.params.profile_level,
-                        profile_key=request.params.profile_key,
-                    )
-                    if profile:
-                        items.append(profile)
+                if request.params.profile_level.strip() or request.params.profile_key.strip():
+                    items = []
+                    if request.params.profile_level and request.params.profile_key:
+                        profile = profile_service.get_profile(
+                            profile_level=request.params.profile_level,
+                            profile_key=request.params.profile_key,
+                        )
+                        if profile:
+                            items.append(profile)
+                    else:
+                        items = profile_service.list_profiles(
+                            profile_level=request.params.profile_level.strip() or None,
+                            limit=max(1, request.params.limit or 50),
+                        )
+                    payload = {"items": items}
                 else:
-                    items = profile_service.list_profiles(
-                        profile_level=request.params.profile_level.strip() or None,
-                        limit=max(1, request.params.limit or 50),
-                    )
+                    try:
+                        payload = learning_profile_service.get_profile(
+                            user_id=request.params.user_id,
+                            layer=request.params.target.strip() or "summary",
+                            course_id=request.params.course_id.strip(),
+                            limit=max(1, request.params.limit or 100),
+                        )
+                    except Exception as exc:
+                        await send_event(
+                            websocket,
+                            event=event_name("orchestrator.session.failed"),
+                            task_id=request.task_id,
+                            node_id=request.node_id,
+                            session_id=request.session_id,
+                            payload={"message": str(exc)},
+                        )
+                        continue
                 await send_event(
                     websocket,
                     event=event_name("orchestrator.profile.get"),
                     task_id=request.task_id,
                     node_id=request.node_id,
                     session_id=request.session_id,
-                    payload={"items": items},
+                    payload=payload,
                 )
                 continue
 
@@ -870,6 +915,553 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 )
                 continue
 
+            if request.method in {"orchestrator.profile.l1.set", "pc.profile.l1.set"}:
+                try:
+                    payload = learning_profile_service.upsert_l1_preferences(
+                        user_id=request.params.user_id,
+                        preferences=request.params.profile_data,
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.l1.set"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.profile.l2.list", "pc.profile.l2.list"}:
+                payload = learning_profile_service.list_l2_contexts(
+                    user_id=request.params.user_id,
+                    limit=max(1, request.params.limit or 100),
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.l2.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.profile.l2.upsert", "pc.profile.l2.upsert"}:
+                profile_data = request.params.profile_data if isinstance(request.params.profile_data, dict) else {}
+                course_id = request.params.course_id.strip() or request.params.target.strip() or str(
+                    profile_data.get("courseId") or ""
+                ).strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required"},
+                    )
+                    continue
+                context = dict(profile_data)
+                try:
+                    payload = learning_profile_service.upsert_l2_context(
+                        user_id=request.params.user_id,
+                        course_id=course_id,
+                        course_name=request.params.course_name.strip() or str(context.get("courseName") or "").strip(),
+                        context=context,
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.l2.upsert"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.profile.l4.list", "pc.profile.l4.list"}:
+                payload = learning_profile_service.list_l4_mastery(
+                    user_id=request.params.user_id,
+                    course_id=request.params.course_id.strip(),
+                    limit=max(1, request.params.limit or 200),
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.l4.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.profile.l4.upsert", "pc.profile.l4.upsert"}:
+                profile_data = request.params.profile_data if isinstance(request.params.profile_data, dict) else {}
+                course_id = request.params.course_id.strip() or str(profile_data.get("courseId") or "").strip()
+                knowledge_point = (
+                    request.params.knowledge_point.strip()
+                    or request.params.target.strip()
+                    or request.params.text.strip()
+                    or str(profile_data.get("knowledgePoint") or "").strip()
+                )
+                mastery = request.params.mastery
+                if mastery < 0:
+                    mastery = _coerce_float(profile_data.get("mastery"), -1.0)
+                if mastery < 0:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "mastery is required in params.mastery or params.profileData.mastery"},
+                    )
+                    continue
+                confidence = request.params.confidence
+                if confidence < 0:
+                    confidence = _coerce_float(profile_data.get("confidence"), 0.5)
+                last_practiced_at = request.params.last_practiced_at.strip() or str(
+                    profile_data.get("lastPracticedAt") or ""
+                ).strip()
+                evidence = _coerce_str_list(profile_data.get("evidence"))
+                metadata = dict(profile_data)
+                metadata.pop("courseId", None)
+                metadata.pop("knowledgePoint", None)
+                metadata.pop("mastery", None)
+                metadata.pop("confidence", None)
+                metadata.pop("evidence", None)
+                metadata.pop("lastPracticedAt", None)
+                try:
+                    payload = learning_profile_service.upsert_l4_mastery(
+                        user_id=request.params.user_id,
+                        course_id=course_id,
+                        knowledge_point=knowledge_point,
+                        mastery=float(mastery),
+                        confidence=float(confidence),
+                        evidence=evidence,
+                        last_practiced_at=last_practiced_at,
+                        metadata=metadata,
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.profile.l4.upsert"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.course.create", "pc.knowledge.course.create"}:
+                course_name = request.params.course_name.strip()
+                if not course_name:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseName cannot be empty"},
+                    )
+                    continue
+                payload = knowledge_service.create_course(
+                    name=course_name,
+                    description=request.params.course_description.strip(),
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.course.create"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.course.list", "pc.knowledge.course.list"}:
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.course.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"items": knowledge_service.list_courses(limit=max(1, request.params.limit or 50))},
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.file.ingest", "pc.knowledge.file.ingest"}:
+                course_id = request.params.course_id.strip()
+                file_path = request.params.file_path.strip()
+                if not course_id or not file_path:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId and filePath are required"},
+                    )
+                    continue
+                try:
+                    payload = knowledge_service.ingest_file(
+                        course_id=course_id,
+                        file_path=file_path,
+                        file_name=request.params.file_name.strip(),
+                        chunk_size=max(200, request.params.chunk_size or 900),
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.file.ingest"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.file.list", "pc.knowledge.file.list"}:
+                course_id = request.params.course_id.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required"},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.file.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "courseId": course_id,
+                        "items": knowledge_service.list_files(course_id=course_id, limit=max(1, request.params.limit or 200)),
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.file.delete", "pc.knowledge.file.delete"}:
+                course_id = request.params.course_id.strip()
+                file_id = request.params.target.strip() or request.params.text.strip()
+                if not course_id or not file_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId and fileId are required (fileId via params.target or params.text)"},
+                    )
+                    continue
+                try:
+                    payload = knowledge_service.delete_file(course_id=course_id, file_id=file_id)
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.file.delete"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.course.delete", "pc.knowledge.course.delete"}:
+                course_id = request.params.course_id.strip() or request.params.target.strip() or request.params.text.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required (via params.courseId or params.target/params.text)"},
+                    )
+                    continue
+                try:
+                    payload = knowledge_service.delete_course(course_id=course_id)
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.course.delete"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.course.reembed", "pc.knowledge.course.reembed"}:
+                course_id = request.params.course_id.strip() or request.params.target.strip() or request.params.text.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required (via params.courseId or params.target/params.text)"},
+                    )
+                    continue
+                try:
+                    payload = knowledge_service.reembed_course(
+                        course_id=course_id,
+                        batch_size=max(1, request.params.batch_size or 64),
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.course.reembed"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.course.reindex", "pc.knowledge.course.reindex"}:
+                course_id = request.params.course_id.strip() or request.params.target.strip() or request.params.text.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required (via params.courseId or params.target/params.text)"},
+                    )
+                    continue
+                try:
+                    payload = knowledge_service.reindex_course(course_id=course_id)
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.course.reindex"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.chunk.list", "pc.knowledge.chunk.list"}:
+                course_id = request.params.course_id.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required"},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.chunk.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={
+                        "courseId": course_id,
+                        "query": request.params.text,
+                        "items": knowledge_service.list_chunks(
+                            course_id=course_id,
+                            limit=max(1, request.params.limit or 100),
+                            query=request.params.text,
+                        ),
+                    },
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.rag.query", "pc.knowledge.rag.query"}:
+                course_id = request.params.course_id.strip()
+                question = request.params.text.strip()
+                if not course_id or not question:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId and params.text are required for RAG query"},
+                    )
+                    continue
+                try:
+                    payload = await rag_service.query(
+                        course_id=course_id,
+                        question=question,
+                        limit=max(1, request.params.limit or 8),
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.rag.query"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.job.list", "pc.knowledge.job.list"}:
+                course_id = request.params.course_id.strip()
+                if not course_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "courseId is required"},
+                    )
+                    continue
+                try:
+                    items = knowledge_service.list_jobs(
+                        course_id=course_id,
+                        limit=max(1, request.params.limit or 100),
+                    )
+                except Exception as exc:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": str(exc)},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.job.list"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"courseId": course_id, "items": items},
+                )
+                continue
+
+            if request.method in {"orchestrator.knowledge.job.get", "pc.knowledge.job.get"}:
+                job_id = request.params.target.strip() or request.params.text.strip()
+                if not job_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "jobId is required in params.target or params.text"},
+                    )
+                    continue
+                job = knowledge_service.get_job(job_id=job_id)
+                if job is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "Knowledge job not found"},
+                    )
+                    continue
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.knowledge.job.get"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=job,
+                )
+                continue
             if request.method in {"orchestrator.session.history", "pc.session.history"} and request.session_id:
                 await send_event(
                     websocket,
@@ -1029,6 +1621,18 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                             for item in results
                         ],
                     },
+                )
+                continue
+
+            if request.method in {"orchestrator.memory.reindex", "pc.memory.reindex"}:
+                payload = memory_service.reindex()
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.memory.reindex"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload=payload,
                 )
                 continue
 

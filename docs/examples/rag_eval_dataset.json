@@ -1,0 +1,36 @@
+{
+  "courseName": "Design Patterns",
+  "courseDescription": "Local sample dataset for RAG evaluation",
+  "documents": [
+    {
+      "path": "./eval_samples/observer.md",
+      "name": "observer-sample",
+      "chunkSize": 900
+    },
+    {
+      "path": "./eval_samples/strategy.md",
+      "name": "strategy-sample",
+      "chunkSize": 900
+    }
+  ],
+  "queries": [
+    {
+      "id": "q1",
+      "question": "What is the core idea of the observer pattern?",
+      "expectedPhrases": [
+        "one-to-many dependency",
+        "publish-subscribe"
+      ],
+      "limit": 8
+    },
+    {
+      "id": "q2",
+      "question": "When should strategy pattern be used?",
+      "expectedPhrases": [
+        "encapsulates algorithms",
+        "runtime algorithm switching"
+      ],
+      "limit": 8
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "courseName": "YOUR_COURSE_NAME",
+  "courseDescription": "Short description for the course knowledge base.",
+  "documents": [
+    {
+      "path": "../real_data/slides/week01_intro.pptx",
+      "name": "week01-intro",
+      "chunkSize": 900
+    },
+    {
+      "path": "../real_data/notes/week01_notes.docx",
+      "name": "week01-notes",
+      "chunkSize": 900
+    },
+    {
+      "path": "../real_data/handouts/design_patterns.pdf",
+      "name": "design-patterns",
+      "chunkSize": 900
+    }
+  ],
+  "queries": [
+    {
+      "id": "q-001",
+      "question": "What is the core idea of observer pattern?",
+      "expectedPhrases": [
+        "one-to-many dependency",
+        "publish-subscribe"
+      ],
+      "limit": 8,
+      "difficulty": "easy",
+      "type": "definition"
+    },
+    {
+      "id": "q-002",
+      "question": "When should strategy pattern be used?",
+      "expectedPhrases": [
+        "encapsulate algorithms",
+        "runtime algorithm switching"
+      ],
+      "limit": 8,
+      "difficulty": "medium",
+      "type": "scenario"
+    }
+  ]
+}

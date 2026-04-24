@@ -12,6 +12,19 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
 
 
+def _coerce_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
 @dataclass(slots=True)
 class OrchestratorParams:
     runner: str = "orchestrator"
@@ -46,6 +59,19 @@ class OrchestratorParams:
     push_on_session_failure: bool = False
     profile_level: str = ""
     profile_key: str = ""
+    course_id: str = ""
+    course_name: str = ""
+    course_description: str = ""
+    file_path: str = ""
+    file_name: str = ""
+    chunk_size: int = 900
+    batch_size: int = 64
+    user_id: str = ""
+    knowledge_point: str = ""
+    mastery: float = -1.0
+    confidence: float = -1.0
+    last_practiced_at: str = ""
+    profile_data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -101,6 +127,19 @@ class OrchestratorRequest:
                 push_on_session_failure=bool(params.get("pushOnSessionFailure", False)),
                 profile_level=str(params.get("profileLevel") or ""),
                 profile_key=str(params.get("profileKey") or ""),
+                course_id=str(params.get("courseId") or ""),
+                course_name=str(params.get("courseName") or ""),
+                course_description=str(params.get("courseDescription") or ""),
+                file_path=str(params.get("filePath") or ""),
+                file_name=str(params.get("fileName") or ""),
+                chunk_size=_coerce_int(params.get("chunkSize"), 900),
+                batch_size=_coerce_int(params.get("batchSize"), 64),
+                user_id=str(params.get("userId") or ""),
+                knowledge_point=str(params.get("knowledgePoint") or ""),
+                mastery=_coerce_float(params.get("mastery"), -1.0),
+                confidence=_coerce_float(params.get("confidence"), -1.0),
+                last_practiced_at=str(params.get("lastPracticedAt") or ""),
+                profile_data=_coerce_dict(params.get("profileData")),
             ),
         )
 
@@ -127,4 +166,3 @@ def build_event(
         frame["seq"] = seq
     frame["timestamp"] = timestamp or datetime.now(timezone.utc).isoformat()
     return frame
-

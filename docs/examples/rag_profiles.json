@@ -1,0 +1,23 @@
+{
+  "profiles": [
+    {
+      "name": "baseline",
+      "description": "Disable multi-query, HyDE and rerank",
+      "env": {
+        "ORCHESTRATOR_RAG_MULTI_QUERY": "0",
+        "ORCHESTRATOR_RAG_HYDE": "0",
+        "ORCHESTRATOR_RAG_RERANK": "0"
+      }
+    },
+    {
+      "name": "full_rag",
+      "description": "Enable all RAG optimization stages",
+      "env": {
+        "ORCHESTRATOR_RAG_MULTI_QUERY": "1",
+        "ORCHESTRATOR_RAG_HYDE": "1",
+        "ORCHESTRATOR_RAG_RERANK": "1",
+        "ORCHESTRATOR_RAG_MULTI_QUERY_COUNT": "3"
+      }
+    }
+  ]
+}

@@ -72,19 +72,19 @@ class ProtocolTests(unittest.TestCase):
                 "method": "orchestrator.tiptap.command",
                 "params": {
                     "commandName": "explain-selection",
-                    "selectionText": "马拉车算法",
-                    "documentText": "这是整篇文档",
+                    "selectionText": "manacher algorithm",
+                    "documentText": "full document text",
                     "execute": True,
                 },
             }
         )
 
         self.assertEqual(request.params.command_name, "explain-selection")
-        self.assertEqual(request.params.selection_text, "马拉车算法")
-        self.assertEqual(request.params.document_text, "这是整篇文档")
+        self.assertEqual(request.params.selection_text, "manacher algorithm")
+        self.assertEqual(request.params.document_text, "full document text")
         self.assertTrue(request.params.execute)
 
-    def test_request_parsing_reads_push_and_profile_params(self) -> None:
+    def test_request_parsing_reads_push_and_legacy_profile_params(self) -> None:
         request = OrchestratorRequest.from_dict(
             {
                 "type": "req",
@@ -105,6 +105,57 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.profile_level, "L4")
         self.assertEqual(request.params.profile_key, "workspace-key")
 
+    def test_request_parsing_reads_knowledge_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.knowledge.file.ingest",
+                "params": {
+                    "courseId": "course-1",
+                    "courseName": "software architecture",
+                    "courseDescription": "exam review",
+                    "filePath": "D:/data/chapter1.pptx",
+                    "fileName": "chapter1.pptx",
+                    "chunkSize": 1024,
+                    "batchSize": 48,
+                },
+            }
+        )
+        self.assertEqual(request.params.course_id, "course-1")
+        self.assertEqual(request.params.course_name, "software architecture")
+        self.assertEqual(request.params.course_description, "exam review")
+        self.assertEqual(request.params.file_path, "D:/data/chapter1.pptx")
+        self.assertEqual(request.params.file_name, "chapter1.pptx")
+        self.assertEqual(request.params.chunk_size, 1024)
+        self.assertEqual(request.params.batch_size, 48)
+
+    def test_request_parsing_reads_learning_profile_params(self) -> None:
+        request = OrchestratorRequest.from_dict(
+            {
+                "type": "req",
+                "method": "orchestrator.profile.l4.upsert",
+                "params": {
+                    "userId": "user-1",
+                    "courseId": "course-1",
+                    "knowledgePoint": "observer-pattern",
+                    "mastery": 0.42,
+                    "confidence": 0.9,
+                    "lastPracticedAt": "2026-04-22T08:00:00+08:00",
+                    "profileData": {
+                        "evidence": ["quiz-1 wrong", "lab-review needed"],
+                        "notes": "Need to revisit dispatch flow.",
+                    },
+                },
+            }
+        )
+        self.assertEqual(request.params.user_id, "user-1")
+        self.assertEqual(request.params.course_id, "course-1")
+        self.assertEqual(request.params.knowledge_point, "observer-pattern")
+        self.assertAlmostEqual(request.params.mastery, 0.42)
+        self.assertAlmostEqual(request.params.confidence, 0.9)
+        self.assertEqual(request.params.last_practiced_at, "2026-04-22T08:00:00+08:00")
+        self.assertEqual(request.params.profile_data["notes"], "Need to revisit dispatch flow.")
+
     def test_build_event_preserves_payload(self) -> None:
         event = build_event(
             event="orchestrator.session.completed",
@@ -124,4 +175,3 @@ class ProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
