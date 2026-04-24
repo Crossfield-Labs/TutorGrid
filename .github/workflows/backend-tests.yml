@@ -1,0 +1,131 @@
+name: backend-tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-runtime:
+    name: core-runtime (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run core runtime tests
+        run: |
+          python -m unittest \
+            tests.test_delegate_runtime \
+            tests.test_planning_node \
+            tests.test_profile_service \
+            tests.test_protocol \
+            tests.test_provider_registry \
+            tests.test_runner_router \
+            tests.test_runtime_state \
+            tests.test_session_list \
+            tests.test_session_state \
+            tests.test_trace_history \
+            -v
+
+  server-storage:
+    name: server-storage
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Run server and storage tests
+        run: |
+          python -m unittest \
+            tests.test_learning_push \
+            tests.test_server_artifacts \
+            tests.test_server_input \
+            tests.test_server_queries \
+            tests.test_server_tiptap \
+            tests.test_storage \
+            tests.test_tiptap_service \
+            -v
+
+  knowledge-rag-memory:
+    name: knowledge-rag-memory
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Run knowledge, RAG, memory tests
+        run: |
+          python -m unittest \
+            tests.test_knowledge_parsers \
+            tests.test_knowledge_service \
+            tests.test_learning_profile_service \
+            tests.test_memory_cleanup \
+            tests.test_memory_service \
+            tests.test_rag_evaluation \
+            tests.test_rag_service \
+            tests.test_vector_knowledge_index \
+            tests.test_vector_memory_index \
+            tests.test_vector_ranker \
+            -v
+
+  tooling-runners:
+    name: tooling-runners
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Run tooling and runner tests
+        run: |
+          python -m unittest \
+            tests.test_database_tool \
+            tests.test_dev_build_rag_dataset \
+            tests.test_dev_compare_rag_profiles \
+            tests.test_dev_rag_tools \
+            tests.test_dev_run_rag_workflow \
+            tests.test_dev_summarize_rag_reports \
+            tests.test_dev_tune_rag_grid \
+            tests.test_dev_validate_rag_dataset \
+            tests.test_python_runner \
+            -v

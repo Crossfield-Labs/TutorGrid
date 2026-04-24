@@ -1,4 +1,4 @@
-name: quality
+name: backend-quality
 
 on:
   push:
@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: quality-${{ github.ref }}
+  group: backend-quality-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: quality
+  backend-quality:
+    name: backend quality
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: .
@@ -20,17 +20,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
 
       - name: Validate JSON config files
         run: |
@@ -53,8 +46,3 @@ jobs:
           python main.py --help
           python -m backend.dev.run_runtime --help
           python -m harness.runner --help
-
-      - name: Markdown link sanity
-        run: |
-          python scripts/check_markdown_links.py
-

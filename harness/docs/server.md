@@ -29,7 +29,25 @@
   - `orchestrator.memory.cleanup`
   - `orchestrator.memory.compact`
   - `orchestrator.memory.search`
+  - `orchestrator.memory.reindex`
   - `orchestrator.profile.get`
+  - `orchestrator.profile.l1.set`
+  - `orchestrator.profile.l2.list`
+  - `orchestrator.profile.l2.upsert`
+  - `orchestrator.profile.l4.list`
+  - `orchestrator.profile.l4.upsert`
+  - `orchestrator.knowledge.course.create`
+  - `orchestrator.knowledge.course.list`
+  - `orchestrator.knowledge.course.delete`
+  - `orchestrator.knowledge.course.reembed`
+  - `orchestrator.knowledge.course.reindex`
+  - `orchestrator.knowledge.file.ingest`
+  - `orchestrator.knowledge.file.list`
+  - `orchestrator.knowledge.file.delete`
+  - `orchestrator.knowledge.chunk.list`
+  - `orchestrator.knowledge.job.list`
+  - `orchestrator.knowledge.job.get`
+  - `orchestrator.knowledge.rag.query`
   - `orchestrator.learning.push.list`
 - 当前已投影的主要事件：
   - `orchestrator.session.progress`
@@ -61,4 +79,5 @@
   - snapshot 详情
 - 编辑器侧命令通过 `orchestrator.tiptap.command` 进入后端，支持预览和执行两种模式
 - 记忆整理支持自动触发和 `orchestrator.memory.cleanup` 手动触发
+- 知识库与学习画像接口也挂在同一条 WebSocket 协议面上，新增字段时先补 `protocol.py` 的参数解析
 

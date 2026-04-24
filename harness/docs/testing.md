@@ -4,6 +4,7 @@
 - `python -m compileall backend tests`
 - `python -m backend.dev.run_runtime "task" --workspace <workspace>`
 - `python -m backend.main --host 127.0.0.1 --port 3210`
+- `python -m backend.dev.check_embedding_endpoint --check-chat --retries 3 --timeout 45`
 - `python -m unittest tests.test_websocket_e2e -v`
 - `python scripts/e2e_ws.py --ws-url ws://127.0.0.1:3210/ws/orchestrator`
 - `python -m harness.runner --task-file harness/tasks/ws_contract_smoke.json`
@@ -21,6 +22,14 @@
 - worker 集成、interrupt、follow-up 检查
 - 手动端到端脚本检查
 
+当前 CI 划分：
+- `backend-quality`：编译、import smoke、CLI help、任务 JSON 校验
+- `docs-quality`：markdown 链接检查
+- `backend-tests`：按模块拆分 `tests/` 下的后端单元/集成测试
+- `harness-smoke`：`tests.test_harness_runner`、`tests.test_websocket_e2e`、真实 `harness/tasks/ws_contract_smoke.json`
+- `frontend-build`：前端依赖安装与构建
+- `release-dev` / `release-tag`：只负责打包和发布，不再承担常规测试职责
+
 当前最值得补的集成测试：
 - `delegate_task` 触发后 session 是否更新 `activeWorker`、`workerRuns`、`artifacts`
 - server 是否按 snapshot 变化广播 `phase/worker/summary/artifact_summary`
@@ -36,6 +45,24 @@
 - `orchestrator.memory.compact`
 - `orchestrator.memory.search`
 - `orchestrator.session.interrupt`
+
+当前知识库 / RAG / 画像回归：
+- `tests/test_knowledge_parsers.py`
+- `tests/test_knowledge_service.py`
+- `tests/test_rag_service.py`
+- `tests/test_rag_evaluation.py`
+- `tests/test_vector_knowledge_index.py`
+- `tests/test_vector_memory_index.py`
+- `tests/test_vector_ranker.py`
+- `tests/test_learning_profile_service.py`
+- `tests/test_memory_service.py`
+- `tests/test_dev_rag_tools.py`
+- `tests/test_dev_run_rag_workflow.py`
+- `tests/test_dev_compare_rag_profiles.py`
+- `tests/test_dev_tune_rag_grid.py`
+- `tests/test_dev_validate_rag_dataset.py`
+- `tests/test_dev_build_rag_dataset.py`
+- `tests/test_dev_summarize_rag_reports.py`
 
 当前 harness 覆盖：
 - 任务文件加载

@@ -24,6 +24,12 @@
 - `python -m backend.main --host 127.0.0.1 --port 3210`
 - 如果改了协议或会话流程，再跑桌面前端和 WebSocket 路径
 
+CI 约定：
+- 常规质量检查、文档检查、后端测试、harness smoke、frontend build、release 打包分成独立 workflow
+- `tests/` 已进入 CI，但不再只靠单个 `discover` job；按模块拆成多组 job，便于定位失败归属
+- 改动 `frontend/` 时，至少保证前端构建链路可过
+- 改动 `harness/`、协议或 WebSocket 行为时，至少保证 harness smoke 路径可过
+
 文档分层：
 - 根目录文档：入口、协作方式、短说明
 - `docs/`：详细设计、人类长期维护文档

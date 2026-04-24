@@ -49,6 +49,7 @@
    - 已有本地记忆检索接口
    - 已把记忆召回接入 planner 前的上下文注入
    - 已补 `L1/L2/L3/L4` 记忆分层
+   - 已补 knowledge ingest / RAG query / learning profile 基础链路
    - 还缺更强的整理策略：合并、降级、归档、过期
 
 4. GUI 所需的历史查询和展示协议仍未完全补齐。
@@ -102,6 +103,23 @@
    - follow-up 被消费后的 planner 上下文稳定性
 
 ### P2：主能力已在，但还没做完整端到端验证
+
+8.1. 知识库 / RAG / 学习画像已经具备最小可用链路，但还缺真实数据和真实部署环境下的系统联调。
+   重点目录：
+   - `backend/knowledge/`
+   - `backend/rag/`
+   - `backend/vector/`
+   - `backend/learning_profile/`
+   - `backend/observability/`
+   当前状态：
+   - 已支持课程创建、文件摄取、chunk 持久化、课程级重嵌入和重建索引
+   - 已支持 `dense + lexical + rerank` 的 RAG 查询链路
+   - 已补开发期评测、profile compare、grid tuning、workflow 汇总脚本
+   - 已补 LangSmith best-effort tracing
+   风险：
+   - 真正课程资料上的解析成功率、OCR 耗时和 embedding 质量还未系统验收
+   - `faiss/chroma/json` fallback 在不同机器上的表现仍需回归
+   - 外部 rerank / embedding API 的失败退化路径还要继续做环境联调
 
 8. runner 层需要按旧项目使用方式完整联调。
    重点文件：

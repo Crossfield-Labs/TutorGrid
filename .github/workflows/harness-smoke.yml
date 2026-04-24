@@ -1,0 +1,112 @@
+name: harness-smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: harness-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness-unit:
+    name: harness-unit
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Run harness unit tests
+        run: |
+          python -m unittest tests.test_harness_runner -v
+
+  websocket-contract:
+    name: websocket-contract
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Run websocket contract regression
+        run: |
+          python -m unittest tests.test_websocket_e2e -v
+
+  harness-smoke-task:
+    name: harness-smoke-task
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python project
+        uses: ./.github/actions/setup-python-project
+        with:
+          python-version: "3.12"
+
+      - name: Start backend server
+        shell: bash
+        run: |
+          python -m backend.main --host 127.0.0.1 --port 3210 > backend.log 2>&1 &
+          echo $! > backend.pid
+
+      - name: Wait for backend server
+        shell: bash
+        run: |
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 60
+          last_error = None
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 3210), timeout=1):
+                      print("Backend server is ready.")
+                      break
+              except OSError as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"Timed out waiting for backend server: {last_error}")
+          PY
+
+      - name: Run harness smoke task
+        run: |
+          python -m harness.runner --task-file harness/tasks/ws_contract_smoke.json
+
+      - name: Stop backend server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f backend.pid ]; then
+            kill "$(cat backend.pid)" || true
+          fi
+
+      - name: Upload harness artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: harness-smoke-artifacts
+          path: |
+            backend.log
+            scratch/harness-runs/**

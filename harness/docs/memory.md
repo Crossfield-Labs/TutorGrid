@@ -21,7 +21,8 @@
 - 第一版 embedding 是本地可重复的轻量实现，用来打通链路
 - `memory.search` 现在是 SQLite 持久化 + Python 层相似度计算
 - `memory.cleanup` 会清理重复文档和空文档，作为周期性整理基础
-- 当前 SQLite 层已迁到统一 SQLAlchemy ORM 基础层，不再继续扩 raw SQL
+- `memory.compact` 持久化后会同步重建 memory vector index
+- 当前 SQLite store 独立使用标准库 `sqlite3`，不依赖统一 SQLAlchemy ORM
 - 学习画像现在已升级到 `L1/L2/L3/L4`
   - `L2`：单次会话/任务记忆
   - `L3`：项目或工作区稳定记忆
@@ -30,6 +31,7 @@
 当前方向：
 - 已支撑历史会话压缩、召回和 planner 注入
 - 已支撑自动整理和手动 `memory.cleanup`
+- 已支撑 `memory.reindex` 手动重建索引
 - 已支撑 `L3/L4` 项目/长期记忆升级
 - 下一阶段重点是扩充整理器的合并、降级、归档和过期策略
 

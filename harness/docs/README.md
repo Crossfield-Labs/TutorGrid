@@ -19,6 +19,7 @@
 - `runtime.md`：LangGraph runtime、节点、路由、执行目标
 - `llm.md`：LangChain prompt / message 层与 planner 职责
 - `memory.md`：历史压缩、SQLite 记忆层和本地检索能力
+- `knowledge.md`：知识库/RAG/学习画像/向量索引与 tracing 相关能力
 - `providers.md`：模型 provider 抽象与 API 兼容层
 - `tools.md`：tool 注册、tool 边界、tool 调用形态
 - `workers.md`：worker 职责与后续委派方向

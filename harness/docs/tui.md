@@ -12,8 +12,8 @@
 
 ## 当前入口
 
-- [main.py](D:\works\pc_orchestrator_core\tui\main.py)
-- [client.py](D:\works\pc_orchestrator_core\tui\client.py)
+- [main.py](../../tui/main.py)
+- [client.py](../../tui/client.py)
 
 启动方式：
 
