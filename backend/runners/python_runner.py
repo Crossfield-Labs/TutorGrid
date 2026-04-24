@@ -2,14 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 from pathlib import Path
 
 from backend.config import OrchestratorConfig, load_config
-from backend.runners.base import AwaitUserCallback, BaseRunner, ProgressCallback
+from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
 from backend.sessions.state import OrchestratorSessionState
 
 
 class PythonRunner(BaseRunner):
+    def __init__(self) -> None:
+        self._emit_substep: SubstepCallback | None = None
+        self._emit_message_event: MessageEventCallback | None = None
+
+    def set_event_callbacks(
+        self,
+        *,
+        emit_substep: SubstepCallback | None = None,
+        emit_message_event: MessageEventCallback | None = None,
+    ) -> None:
+        self._emit_substep = emit_substep
+        self._emit_message_event = emit_message_event
+
     async def run(
         self,
         session: OrchestratorSessionState,
@@ -24,44 +38,66 @@ class PythonRunner(BaseRunner):
         if not code:
             raise RuntimeError("Python runner requires code in session.context['python_code'] or a fenced ```python block.")
 
+        if self._emit_substep is not None:
+            await self._emit_substep("runner", "Python task", "started", "python runner started")
+
+        payload = {
+            "messageId": f"{session.session_id}:assistant:python:1",
+            "role": "assistant",
+            "contentType": "text/markdown",
+            "phase": "planning",
+        }
+        if self._emit_message_event is not None:
+            await self._emit_message_event("started", payload)
+
         await emit_progress(f"Running isolated Python task in {workspace_path}", 0.12)
 
-        process = await asyncio.create_subprocess_exec(
-            config.python_command,
-            "-I",
-            "-B",
-            "-u",
-            "-c",
-            code,
-            cwd=str(workspace_path),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=self._build_env(config),
-        )
-
         try:
-            stdout_data, stderr_data = await asyncio.wait_for(
-                process.communicate(),
-                timeout=max(1, config.python_runner_timeout_seconds),
+            completed = await asyncio.wait_for(
+                asyncio.to_thread(
+                    subprocess.run,
+                    [
+                        config.python_command,
+                        "-I",
+                        "-B",
+                        "-u",
+                        "-c",
+                        code,
+                    ],
+                    cwd=str(workspace_path),
+                    capture_output=True,
+                    env=self._build_env(config),
+                    timeout=max(1, config.python_runner_timeout_seconds),
+                    check=False,
+                ),
+                timeout=max(1, config.python_runner_timeout_seconds) + 1,
             )
-        except asyncio.TimeoutError as error:
-            process.kill()
-            await process.communicate()
+        except (asyncio.TimeoutError, subprocess.TimeoutExpired) as error:
             raise RuntimeError(
                 f"Python runner timed out after {config.python_runner_timeout_seconds}s."
             ) from error
 
-        stdout_text = self._truncate_output(stdout_data, config.python_runner_output_limit_bytes)
-        stderr_text = self._truncate_output(stderr_data, config.python_runner_output_limit_bytes)
+        stdout_text = self._truncate_output(completed.stdout, config.python_runner_output_limit_bytes)
+        stderr_text = self._truncate_output(completed.stderr, config.python_runner_output_limit_bytes)
 
         if stdout_text:
             await emit_progress(stdout_text, 0.75)
+            if self._emit_message_event is not None:
+                await self._emit_message_event("delta", {**payload, "delta": stdout_text})
         if stderr_text:
             await emit_progress(stderr_text, 0.9)
 
-        if process.returncode != 0:
-            raise RuntimeError(stderr_text or stdout_text or f"Python runner exited with code {process.returncode}")
-        return stdout_text or "Python runner completed successfully."
+        if completed.returncode != 0:
+            raise RuntimeError(stderr_text or stdout_text or f"Python runner exited with code {completed.returncode}")
+        result_text = stdout_text or "Python runner completed successfully."
+        if self._emit_substep is not None:
+            await self._emit_substep("runner", "Python task", "completed", result_text)
+        if self._emit_message_event is not None:
+            await self._emit_message_event(
+                "completed",
+                {**payload, "content": result_text, "finishReason": "stop"},
+            )
+        return result_text
 
     @staticmethod
     def _extract_python_code(session: OrchestratorSessionState) -> str:

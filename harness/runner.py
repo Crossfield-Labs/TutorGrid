@@ -70,6 +70,32 @@ async def _recv_matching_event(
         return message
 
 
+async def _recv_terminal_event(
+    websocket: Any,
+    sink: list[dict[str, Any]],
+    expected_event: str,
+    *,
+    session_id: str,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    terminal_events = {
+        expected_event,
+        "orchestrator.session.failed",
+        "orchestrator.session.cancelled",
+    }
+    while True:
+        raw_message = await asyncio.wait_for(websocket.recv(), timeout=timeout_seconds)
+        message = json.loads(raw_message)
+        if message.get("type") != "event":
+            continue
+        sink.append(message)
+        if message.get("event") not in terminal_events:
+            continue
+        if message.get("sessionId") != session_id:
+            continue
+        return message
+
+
 async def run_task(task: HarnessTaskSpec, *, output_dir: Path | None = None) -> tuple[HarnessResult, dict[str, Any]]:
     output_path = output_dir or (HARNESS_RUN_ROOT / f"{task.task_id}-{uuid4().hex[:8]}")
     output_path.mkdir(parents=True, exist_ok=True)
@@ -96,7 +122,7 @@ async def run_task(task: HarnessTaskSpec, *, output_dir: Path | None = None) -> 
             timeout_seconds=task.timeout_seconds,
         )
         session_id = str(started_event.get("sessionId") or "")
-        terminal_event = await _recv_matching_event(
+        terminal_event = await _recv_terminal_event(
             websocket,
             events,
             task.expectation.terminal_event,

@@ -1,10 +1,10 @@
 {
   "taskId": "harness-ws-smoke",
   "nodeId": "harness-node",
-  "runner": "orchestrator",
+  "runner": "python",
   "workspace": ".",
-  "task": "Explain arrays",
-  "goal": "Explain arrays",
+  "task": "Run a deterministic Python smoke task.\n\n```python\nprint('arrays smoke ok')\n```",
+  "goal": "Run a deterministic Python smoke task",
   "wsUrl": "ws://127.0.0.1:3210/ws/orchestrator",
   "timeoutSeconds": 30,
   "querySnapshot": true,

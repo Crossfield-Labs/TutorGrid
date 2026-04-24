@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,7 +44,7 @@ class OrchestratorConfig:
     push: PushConfig
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
-    python_command: str = "python"
+    python_command: str = sys.executable or "python"
     python_runner_timeout_seconds: int = 60
     python_runner_output_limit_bytes: int = 16384
     python_runner_workspace_root: str = ""
@@ -287,7 +288,10 @@ def load_config() -> OrchestratorConfig:
         push=push,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
-        python_command=os.environ.get("ORCHESTRATOR_PYTHON_COMMAND", str(data.get("pythonCommand") or "python")),
+        python_command=os.environ.get(
+            "ORCHESTRATOR_PYTHON_COMMAND",
+            str(data.get("pythonCommand") or sys.executable or "python"),
+        ),
         python_runner_timeout_seconds=int(
             os.environ.get(
                 "ORCHESTRATOR_PYTHON_RUNNER_TIMEOUT",
