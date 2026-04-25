@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend.config import MemoryConfig, OrchestratorConfig, PlannerConfig, PushConfig
+from backend.config import LangSmithConfig, MemoryConfig, OrchestratorConfig, PlannerConfig, PushConfig
 from backend.runners.python_runner import PythonRunner
 from backend.sessions.state import OrchestratorSessionState
 from tests.temp_paths import workspace_temp_dir
@@ -48,6 +48,7 @@ class PythonRunnerTests(unittest.IsolatedAsyncioTestCase):
                 planner=PlannerConfig(),
                 memory=MemoryConfig(),
                 push=PushConfig(),
+                langsmith=LangSmithConfig(),
                 python_command=sys.executable,
                 python_runner_timeout_seconds=10,
                 python_runner_output_limit_bytes=128,
@@ -88,6 +89,7 @@ class PythonRunnerTests(unittest.IsolatedAsyncioTestCase):
                 planner=PlannerConfig(),
                 memory=MemoryConfig(),
                 push=PushConfig(),
+                langsmith=LangSmithConfig(),
                 python_command=sys.executable,
                 python_runner_workspace_root=str(allowed_root),
             )
@@ -119,6 +121,7 @@ class PythonRunnerTests(unittest.IsolatedAsyncioTestCase):
                 planner=PlannerConfig(),
                 memory=MemoryConfig(),
                 push=PushConfig(),
+                langsmith=LangSmithConfig(),
                 python_command=sys.executable,
             )
 

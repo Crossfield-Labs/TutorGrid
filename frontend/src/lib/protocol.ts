@@ -100,3 +100,139 @@ export interface MemoryCleanupRequest {
   method: "orchestrator.memory.cleanup";
   params: Record<string, never>;
 }
+
+export interface MemoryReindexRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.memory.reindex";
+  params: Record<string, never>;
+}
+
+export interface MemorySearchRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.memory.search";
+  sessionId?: string;
+  params: {
+    text: string;
+    limit?: number;
+  };
+}
+
+export interface KnowledgeCourseCreateRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.course.create";
+  params: {
+    courseName: string;
+    courseDescription?: string;
+  };
+}
+
+export interface KnowledgeCourseListRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.course.list";
+  params: {
+    limit?: number;
+  };
+}
+
+export interface KnowledgeCourseDeleteRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.course.delete";
+  params: {
+    courseId?: string;
+    target?: string;
+    text?: string;
+  };
+}
+
+export interface KnowledgeFileIngestRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.file.ingest";
+  params: {
+    courseId: string;
+    filePath: string;
+    fileName?: string;
+    chunkSize?: number;
+  };
+}
+
+export interface KnowledgeFileListRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.file.list";
+  params: {
+    courseId: string;
+    limit?: number;
+  };
+}
+
+export interface KnowledgeFileDeleteRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.file.delete";
+  params: {
+    courseId: string;
+    target?: string;
+    text?: string;
+  };
+}
+
+export interface KnowledgeChunkListRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.chunk.list";
+  params: {
+    courseId: string;
+    limit?: number;
+    text?: string;
+  };
+}
+
+export interface KnowledgeJobListRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.job.list";
+  params: {
+    courseId: string;
+    limit?: number;
+  };
+}
+
+export interface KnowledgeRagQueryRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.rag.query";
+  params: {
+    courseId: string;
+    text: string;
+    limit?: number;
+  };
+}
+
+export interface KnowledgeCourseReembedRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.course.reembed";
+  params: {
+    courseId?: string;
+    target?: string;
+    text?: string;
+    batchSize?: number;
+  };
+}
+
+export interface KnowledgeCourseReindexRequest {
+  type: "req";
+  id: string;
+  method: "orchestrator.knowledge.course.reindex";
+  params: {
+    courseId?: string;
+    target?: string;
+    text?: string;
+  };
+}

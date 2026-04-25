@@ -92,6 +92,101 @@ export interface SessionArtifactItem {
   createdAt: string;
 }
 
+export interface KnowledgeCourse {
+  courseId: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeFile {
+  fileId: string;
+  courseId: string;
+  originalName: string;
+  storedPath: string;
+  fileExt: string;
+  parseStatus: string;
+  parseError: string;
+  sourceType: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeChunk {
+  chunkId: string;
+  courseId: string;
+  fileId: string;
+  chunkIndex: number;
+  sourcePage: number;
+  sourceSection: string;
+  content: string;
+  tokenEstimate: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeJob {
+  jobId: string;
+  courseId: string;
+  fileId: string;
+  status: string;
+  progress: number;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RagQueryItem {
+  chunkId: string;
+  fileId: string;
+  content: string;
+  sourcePage: number;
+  sourceSection: string;
+  score: number;
+  denseScore?: number;
+  lexicalScore?: number;
+  rerankScore?: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface RagQueryDebug {
+  multiQueries?: string[];
+  hyde?: string;
+  hydeSource?: string;
+  hydeError?: string;
+  answerSource?: string;
+  answerError?: string;
+  candidateCount?: number;
+  droppedChunkCount?: number;
+  rerankMode?: string;
+}
+
+export interface RagQueryResult {
+  courseId: string;
+  query: string;
+  answer: string;
+  items: RagQueryItem[];
+  debug: RagQueryDebug;
+}
+
+export interface MemorySearchItem {
+  documentId: string;
+  sessionId: string;
+  documentType: string;
+  title: string;
+  content: string;
+  metadata: Record<string, unknown>;
+  score: number;
+  updatedAt: string;
+}
+
+export interface MemorySearchResult {
+  query: string;
+  items: MemorySearchItem[];
+}
+
 interface ClientOptions {
   url: string;
   onOpen?: () => void;

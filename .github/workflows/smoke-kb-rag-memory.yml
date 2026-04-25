@@ -1,0 +1,128 @@
+name: smoke-kb-rag-memory
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "scripts/e2e_kb_rag_memory.py"
+      - ".github/workflows/smoke-kb-rag-memory.yml"
+
+concurrency:
+  group: smoke-kb-rag-memory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-smoke:
+    name: backend websocket smoke
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Prepare smoke input file
+        run: |
+          mkdir -p scratch
+          cat > scratch/ci_smoke_input.txt <<'EOF'
+          Observer pattern defines one-to-many dependency.
+          Subscribers get notified when publisher state changes.
+          EOF
+
+      - name: Start backend
+        run: |
+          python -m backend.main --host 127.0.0.1 --port 3210 > backend.log 2>&1 &
+          echo $! > backend.pid
+
+      - name: Wait for backend ready
+        run: |
+          python - <<'PY'
+          import socket
+          import sys
+          import time
+
+          deadline = time.time() + 90
+          while time.time() < deadline:
+              sock = socket.socket()
+              sock.settimeout(1.0)
+              try:
+                  sock.connect(("127.0.0.1", 3210))
+                  sock.close()
+                  print("backend ready")
+                  sys.exit(0)
+              except OSError:
+                  time.sleep(1)
+              finally:
+                  try:
+                      sock.close()
+                  except Exception:
+                      pass
+          print("backend did not become ready in time")
+          sys.exit(1)
+          PY
+
+      - name: Run websocket smoke script
+        run: |
+          python scripts/e2e_kb_rag_memory.py \
+            --ws-url ws://127.0.0.1:3210/ws/orchestrator \
+            --timeout-sec 180 \
+            --course-name "ci-smoke-${{ github.run_id }}" \
+            --course-description "ci smoke test" \
+            --file-path scratch/ci_smoke_input.txt \
+            --query "Observer pattern 核心思想是什么？" \
+            --set-langsmith \
+            --langsmith-enabled 0 \
+            --langsmith-project "ci-smoke-project"
+
+      - name: Print backend log on failure
+        if: failure()
+        run: |
+          echo "==== backend.log ===="
+          cat backend.log || true
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill "$(cat backend.pid)" || true
+          fi
+
+  frontend-build:
+    name: frontend build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build:web

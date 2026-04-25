@@ -435,3 +435,82 @@ $env:ORCHESTRATOR_EMBEDDING_FALLBACK_ENABLED="1"
 ```powershell
 .\.venv\Scripts\python.exe -m backend.dev.check_embedding_endpoint --check-chat --retries 3 --timeout 45
 ```
+
+## 10. 前端联调步骤（知识库页 + 记忆页 + LangSmith）
+
+前提：
+- 后端已启动（第 3 章）。
+- 前端已启动：`cd H:\Desktop\计设\pc_orchestrator_core\frontend && npm run dev`
+
+### 10.1 设置页配置 LangSmith
+- 进入顶部 `设置` 页签。
+- 在 `LangSmith` 区域填写：
+  - `启用 LangSmith Tracing`（开关）
+  - `LangSmith Project`
+  - `LangSmith API Key`
+  - `LangSmith API URL`（可选）
+- 点击 `保存运行时设置`。
+
+期望输出：
+- 顶部提示 `设置已保存。`
+- 后端收到 `orchestrator.config.set`，并在 `orchestrator.config.get/set` 里返回 `payload.langsmith` 字段。
+
+### 10.2 知识库页
+- 进入顶部 `知识库/RAG` 页签。
+- 创建课程 -> 选择课程 -> 上传文件入库。
+- 点击 `刷新文件/分块/任务`。
+- 在 `RAG 查询` 输入问题并执行查询。
+
+期望输出：
+- 文件列表出现新文件，状态 `success`。
+- 分块区出现可读文本，且 `parser` 与文件类型对应。
+- `答案` 区域非空（或显示“仅返回检索片段”）。
+- `HyDE` 与 `answerSource/hydeSource` 可用于定位是否走了 LLM。
+
+### 10.3 记忆页
+- 进入顶部 `记忆` 页签。
+- 在 `Search query` 输入问题并点击 `Search`。
+- 执行 `Cleanup Memory` 与 `Reindex Memory`。
+
+期望输出：
+- Search 返回 `Results` 列表（可能为空，但事件需成功）。
+- Cleanup/Reindex 成功提示。
+- 若失败，错误提示中包含后端返回的具体错误信息。
+
+## 11. 一键 Smoke 脚本（推荐）
+
+新增脚本：`scripts/e2e_kb_rag_memory.py`
+
+作用：
+- `config.get`（可选 `config.set` 写 LangSmith）
+- 课程创建/列表
+- 文件入库
+- 文件/分块列表校验
+- RAG 查询
+- 课程重嵌入
+- 课程重建索引
+- Memory 重建索引与检索
+
+示例命令（包含入库与 LangSmith 配置）：
+```powershell
+cd H:\Desktop\计设\pc_orchestrator_core
+
+.\.venv\Scripts\python.exe .\scripts\e2e_kb_rag_memory.py `
+  --ws-url ws://127.0.0.1:3210/ws/orchestrator `
+  --course-name "smoke-course-001" `
+  --course-description "smoke test" `
+  --file-path "H:\Desktop\计设\samples\docxDemo.docx" `
+  --file-path "H:\Desktop\计设\samples\pngDemo.png" `
+  --query "Observer pattern 核心思想是什么？" `
+  --set-langsmith `
+  --langsmith-enabled 1 `
+  --langsmith-project "pc-orchestrator-core"
+```
+
+期望输出：
+- 控制台打印若干 `[ok] event=...`。
+- 结束时打印 `[final-summary]` JSON，含：
+  - `courseId`
+  - `fileCount/chunkCount`
+  - `ragHitCount/ragAnswer`
+  - `reembed.courseReindex.memoryReindex` 统计

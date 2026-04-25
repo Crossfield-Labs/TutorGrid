@@ -38,10 +38,19 @@ class PushConfig:
 
 
 @dataclass(slots=True)
+class LangSmithConfig:
+    enabled: bool = False
+    project: str = "pc-orchestrator-core"
+    api_key: str = ""
+    api_url: str = ""
+
+
+@dataclass(slots=True)
 class OrchestratorConfig:
     planner: PlannerConfig
     memory: MemoryConfig
     push: PushConfig
+    langsmith: LangSmithConfig
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
     python_command: str = sys.executable or "python"
@@ -178,6 +187,24 @@ def update_push_config(
     write_config_data(data)
 
 
+def update_langsmith_config(
+    *,
+    enabled: bool,
+    project: str,
+    api_key: str,
+    api_url: str,
+) -> None:
+    data = read_config_data()
+    langsmith = data.get("langsmith")
+    langsmith_data = langsmith if isinstance(langsmith, dict) else {}
+    langsmith_data["enabled"] = enabled
+    langsmith_data["project"] = project
+    langsmith_data["apiKey"] = api_key
+    langsmith_data["apiUrl"] = api_url
+    data["langsmith"] = langsmith_data
+    write_config_data(data)
+
+
 def get_runtime_config_view() -> dict[str, object]:
     config = load_config()
     return {
@@ -202,6 +229,12 @@ def get_runtime_config_view() -> dict[str, object]:
             "onSessionComplete": config.push.on_session_complete,
             "onSessionFailure": config.push.on_session_failure,
         },
+        "langsmith": {
+            "enabled": config.langsmith.enabled,
+            "project": config.langsmith.project,
+            "apiKey": config.langsmith.api_key,
+            "apiUrl": config.langsmith.api_url,
+        },
     }
 
 
@@ -214,6 +247,8 @@ def load_config() -> OrchestratorConfig:
     memory_dict = memory_data if isinstance(memory_data, dict) else {}
     push_data = data.get("push") if isinstance(data, dict) else {}
     push_dict = push_data if isinstance(push_data, dict) else {}
+    langsmith_data = data.get("langsmith") if isinstance(data, dict) else {}
+    langsmith_dict = langsmith_data if isinstance(langsmith_data, dict) else {}
     planner = PlannerConfig(
         provider=os.environ.get("ORCHESTRATOR_PROVIDER", str(planner_dict.get("provider") or "openai_compat")),
         model=os.environ.get("ORCHESTRATOR_MODEL", str(planner_dict.get("model") or "")),
@@ -282,10 +317,41 @@ def load_config() -> OrchestratorConfig:
         .lower()
         in {"1", "true", "yes"},
     )
+    langsmith = LangSmithConfig(
+        enabled=str(
+            os.environ.get(
+                "ORCHESTRATOR_LANGSMITH_ENABLED",
+                os.environ.get("LANGSMITH_TRACING", langsmith_dict.get("enabled", False)),
+            )
+        )
+        .strip()
+        .lower()
+        not in {"0", "false", "no", ""},
+        project=str(
+            os.environ.get(
+                "ORCHESTRATOR_LANGSMITH_PROJECT",
+                os.environ.get("LANGSMITH_PROJECT", langsmith_dict.get("project") or "pc-orchestrator-core"),
+            )
+        ).strip()
+        or "pc-orchestrator-core",
+        api_key=str(
+            os.environ.get(
+                "ORCHESTRATOR_LANGSMITH_API_KEY",
+                os.environ.get("LANGSMITH_API_KEY", langsmith_dict.get("apiKey") or ""),
+            )
+        ),
+        api_url=str(
+            os.environ.get(
+                "ORCHESTRATOR_LANGSMITH_API_URL",
+                os.environ.get("LANGSMITH_ENDPOINT", langsmith_dict.get("apiUrl") or ""),
+            )
+        ),
+    )
     return OrchestratorConfig(
         planner=planner,
         memory=memory,
         push=push,
+        langsmith=langsmith,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
         python_command=os.environ.get(

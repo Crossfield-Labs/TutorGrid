@@ -1,24 +1,31 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import os
 from typing import Any
 from uuid import uuid4
+
+from backend.config import load_config
 
 
 class LangSmithTracer:
     def __init__(self) -> None:
-        self.enabled = self._is_enabled()
-        self.project_name = os.environ.get("ORCHESTRATOR_LANGSMITH_PROJECT", "").strip() or os.environ.get(
-            "LANGSMITH_PROJECT", ""
-        ).strip() or "pc-orchestrator-core"
+        config = load_config()
+        self.enabled = config.langsmith.enabled
+        self.project_name = config.langsmith.project or "pc-orchestrator-core"
+        self.api_key = config.langsmith.api_key
+        self.api_url = config.langsmith.api_url
         self.client = None
         if not self.enabled:
             return
         try:
             from langsmith import Client
 
-            self.client = Client()
+            client_kwargs: dict[str, str] = {}
+            if self.api_key:
+                client_kwargs["api_key"] = self.api_key
+            if self.api_url:
+                client_kwargs["api_url"] = self.api_url
+            self.client = Client(**client_kwargs)
         except Exception:
             self.client = None
             self.enabled = False
@@ -78,16 +85,6 @@ class LangSmithTracer:
         except Exception:
             return
 
-    @staticmethod
-    def _is_enabled() -> bool:
-        raw = os.environ.get("ORCHESTRATOR_LANGSMITH_ENABLED")
-        if raw is not None:
-            return raw.strip().lower() not in {"0", "false", "no", ""}
-        raw = os.environ.get("LANGSMITH_TRACING")
-        if raw is not None:
-            return raw.strip().lower() not in {"0", "false", "no", ""}
-        return False
-
 
 _TRACER: LangSmithTracer | None = None
 
@@ -97,4 +94,9 @@ def get_langsmith_tracer() -> LangSmithTracer:
     if _TRACER is None:
         _TRACER = LangSmithTracer()
     return _TRACER
+
+
+def reset_langsmith_tracer() -> None:
+    global _TRACER
+    _TRACER = None
 

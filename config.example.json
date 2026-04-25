@@ -7,6 +7,12 @@
     "temperature": 0.2,
     "maxTokens": 4096
   },
+  "langsmith": {
+    "enabled": false,
+    "project": "pc-orchestrator-core",
+    "apiKey": "",
+    "apiUrl": ""
+  },
   "maxIterations": 8,
   "shellTimeoutSeconds": 90,
   "opencodeModel": "",

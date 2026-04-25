@@ -9,9 +9,16 @@ from pathlib import Path
 import time
 from typing import Any
 
-from backend.config import get_runtime_config_view, update_memory_config, update_planner_config, update_push_config
+from backend.config import (
+    get_runtime_config_view,
+    update_langsmith_config,
+    update_memory_config,
+    update_planner_config,
+    update_push_config,
+)
 from backend.config import load_config
 from backend.editor import TipTapAICommandService
+from backend.observability import reset_langsmith_tracer
 from backend.scheduler.service import LearningPushScheduler
 from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
@@ -774,7 +781,14 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     on_session_complete=request.params.push_on_session_complete,
                     on_session_failure=request.params.push_on_session_failure,
                 )
+                update_langsmith_config(
+                    enabled=request.params.langsmith_enabled,
+                    project=request.params.langsmith_project.strip() or "pc-orchestrator-core",
+                    api_key=request.params.langsmith_api_key.strip(),
+                    api_url=request.params.langsmith_api_url.strip(),
+                )
                 # Rebuild runtime services so new planner/embedding settings apply immediately.
+                reset_langsmith_tracer()
                 memory_service = MemoryService()
                 knowledge_service = KnowledgeBaseService()
                 learning_profile_service = LearningProfileService()

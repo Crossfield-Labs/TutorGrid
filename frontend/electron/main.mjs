@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -9,6 +9,20 @@ const __dirname = path.dirname(__filename);
 
 let backendProcess = null;
 let backendLogStream = null;
+
+ipcMain.handle("desktop:pick-files", async (_event, payload) => {
+  const rawOptions = payload && typeof payload === "object" ? payload : {};
+  const multiple = Boolean(rawOptions.multiple);
+  const title = typeof rawOptions.title === "string" && rawOptions.title.trim() ? rawOptions.title.trim() : "选择文件";
+  const result = await dialog.showOpenDialog({
+    title,
+    properties: multiple ? ["openFile", "multiSelections"] : ["openFile"],
+  });
+  if (result.canceled) {
+    return [];
+  }
+  return result.filePaths;
+});
 
 function resolveBackendBinaryPath() {
   const binaryName = process.platform === "win32" ? "pc-orchestrator-backend.exe" : "pc-orchestrator-backend";

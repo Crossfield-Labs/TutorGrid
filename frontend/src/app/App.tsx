@@ -25,10 +25,18 @@ import {
 import { SessionList } from "../features/sessions/SessionList";
 import { StatePanel } from "../features/state-panel/StatePanel";
 import { Timeline } from "../features/timeline/Timeline";
+import { KnowledgeWorkbench } from "../features/knowledge/KnowledgeWorkbench";
+import { MemoryWorkbench } from "../features/memory/MemoryWorkbench";
 import {
   buildWsUrl,
   createClient,
   type ArtifactTile,
+  type KnowledgeChunk,
+  type KnowledgeCourse,
+  type KnowledgeFile,
+  type KnowledgeJob,
+  type MemorySearchResult,
+  type RagQueryResult,
   type SessionArtifactItem,
   type SessionErrorItem,
   type SessionSnapshot,
@@ -43,6 +51,13 @@ type PlannerSettings = {
   model: string;
   apiBase: string;
   apiKey: string;
+};
+
+type LangSmithSettings = {
+  enabled: boolean;
+  project: string;
+  apiKey: string;
+  apiUrl: string;
 };
 
 type MemorySettings = {
@@ -95,7 +110,7 @@ export function App() {
   const [connectionState, setConnectionState] = useState("未连接");
   const [serverUrl, setServerUrl] = useState(defaultWsUrl);
   const [settingsUrl, setSettingsUrl] = useState(defaultWsUrl);
-  const [view, setView] = useState<"workspace" | "settings">("workspace");
+  const [view, setView] = useState<"workspace" | "knowledge" | "memory" | "settings">("workspace");
   const [composerValue, setComposerValue] = useState("");
   const [pendingTaskId, setPendingTaskId] = useState<string>("");
   const [plannerSettings, setPlannerSettings] = useState<PlannerSettings>({
@@ -103,6 +118,12 @@ export function App() {
     model: "",
     apiBase: "",
     apiKey: "",
+  });
+  const [langsmithSettings, setLangsmithSettings] = useState<LangSmithSettings>({
+    enabled: false,
+    project: "pc-orchestrator-core",
+    apiKey: "",
+    apiUrl: "",
   });
   const [memorySettings, setMemorySettings] = useState<MemorySettings>({
     enabled: true,
@@ -118,7 +139,25 @@ export function App() {
   const [isConfigSaving, setIsConfigSaving] = useState(false);
   const [isMemoryCleanupRunning, setIsMemoryCleanupRunning] = useState(false);
   const [isMemoryReindexing, setIsMemoryReindexing] = useState(false);
+  const [isMemorySearching, setIsMemorySearching] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<SettingsFeedback | null>(null);
+  const [memoryFeedback, setMemoryFeedback] = useState<SettingsFeedback | null>(null);
+  const [memorySearchResult, setMemorySearchResult] = useState<MemorySearchResult | null>(null);
+  const [knowledgeFeedback, setKnowledgeFeedback] = useState<SettingsFeedback | null>(null);
+  const [knowledgeCourses, setKnowledgeCourses] = useState<KnowledgeCourse[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([]);
+  const [knowledgeChunks, setKnowledgeChunks] = useState<KnowledgeChunk[]>([]);
+  const [knowledgeJobs, setKnowledgeJobs] = useState<KnowledgeJob[]>([]);
+  const [ragResult, setRagResult] = useState<RagQueryResult | null>(null);
+  const [isKnowledgeLoadingCourses, setIsKnowledgeLoadingCourses] = useState(false);
+  const [isKnowledgeCreatingCourse, setIsKnowledgeCreatingCourse] = useState(false);
+  const [isKnowledgeDeletingCourse, setIsKnowledgeDeletingCourse] = useState(false);
+  const [isKnowledgeLoadingCourseData, setIsKnowledgeLoadingCourseData] = useState(false);
+  const [isKnowledgeIngestingFile, setIsKnowledgeIngestingFile] = useState(false);
+  const [isKnowledgeQueryingRag, setIsKnowledgeQueryingRag] = useState(false);
+  const [isKnowledgeReembeddingCourse, setIsKnowledgeReembeddingCourse] = useState(false);
+  const [isKnowledgeReindexingCourse, setIsKnowledgeReindexingCourse] = useState(false);
 
   const clientRef = useRef<ClientHandle | null>(null);
   const selectedSessionIdRef = useRef(selectedSessionId);
@@ -152,6 +191,8 @@ export function App() {
         requestSessionList(client);
         setIsConfigLoading(true);
         requestConfig(client);
+        setIsKnowledgeLoadingCourses(true);
+        requestKnowledgeCourseList(client);
         const currentSessionId = selectedSessionIdRef.current;
         if (currentSessionId) {
           requestSessionHistory(client, currentSessionId);
@@ -178,12 +219,21 @@ export function App() {
         if (message.event === "orchestrator.config.get" || message.event === "orchestrator.config.set") {
           const planner = message.payload?.planner;
           const memory = message.payload?.memory;
+          const langsmith = message.payload?.langsmith;
           if (planner && typeof planner === "object") {
             setPlannerSettings({
               provider: getString((planner as Record<string, unknown>).provider) ?? "openai_compat",
               model: getString((planner as Record<string, unknown>).model) ?? "",
               apiBase: getString((planner as Record<string, unknown>).apiBase) ?? "",
               apiKey: getString((planner as Record<string, unknown>).apiKey) ?? "",
+            });
+          }
+          if (langsmith && typeof langsmith === "object") {
+            setLangsmithSettings({
+              enabled: Boolean((langsmith as Record<string, unknown>).enabled ?? false),
+              project: getString((langsmith as Record<string, unknown>).project) ?? "pc-orchestrator-core",
+              apiKey: getString((langsmith as Record<string, unknown>).apiKey) ?? "",
+              apiUrl: getString((langsmith as Record<string, unknown>).apiUrl) ?? "",
             });
           }
           if (memory && typeof memory === "object") {
@@ -206,62 +256,230 @@ export function App() {
         return;
       }
 
+      if (message.event === "orchestrator.knowledge.course.list") {
+        const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+        const nextCourses = items
+          .map((item) => mapKnowledgeCourse(item as Record<string, unknown>))
+          .filter((item): item is KnowledgeCourse => item !== null);
+        setKnowledgeCourses(nextCourses);
+        setIsKnowledgeLoadingCourses(false);
+        setSelectedCourseId((current) =>
+          nextCourses.some((course) => course.courseId === current) ? current : nextCourses[0]?.courseId || "",
+        );
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.course.create") {
+        setIsKnowledgeCreatingCourse(false);
+        setKnowledgeFeedback({ severity: "success", message: "课程创建成功。" });
+        requestKnowledgeCourseList(client);
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.course.delete") {
+        setIsKnowledgeDeletingCourse(false);
+        setKnowledgeFeedback({ severity: "success", message: "课程已删除。" });
+        setSelectedCourseId("");
+        setKnowledgeFiles([]);
+        setKnowledgeChunks([]);
+        setKnowledgeJobs([]);
+        requestKnowledgeCourseList(client);
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.file.list") {
+        const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+        const nextFiles = items
+          .map((item) => mapKnowledgeFile(item as Record<string, unknown>))
+          .filter((item): item is KnowledgeFile => item !== null);
+        setKnowledgeFiles(nextFiles);
+        setIsKnowledgeLoadingCourseData(false);
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.chunk.list") {
+        const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+        const nextChunks = items
+          .map((item) => mapKnowledgeChunk(item as Record<string, unknown>))
+          .filter((item): item is KnowledgeChunk => item !== null);
+        setKnowledgeChunks(nextChunks);
+        setIsKnowledgeLoadingCourseData(false);
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.job.list") {
+        const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+        const nextJobs = items
+          .map((item) => mapKnowledgeJob(item as Record<string, unknown>))
+          .filter((item): item is KnowledgeJob => item !== null);
+        setKnowledgeJobs(nextJobs);
+        setIsKnowledgeLoadingCourseData(false);
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.file.ingest") {
+        setIsKnowledgeIngestingFile(false);
+        const status = getString(message.payload?.status) ?? "unknown";
+        const chunkCount = Number(message.payload?.chunkCount ?? 0) || 0;
+        const errorText = getString(message.payload?.error) ?? "";
+        if (status === "success") {
+          setKnowledgeFeedback({
+            severity: "success",
+            message: `文件入库成功，生成 ${chunkCount} 个分块。`,
+          });
+        } else {
+          setKnowledgeFeedback({
+            severity: "error",
+            message: `文件入库失败：${errorText || "未知错误"}`,
+          });
+        }
+        if (selectedCourseId) {
+          requestKnowledgeCourseData(client, selectedCourseId);
+        }
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.file.delete") {
+        setKnowledgeFeedback({ severity: "success", message: "文件已删除。" });
+        if (selectedCourseId) {
+          requestKnowledgeCourseData(client, selectedCourseId);
+        }
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.rag.query") {
+        setIsKnowledgeQueryingRag(false);
+        const ragPayload = mapRagQueryResult(message.payload as Record<string, unknown>);
+        setRagResult(ragPayload);
+        setKnowledgeFeedback({ severity: "success", message: "RAG 查询完成。" });
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.course.reembed") {
+        setIsKnowledgeReembeddingCourse(false);
+        const updatedCount = Number(message.payload?.updatedCount ?? 0) || 0;
+        const chunkCount = Number(message.payload?.chunkCount ?? 0) || 0;
+        setKnowledgeFeedback({
+          severity: "success",
+          message: `课程重嵌入完成：updated=${updatedCount}, chunk=${chunkCount}`,
+        });
+        return;
+      }
+
+      if (message.event === "orchestrator.knowledge.course.reindex") {
+        setIsKnowledgeReindexingCourse(false);
+        const backend = getString(message.payload?.indexBackend) ?? "none";
+        const chunkCount = Number(message.payload?.chunkCount ?? 0) || 0;
+        setKnowledgeFeedback({
+          severity: "success",
+          message: `课程索引重建完成：backend=${backend}, chunk=${chunkCount}`,
+        });
+        return;
+      }
+
       if (message.event === "orchestrator.memory.cleanup") {
         setIsMemoryCleanupRunning(false);
         const deleted = Number(message.payload?.deletedDocuments ?? 0);
         const duplicates = Number(message.payload?.duplicateDocuments ?? 0);
         const emptyDocuments = Number(message.payload?.emptyDocuments ?? 0);
-          setSettingsFeedback({
-            severity: "success",
-            message: `记忆整理完成：共清理 ${deleted} 条，其中重复 ${duplicates} 条、空文档 ${emptyDocuments} 条。`,
-          });
-          return;
-        }
+        const messageText = `记忆整理完成：共清理 ${deleted} 条，其中重复 ${duplicates} 条、空文档 ${emptyDocuments} 条。`;
+        setSettingsFeedback({ severity: "success", message: messageText });
+        setMemoryFeedback({ severity: "success", message: messageText });
+        return;
+      }
 
-        if (message.event === "orchestrator.memory.reindex") {
-          const backend = getString(message.payload?.indexBackend) ?? "none";
-          const documentCount = Number(message.payload?.documentCount ?? 0) || 0;
-          setIsMemoryReindexing(false);
-          setSettingsFeedback({
-            severity: "success",
-            message: `Memory 索引重建完成：backend=${backend}, documents=${documentCount}`,
-          });
-          return;
-        }
+      if (message.event === "orchestrator.memory.reindex") {
+        const backend = getString(message.payload?.indexBackend) ?? "none";
+        const documentCount = Number(message.payload?.documentCount ?? 0) || 0;
+        setIsMemoryReindexing(false);
+        const messageText = `Memory 索引重建完成：backend=${backend}, documents=${documentCount}`;
+        setSettingsFeedback({
+          severity: "success",
+          message: messageText,
+        });
+        setMemoryFeedback({
+          severity: "success",
+          message: messageText,
+        });
+        return;
+      }
 
-        if (message.event === "orchestrator.session.failed" && isMemoryReindexing) {
-          const errorMessage = getString(message.payload?.message) ?? "Unknown error";
-          setIsMemoryReindexing(false);
-          setSettingsFeedback({ severity: "error", message: `Memory 索引重建失败：${errorMessage}` });
-          return;
-        }
+      if (message.event === "orchestrator.memory.search") {
+        setIsMemorySearching(false);
+        const payload = mapMemorySearchResult(message.payload as Record<string, unknown>);
+        setMemorySearchResult(payload);
+        setMemoryFeedback({
+          severity: "success",
+          message: `记忆检索完成，命中 ${(payload?.items.length ?? 0).toString()} 条。`,
+        });
+        return;
+      }
 
-        if (message.event === "orchestrator.session.failed" && isMemoryCleanupRunning) {
-          const errorMessage = getString(message.payload?.message) ?? "Unknown error";
-          setIsMemoryCleanupRunning(false);
-          setSettingsFeedback({ severity: "error", message: `记忆整理失败：${errorMessage}` });
-          return;
-        }
+      if (message.event === "orchestrator.session.failed" && isMemoryReindexing) {
+        const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+        setIsMemoryReindexing(false);
+        setSettingsFeedback({ severity: "error", message: `Memory 索引重建失败：${errorMessage}` });
+        setMemoryFeedback({ severity: "error", message: `Memory 索引重建失败：${errorMessage}` });
+        return;
+      }
 
-        if (message.event === "orchestrator.session.history" && message.sessionId) {
-          const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
-          const historyItems = items
-            .map((item, index) => mapHistoryItem(item as Record<string, unknown>, index))
-            .filter((item): item is TimelineEvent => item !== null);
-          const history = historyItems.filter((item) => isPersistentTimelineEvent(item.event ?? "", item.kind));
-          const lastLiveEvent = [...historyItems]
-            .reverse()
-            .find((item) => !isPersistentTimelineEvent(item.event ?? "", item.kind)) ?? null;
-          setTimelinesBySession((current) => ({
-            ...current,
-            [message.sessionId as string]: history,
-          }));
-          setLiveEventsBySession((current) => ({
-            ...current,
-            [message.sessionId as string]: lastLiveEvent,
-          }));
-          return;
-        }
+      if (message.event === "orchestrator.session.failed" && isMemoryCleanupRunning) {
+        const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+        setIsMemoryCleanupRunning(false);
+        setSettingsFeedback({ severity: "error", message: `记忆整理失败：${errorMessage}` });
+        setMemoryFeedback({ severity: "error", message: `记忆整理失败：${errorMessage}` });
+        return;
+      }
+
+      if (message.event === "orchestrator.session.failed" && isMemorySearching) {
+        const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+        setIsMemorySearching(false);
+        setMemoryFeedback({ severity: "error", message: `记忆检索失败：${errorMessage}` });
+        return;
+      }
+
+      if (
+        message.event === "orchestrator.session.failed" &&
+        (isKnowledgeCreatingCourse ||
+          isKnowledgeDeletingCourse ||
+          isKnowledgeIngestingFile ||
+          isKnowledgeQueryingRag ||
+          isKnowledgeReembeddingCourse ||
+          isKnowledgeReindexingCourse ||
+          isKnowledgeLoadingCourseData)
+      ) {
+        const errorMessage = getString(message.payload?.message) ?? "Unknown error";
+        setIsKnowledgeCreatingCourse(false);
+        setIsKnowledgeDeletingCourse(false);
+        setIsKnowledgeIngestingFile(false);
+        setIsKnowledgeQueryingRag(false);
+        setIsKnowledgeReembeddingCourse(false);
+        setIsKnowledgeReindexingCourse(false);
+        setIsKnowledgeLoadingCourseData(false);
+        setIsKnowledgeLoadingCourses(false);
+        setKnowledgeFeedback({ severity: "error", message: `知识库操作失败：${errorMessage}` });
+        return;
+      }
+
+      if (message.event === "orchestrator.session.history" && message.sessionId) {
+        const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
+        const historyItems = items
+          .map((item, index) => mapHistoryItem(item as Record<string, unknown>, index))
+          .filter((item): item is TimelineEvent => item !== null);
+        const history = historyItems.filter((item) => isPersistentTimelineEvent(item.event ?? "", item.kind));
+        const lastLiveEvent = [...historyItems]
+          .reverse()
+          .find((item) => !isPersistentTimelineEvent(item.event ?? "", item.kind)) ?? null;
+        setTimelinesBySession((current) => ({
+          ...current,
+          [message.sessionId as string]: history,
+        }));
+        setLiveEventsBySession((current) => ({
+          ...current,
+          [message.sessionId as string]: lastLiveEvent,
+        }));
+        return;
+      }
 
         if (message.event === "orchestrator.session.trace" && message.sessionId) {
           const items = Array.isArray(message.payload?.items) ? message.payload.items : [];
@@ -393,6 +611,23 @@ export function App() {
     requestSessionErrors(client, selectedSessionId);
     requestSessionArtifacts(client, selectedSessionId);
   }, [selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedCourseId) {
+      setKnowledgeFiles([]);
+      setKnowledgeChunks([]);
+      setKnowledgeJobs([]);
+      setRagResult(null);
+      return;
+    }
+    setRagResult(null);
+    const client = clientRef.current;
+    if (!client) {
+      return;
+    }
+    setIsKnowledgeLoadingCourseData(true);
+    requestKnowledgeCourseData(client, selectedCourseId);
+  }, [selectedCourseId]);
 
   const prepareNewTask = () => {
     setComposerValue("");
@@ -526,6 +761,10 @@ export function App() {
         memoryRetrievalStrength: memorySettings.retrievalStrength,
         memoryCleanupEnabled: memorySettings.cleanupEnabled,
         memoryCleanupIntervalHours: memorySettings.cleanupIntervalHours,
+        langsmithEnabled: langsmithSettings.enabled,
+        langsmithProject: langsmithSettings.project,
+        langsmithApiKey: langsmithSettings.apiKey,
+        langsmithApiUrl: langsmithSettings.apiUrl,
       },
     });
   };
@@ -536,6 +775,7 @@ export function App() {
     }
     setIsMemoryCleanupRunning(true);
     setSettingsFeedback(null);
+    setMemoryFeedback(null);
     clientRef.current.send({
       type: "req",
       id: crypto.randomUUID(),
@@ -550,11 +790,189 @@ export function App() {
     }
     setIsMemoryReindexing(true);
     setSettingsFeedback(null);
+    setMemoryFeedback(null);
     clientRef.current.send({
       type: "req",
       id: crypto.randomUUID(),
       method: "orchestrator.memory.reindex",
       params: {},
+    });
+  };
+
+  const runMemorySearch = (query: string, limit: number, sessionId?: string) => {
+    if (!clientRef.current) {
+      return;
+    }
+    const text = query.trim();
+    if (!text) {
+      return;
+    }
+    setIsMemorySearching(true);
+    setMemoryFeedback(null);
+    setMemorySearchResult(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.memory.search",
+      ...(sessionId?.trim() ? { sessionId: sessionId.trim() } : {}),
+      params: {
+        text,
+        limit: Math.max(1, limit || 8),
+      },
+    });
+  };
+
+  const refreshKnowledgeCourses = () => {
+    if (!clientRef.current) {
+      return;
+    }
+    setIsKnowledgeLoadingCourses(true);
+    requestKnowledgeCourseList(clientRef.current);
+  };
+
+  const createKnowledgeCourse = (name: string, description: string) => {
+    if (!clientRef.current) {
+      return;
+    }
+    const courseName = name.trim();
+    if (!courseName) {
+      return;
+    }
+    setIsKnowledgeCreatingCourse(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.course.create",
+      params: {
+        courseName,
+        courseDescription: description.trim(),
+      },
+    });
+  };
+
+  const deleteKnowledgeCourse = (courseId: string) => {
+    if (!clientRef.current || !courseId.trim()) {
+      return;
+    }
+    setIsKnowledgeDeletingCourse(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.course.delete",
+      params: {
+        courseId: courseId.trim(),
+      },
+    });
+  };
+
+  const refreshKnowledgeCourseData = (courseId: string) => {
+    if (!clientRef.current || !courseId.trim()) {
+      return;
+    }
+    setIsKnowledgeLoadingCourseData(true);
+    requestKnowledgeCourseData(clientRef.current, courseId.trim());
+  };
+
+  const ingestKnowledgeFile = (params: {
+    courseId: string;
+    filePath: string;
+    fileName: string;
+    chunkSize: number;
+  }) => {
+    if (!clientRef.current) {
+      return;
+    }
+    const courseId = params.courseId.trim();
+    const filePath = params.filePath.trim();
+    if (!courseId || !filePath) {
+      return;
+    }
+    setIsKnowledgeIngestingFile(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.file.ingest",
+      params: {
+        courseId,
+        filePath,
+        fileName: params.fileName.trim(),
+        chunkSize: Math.max(200, params.chunkSize || 900),
+      },
+    });
+  };
+
+  const deleteKnowledgeFile = (courseId: string, fileId: string) => {
+    if (!clientRef.current || !courseId.trim() || !fileId.trim()) {
+      return;
+    }
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.file.delete",
+      params: {
+        courseId: courseId.trim(),
+        target: fileId.trim(),
+      },
+    });
+  };
+
+  const runKnowledgeRagQuery = (courseId: string, text: string, limit: number) => {
+    if (!clientRef.current) {
+      return;
+    }
+    const normalizedCourse = courseId.trim();
+    const queryText = text.trim();
+    if (!normalizedCourse || !queryText) {
+      return;
+    }
+    setIsKnowledgeQueryingRag(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.rag.query",
+      params: {
+        courseId: normalizedCourse,
+        text: queryText,
+        limit: Math.max(1, limit || 8),
+      },
+    });
+  };
+
+  const reembedKnowledgeCourse = (courseId: string, batchSize: number) => {
+    if (!clientRef.current || !courseId.trim()) {
+      return;
+    }
+    setIsKnowledgeReembeddingCourse(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.course.reembed",
+      params: {
+        courseId: courseId.trim(),
+        batchSize: Math.max(1, batchSize || 32),
+      },
+    });
+  };
+
+  const reindexKnowledgeCourse = (courseId: string) => {
+    if (!clientRef.current || !courseId.trim()) {
+      return;
+    }
+    setIsKnowledgeReindexingCourse(true);
+    setKnowledgeFeedback(null);
+    clientRef.current.send({
+      type: "req",
+      id: crypto.randomUUID(),
+      method: "orchestrator.knowledge.course.reindex",
+      params: {
+        courseId: courseId.trim(),
+      },
     });
   };
 
@@ -587,10 +1005,12 @@ export function App() {
             />
             <Tabs
               value={view}
-              onChange={(_, value: "workspace" | "settings") => setView(value)}
+              onChange={(_, value: "workspace" | "knowledge" | "memory" | "settings") => setView(value)}
               sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32 } }}
             >
               <Tab value="workspace" label="工作台" />
+              <Tab value="knowledge" label="知识库/RAG" />
+              <Tab value="memory" label="记忆" />
               <Tab value="settings" label="设置" />
             </Tabs>
           </Stack>
@@ -625,11 +1045,56 @@ export function App() {
               artifactData={selectedArtifacts}
             />
           </Box>
+        ) : view === "knowledge" ? (
+          <KnowledgeWorkbench
+            courses={knowledgeCourses}
+            selectedCourseId={selectedCourseId}
+            files={knowledgeFiles}
+            chunks={knowledgeChunks}
+            jobs={knowledgeJobs}
+            ragResult={ragResult}
+            notice={knowledgeFeedback}
+            busy={{
+              loadingCourses: isKnowledgeLoadingCourses,
+              creatingCourse: isKnowledgeCreatingCourse,
+              deletingCourse: isKnowledgeDeletingCourse,
+              ingestingFile: isKnowledgeIngestingFile,
+              loadingCourseData: isKnowledgeLoadingCourseData,
+              queryingRag: isKnowledgeQueryingRag,
+              reembeddingCourse: isKnowledgeReembeddingCourse,
+              reindexingCourse: isKnowledgeReindexingCourse,
+            }}
+            onSelectCourse={setSelectedCourseId}
+            onRefreshCourses={refreshKnowledgeCourses}
+            onCreateCourse={createKnowledgeCourse}
+            onDeleteCourse={deleteKnowledgeCourse}
+            onRefreshCourseData={refreshKnowledgeCourseData}
+            onIngestFile={ingestKnowledgeFile}
+            onDeleteFile={deleteKnowledgeFile}
+            onRagQuery={runKnowledgeRagQuery}
+            onReembedCourse={reembedKnowledgeCourse}
+            onReindexCourse={reindexKnowledgeCourse}
+          />
+        ) : view === "memory" ? (
+          <MemoryWorkbench
+            notice={memoryFeedback}
+            busy={{
+              searching: isMemorySearching,
+              cleaning: isMemoryCleanupRunning,
+              reindexing: isMemoryReindexing,
+            }}
+            result={memorySearchResult}
+            onSearch={runMemorySearch}
+            onCleanup={runMemoryCleanup}
+            onReindex={applyMemoryReindex}
+          />
         ) : (
           <Box sx={{ p: 2.5, overflow: "auto" }}>
             <Stack spacing={2} sx={{ maxWidth: 860 }}>
               <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-                {isConfigLoading || isConfigSaving || isMemoryCleanupRunning ? <LinearProgress /> : null}
+                {isConfigLoading || isConfigSaving || isMemoryCleanupRunning || isMemoryReindexing ? (
+                  <LinearProgress />
+                ) : null}
                 <Box sx={{ p: 2.5 }}>
                   <Typography variant="h6">设置</Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -716,6 +1181,65 @@ export function App() {
                           setPlannerSettings((current) => ({
                             ...current,
                             apiKey: event.target.value,
+                          }))
+                        }
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Typography variant="subtitle1">LangSmith</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                      配置 LangSmith tracing（用于 RAG/Memory/Workflow 调试追踪）。
+                    </Typography>
+                    <Stack spacing={2}>
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={langsmithSettings.enabled}
+                            onChange={(event) =>
+                              setLangsmithSettings((current) => ({
+                                ...current,
+                                enabled: event.target.checked,
+                              }))
+                            }
+                          />
+                        }
+                        label="启用 LangSmith Tracing"
+                      />
+                      <TextField
+                        fullWidth
+                        label="LangSmith Project"
+                        value={langsmithSettings.project}
+                        onChange={(event) =>
+                          setLangsmithSettings((current) => ({
+                            ...current,
+                            project: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        fullWidth
+                        label="LangSmith API Key"
+                        type="password"
+                        value={langsmithSettings.apiKey}
+                        onChange={(event) =>
+                          setLangsmithSettings((current) => ({
+                            ...current,
+                            apiKey: event.target.value,
+                          }))
+                        }
+                      />
+                      <TextField
+                        fullWidth
+                        label="LangSmith API URL (optional)"
+                        value={langsmithSettings.apiUrl}
+                        onChange={(event) =>
+                          setLangsmithSettings((current) => ({
+                            ...current,
+                            apiUrl: event.target.value,
                           }))
                         }
                       />
@@ -971,6 +1495,90 @@ function requestSessionArtifacts(client: ClientHandle, sessionId: string) {
   });
 }
 
+function requestKnowledgeCourseList(client: ClientHandle) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.knowledge.course.list",
+    params: { limit: 200 },
+  });
+}
+
+function requestKnowledgeFileList(client: ClientHandle, courseId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.knowledge.file.list",
+    params: {
+      courseId,
+      limit: 200,
+    },
+  });
+}
+
+function requestKnowledgeChunkList(client: ClientHandle, courseId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.knowledge.chunk.list",
+    params: {
+      courseId,
+      limit: 200,
+    },
+  });
+}
+
+function requestKnowledgeJobList(client: ClientHandle, courseId: string) {
+  client.send({
+    type: "req",
+    id: crypto.randomUUID(),
+    method: "orchestrator.knowledge.job.list",
+    params: {
+      courseId,
+      limit: 200,
+    },
+  });
+}
+
+function requestKnowledgeCourseData(client: ClientHandle, courseId: string) {
+  requestKnowledgeFileList(client, courseId);
+  requestKnowledgeChunkList(client, courseId);
+  requestKnowledgeJobList(client, courseId);
+}
+
+function mapMemorySearchResult(payload: Record<string, unknown>): MemorySearchResult | null {
+  const query = getString(payload.query);
+  if (!query) {
+    return null;
+  }
+  const itemsRaw = Array.isArray(payload.items) ? payload.items : [];
+  const items = itemsRaw
+    .map((item) => mapMemorySearchItem(item as Record<string, unknown>))
+    .filter((item): item is NonNullable<MemorySearchResult["items"][number]> => item !== null);
+  return {
+    query,
+    items,
+  };
+}
+
+function mapMemorySearchItem(item: Record<string, unknown>): MemorySearchResult["items"][number] | null {
+  const documentId = getString(item.documentId);
+  const updatedAt = getString(item.updatedAt);
+  if (!documentId || !updatedAt) {
+    return null;
+  }
+  return {
+    documentId,
+    sessionId: getString(item.sessionId) ?? "",
+    documentType: getString(item.documentType) ?? "",
+    title: getString(item.title) ?? "",
+    content: getString(item.content) ?? "",
+    metadata: isRecord(item.metadata) ? item.metadata : {},
+    score: Number(item.score ?? 0) || 0,
+    updatedAt,
+  };
+}
+
 function mergeSessionLists(current: UiSession[], incoming: UiSession[]) {
   const byId = new Map<string, UiSession>(current.map((item) => [item.sessionId, item]));
   for (const item of incoming) {
@@ -1136,6 +1744,135 @@ function mapArtifactTile(item: Record<string, unknown>): ArtifactTile | null {
     changeType: getString(item.changeType) ?? "unknown",
     summary: getString(item.summary) ?? "",
     size: typeof item.size === "number" ? item.size : null,
+  };
+}
+
+function mapKnowledgeCourse(item: Record<string, unknown>): KnowledgeCourse | null {
+  const courseId = getString(item.courseId);
+  const name = getString(item.name);
+  const createdAt = getString(item.createdAt);
+  const updatedAt = getString(item.updatedAt);
+  if (!courseId || !name || !createdAt || !updatedAt) {
+    return null;
+  }
+  return {
+    courseId,
+    name,
+    description: getString(item.description) ?? "",
+    createdAt,
+    updatedAt,
+  };
+}
+
+function mapKnowledgeFile(item: Record<string, unknown>): KnowledgeFile | null {
+  const fileId = getString(item.fileId);
+  const courseId = getString(item.courseId);
+  const originalName = getString(item.originalName);
+  const storedPath = getString(item.storedPath);
+  const fileExt = getString(item.fileExt);
+  const createdAt = getString(item.createdAt);
+  const updatedAt = getString(item.updatedAt);
+  if (!fileId || !courseId || !originalName || !storedPath || !fileExt || !createdAt || !updatedAt) {
+    return null;
+  }
+  return {
+    fileId,
+    courseId,
+    originalName,
+    storedPath,
+    fileExt,
+    parseStatus: getString(item.parseStatus) ?? "",
+    parseError: getString(item.parseError) ?? "",
+    sourceType: getString(item.sourceType) ?? "",
+    createdAt,
+    updatedAt,
+  };
+}
+
+function mapKnowledgeChunk(item: Record<string, unknown>): KnowledgeChunk | null {
+  const chunkId = getString(item.chunkId);
+  const courseId = getString(item.courseId);
+  const fileId = getString(item.fileId);
+  const content = getString(item.content);
+  const createdAt = getString(item.createdAt);
+  const updatedAt = getString(item.updatedAt);
+  if (!chunkId || !courseId || !fileId || !content || !createdAt || !updatedAt) {
+    return null;
+  }
+  return {
+    chunkId,
+    courseId,
+    fileId,
+    chunkIndex: Number(item.chunkIndex ?? 0) || 0,
+    sourcePage: Number(item.sourcePage ?? 0) || 0,
+    sourceSection: getString(item.sourceSection) ?? "",
+    content,
+    tokenEstimate: Number(item.tokenEstimate ?? 0) || 0,
+    metadata: isRecord(item.metadata) ? item.metadata : {},
+    createdAt,
+    updatedAt,
+  };
+}
+
+function mapKnowledgeJob(item: Record<string, unknown>): KnowledgeJob | null {
+  const jobId = getString(item.jobId);
+  const courseId = getString(item.courseId);
+  const fileId = getString(item.fileId);
+  const status = getString(item.status);
+  const createdAt = getString(item.createdAt);
+  const updatedAt = getString(item.updatedAt);
+  if (!jobId || !courseId || !fileId || !status || !createdAt || !updatedAt) {
+    return null;
+  }
+  return {
+    jobId,
+    courseId,
+    fileId,
+    status,
+    progress: Number(item.progress ?? 0) || 0,
+    message: getString(item.message) ?? "",
+    createdAt,
+    updatedAt,
+  };
+}
+
+function mapRagQueryResult(payload: Record<string, unknown>): RagQueryResult | null {
+  const courseId = getString(payload.courseId);
+  const query = getString(payload.query);
+  if (!courseId || !query) {
+    return null;
+  }
+  const itemsRaw = Array.isArray(payload.items) ? payload.items : [];
+  const items = itemsRaw
+    .map((item) => mapRagQueryItem(item as Record<string, unknown>))
+    .filter((item): item is NonNullable<RagQueryResult["items"][number]> => item !== null);
+  return {
+    courseId,
+    query,
+    answer: getString(payload.answer) ?? "",
+    items,
+    debug: isRecord(payload.debug) ? payload.debug : {},
+  };
+}
+
+function mapRagQueryItem(item: Record<string, unknown>): RagQueryResult["items"][number] | null {
+  const chunkId = getString(item.chunkId);
+  const fileId = getString(item.fileId);
+  const content = getString(item.content);
+  if (!chunkId || !fileId || !content) {
+    return null;
+  }
+  return {
+    chunkId,
+    fileId,
+    content,
+    sourcePage: Number(item.sourcePage ?? 0) || 0,
+    sourceSection: getString(item.sourceSection) ?? "",
+    score: Number(item.score ?? 0) || 0,
+    denseScore: Number(item.denseScore ?? 0) || 0,
+    lexicalScore: Number(item.lexicalScore ?? 0) || 0,
+    rerankScore: Number(item.rerankScore ?? 0) || 0,
+    metadata: isRecord(item.metadata) ? item.metadata : {},
   };
 }
 

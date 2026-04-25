@@ -54,6 +54,10 @@ class ProtocolTests(unittest.TestCase):
                     "memoryRetrievalStrength": "aggressive",
                     "memoryCleanupEnabled": True,
                     "memoryCleanupIntervalHours": 12,
+                    "langsmithEnabled": True,
+                    "langsmithProject": "pc-orchestrator-tests",
+                    "langsmithApiKey": "ls-key",
+                    "langsmithApiUrl": "https://api.smith.langchain.com",
                 },
             }
         )
@@ -64,6 +68,10 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(request.params.memory_retrieval_scope, "session")
         self.assertEqual(request.params.memory_retrieval_strength, "aggressive")
         self.assertEqual(request.params.memory_cleanup_interval_hours, 12)
+        self.assertTrue(request.params.langsmith_enabled)
+        self.assertEqual(request.params.langsmith_project, "pc-orchestrator-tests")
+        self.assertEqual(request.params.langsmith_api_key, "ls-key")
+        self.assertEqual(request.params.langsmith_api_url, "https://api.smith.langchain.com")
 
     def test_request_parsing_reads_tiptap_params(self) -> None:
         request = OrchestratorRequest.from_dict(

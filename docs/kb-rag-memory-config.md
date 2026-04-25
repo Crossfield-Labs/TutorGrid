@@ -106,6 +106,16 @@ Notes:
 - `LANGSMITH_TRACING`: fallback switch if the variable above is unset
 - `ORCHESTRATOR_LANGSMITH_PROJECT`: custom project name
 - `LANGSMITH_PROJECT`: fallback project name
+- `ORCHESTRATOR_LANGSMITH_API_KEY`: LangSmith API key
+- `LANGSMITH_API_KEY`: fallback API key
+- `ORCHESTRATOR_LANGSMITH_API_URL`: LangSmith endpoint URL
+- `LANGSMITH_ENDPOINT`: fallback endpoint URL
+
+Runtime config (`orchestrator.config.get/set`) now includes:
+- `langsmith.enabled`
+- `langsmith.project`
+- `langsmith.apiKey`
+- `langsmith.apiUrl`
 
 Current tracing coverage:
 - knowledge ingest pipeline

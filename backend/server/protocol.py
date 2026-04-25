@@ -57,6 +57,10 @@ class OrchestratorParams:
     push_enabled: bool = True
     push_on_session_complete: bool = True
     push_on_session_failure: bool = False
+    langsmith_enabled: bool = False
+    langsmith_project: str = ""
+    langsmith_api_key: str = ""
+    langsmith_api_url: str = ""
     profile_level: str = ""
     profile_key: str = ""
     course_id: str = ""
@@ -125,6 +129,10 @@ class OrchestratorRequest:
                 push_enabled=bool(params.get("pushEnabled", True)),
                 push_on_session_complete=bool(params.get("pushOnSessionComplete", True)),
                 push_on_session_failure=bool(params.get("pushOnSessionFailure", False)),
+                langsmith_enabled=bool(params.get("langsmithEnabled", False)),
+                langsmith_project=str(params.get("langsmithProject") or ""),
+                langsmith_api_key=str(params.get("langsmithApiKey") or ""),
+                langsmith_api_url=str(params.get("langsmithApiUrl") or ""),
                 profile_level=str(params.get("profileLevel") or ""),
                 profile_key=str(params.get("profileKey") or ""),
                 course_id=str(params.get("courseId") or ""),
