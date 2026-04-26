@@ -49,6 +49,7 @@ class ClaudeWorker(Worker):
         profile: str | None = None,
         on_control: WorkerControlCallback | None = None,
     ) -> WorkerResult:
+        raise RuntimeError("Claude worker is disabled in this build. Use codex or opencode.")
         self._ensure_sdk_ready()
         workspace_path = Path(workspace or ".").resolve()
         before = self._snapshot_workspace(workspace_path)

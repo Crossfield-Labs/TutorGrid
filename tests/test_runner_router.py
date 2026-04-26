@@ -24,6 +24,9 @@ class RunnerRouterTests(unittest.TestCase):
         self.assertIsInstance(self.router.get("python"), PythonRunner)
         self.assertIsInstance(self.router.get("python_runner"), PythonRunner)
 
+    def test_claude_runner_is_not_exposed(self) -> None:
+        self.assertIsInstance(self.router.get("claude_cli"), ShellRunner)
+
 
 if __name__ == "__main__":
     unittest.main()

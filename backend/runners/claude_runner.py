@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from backend.config import load_config
 from backend.runners.base import AwaitUserCallback, BaseRunner, ProgressCallback
 from backend.sessions.state import OrchestratorSessionState
-from backend.workers.claude_worker import ClaudeWorker
-from backend.workers.models import WorkerProgressEvent
 
 
 class ClaudeRunner(BaseRunner):
@@ -14,21 +11,6 @@ class ClaudeRunner(BaseRunner):
         emit_progress: ProgressCallback,
         await_user: AwaitUserCallback,
     ) -> str:
-        task = (session.task or session.goal).strip()
-        if not task:
-            raise RuntimeError("Claude runner received an empty task.")
-        worker = ClaudeWorker(load_config())
-
-        async def on_progress(event: WorkerProgressEvent) -> None:
-            session.set_active_worker_runtime(worker="claude", session_mode="new", task_id="", profile="", can_interrupt=False)
-            session.set_latest_summary(event.message)
-            await emit_progress(event.message, None)
-
-        await emit_progress("Starting Claude CLI", 0.12)
-        result = await worker.run(task=task, workspace=session.workspace, on_progress=on_progress)
-        session.set_active_worker_runtime(worker="claude", session_mode="new", task_id="", profile="", can_interrupt=False)
-        if not result.success:
-            raise RuntimeError(result.error or result.summary or "Claude CLI failed.")
-        return result.output or result.summary or "Claude CLI completed successfully"
+        raise RuntimeError("Claude runner is disabled in this build. Use codex_cli, opencode_cli, or orchestrator.")
 
 

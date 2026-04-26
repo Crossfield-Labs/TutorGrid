@@ -39,10 +39,10 @@ if BaseModel is not None and Field is not None:
 
     class DelegateTaskArgs(BaseModel):
         task: str = Field(description="Focused task to delegate to a stronger backend.")
-        worker: str = Field(default="", description="Optional preferred worker: opencode, codex, or claude.")
+        worker: str = Field(default="", description="Optional preferred worker: opencode or codex.")
         session_mode: str = Field(default="", description="Optional session mode: auto, new, resume, or fork.")
         session_key: str = Field(default="", description="Optional logical long-lived backend conversation key.")
-        profile: str = Field(default="", description="Optional backend profile. For Claude: code, doc, study, or research.")
+        profile: str = Field(default="", description="Reserved for future worker-specific profiles. Leave empty.")
 
 
     class DelegateOpenCodeArgs(BaseModel):
@@ -155,7 +155,7 @@ def build_langchain_tools(
         StructuredTool.from_function(
             coroutine=_delegate_task,
             name="delegate_task",
-            description="Delegate work to a stronger worker backend. Prefer opencode for edits, codex for analysis, and claude for richer documentation or research flows.",
+            description="Delegate work to a stronger worker backend. Prefer opencode for edits and codex for analysis or review.",
             args_schema=DelegateTaskArgs,
         ),
         StructuredTool.from_function(

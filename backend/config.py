@@ -86,7 +86,7 @@ class OrchestratorConfig:
     codex_command: str = "codex"
     codex_model: str = ""
     claude_command: str = "claude"
-    claude_sdk_enabled: bool = True
+    claude_sdk_enabled: bool = False
     claude_model: str = ""
     claude_permission_mode: str = "acceptEdits"
     claude_allowed_tools: list[str] = field(default_factory=list)
@@ -99,7 +99,7 @@ class OrchestratorConfig:
     claude_enable_session_introspection: bool = True
     claude_enable_file_checkpointing: bool = False
     opencode_command: str = "opencode"
-    enabled_workers: list[str] = field(default_factory=lambda: ["codex", "claude", "opencode"])
+    enabled_workers: list[str] = field(default_factory=lambda: ["codex", "opencode"])
 
 
 def _config_path() -> Path:
@@ -391,7 +391,7 @@ def load_config() -> OrchestratorConfig:
         codex_model=str(os.environ.get("ORCHESTRATOR_CODEX_MODEL", data.get("codexModel") or "")),
         claude_command=os.environ.get("ORCHESTRATOR_CLAUDE_COMMAND", str(data.get("claudeCommand") or "claude")),
         claude_sdk_enabled=str(
-            os.environ.get("ORCHESTRATOR_CLAUDE_SDK_ENABLED", data.get("claudeSdkEnabled", True))
+            os.environ.get("ORCHESTRATOR_CLAUDE_SDK_ENABLED", data.get("claudeSdkEnabled", False))
         ).strip().lower()
         not in {"0", "false", "no", ""},
         claude_model=str(os.environ.get("ORCHESTRATOR_CLAUDE_MODEL", data.get("claudeModel") or "")),
@@ -448,7 +448,7 @@ def load_config() -> OrchestratorConfig:
             item.strip()
             for item in os.environ.get(
                 "ORCHESTRATOR_ENABLED_WORKERS",
-                ",".join(data.get("enabledWorkers") or ["codex", "claude", "opencode"]),
+                ",".join(data.get("enabledWorkers") or ["codex", "opencode"]),
             ).split(",")
             if item.strip()
         ],

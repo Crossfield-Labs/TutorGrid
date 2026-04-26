@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from backend.runners.base import BaseRunner
-from backend.runners.claude_runner import ClaudeRunner
 from backend.runners.codex_runner import CodexRunner
 from backend.runners.opencode_runner import OpencodeRunner
 from backend.runners.python_runner import PythonRunner
@@ -15,7 +14,6 @@ class RunnerRouter:
             "shell": ShellRunner(),
             "python": PythonRunner(),
             "python_runner": PythonRunner(),
-            "claude_cli": ClaudeRunner(),
             "codex_cli": CodexRunner(),
             "opencode_cli": OpencodeRunner(),
             "pc_subagent": SubAgentRunner(),

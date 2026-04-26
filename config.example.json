@@ -19,23 +19,9 @@
   "opencodeAgent": "",
   "codexCommand": "codex",
   "codexModel": "",
-  "claudeCommand": "claude",
-  "claudeSdkEnabled": true,
-  "claudeModel": "",
-  "claudePermissionMode": "acceptEdits",
-  "claudeAllowedTools": [],
-  "claudeDisallowedTools": [],
-  "claudeSettingsPath": "",
-  "claudeMcpConfig": "",
-  "claudeProfileDefault": "code",
-  "claudeEnableInterrupt": true,
-  "claudeEnableHooks": true,
-  "claudeEnableSessionIntrospection": true,
-  "claudeEnableFileCheckpointing": false,
   "opencodeCommand": "opencode",
   "enabledWorkers": [
     "codex",
-    "claude",
     "opencode"
   ]
 }
