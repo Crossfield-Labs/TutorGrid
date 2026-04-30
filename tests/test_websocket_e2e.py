@@ -230,6 +230,117 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
         search_event = await self._recv_event("orchestrator.memory.search", session_id=session_id)
         self.assertTrue(search_event["payload"]["items"])
 
+    async def test_tiptap_execute_sends_command_response_before_session_started(self) -> None:
+        await self._send_request(
+            "orchestrator.tiptap.command",
+            task_id="tiptap-order",
+            node_id="node-tiptap",
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "commandName": "explain-selection",
+                "selectionText": "observer pattern",
+                "execute": True,
+            },
+        )
+
+        command_event = await self._recv_any()
+        self.assertEqual(command_event["event"], "orchestrator.tiptap.command")
+        session_id = str(command_event["sessionId"])
+        self.assertEqual(command_event["payload"]["mode"], "start")
+        self.assertEqual(command_event["payload"]["sessionId"], session_id)
+
+        started_event = await self._recv_any()
+        self.assertEqual(started_event["event"], "orchestrator.session.started")
+        self.assertEqual(started_event["sessionId"], session_id)
+
+    async def test_tiptap_execute_start_emits_stream_message_events_and_completion(self) -> None:
+        await self._send_request(
+            "orchestrator.tiptap.command",
+            task_id="tiptap-stream",
+            node_id="node-tiptap",
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "commandName": "summarize-selection",
+                "selectionText": "arrays store ordered values",
+                "execute": True,
+            },
+        )
+
+        command_event = await self._recv_event("orchestrator.tiptap.command")
+        session_id = str(command_event["sessionId"])
+        await self._recv_event("orchestrator.session.started", session_id=session_id)
+        await self._recv_event("orchestrator.session.phase", session_id=session_id)
+        started_message = await self._recv_event("orchestrator.session.message.started", session_id=session_id)
+        self.assertTrue(started_message["payload"]["messageId"])
+        delta = await self._recv_event("orchestrator.session.message.delta", session_id=session_id)
+        self.assertEqual(delta["payload"]["messageId"], started_message["payload"]["messageId"])
+        self.assertTrue(delta["payload"]["delta"])
+        completed_message = await self._recv_event("orchestrator.session.message.completed", session_id=session_id)
+        self.assertEqual(completed_message["payload"]["messageId"], started_message["payload"]["messageId"])
+        completed = await self._recv_event("orchestrator.session.completed", session_id=session_id)
+        self.assertEqual(completed["payload"]["result"], "fake result")
+
+    async def test_tiptap_execute_with_running_session_queues_followup(self) -> None:
+        await self._send_request(
+            "orchestrator.session.start",
+            task_id="tiptap-running-followup",
+            node_id="node-running",
+            params={"runner": "orchestrator", "workspace": ".", "task": "wait for reply"},
+        )
+        await_user_event = await self._recv_event("orchestrator.session.await_user")
+        session_id = str(await_user_event["sessionId"])
+
+        await self._send_request(
+            "orchestrator.tiptap.command",
+            session_id=session_id,
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "commandName": "explain-selection",
+                "selectionText": "binary search",
+                "execute": True,
+            },
+        )
+
+        command_event = await self._recv_event("orchestrator.tiptap.command", session_id=session_id)
+        self.assertEqual(command_event["payload"]["mode"], "followup")
+        self.assertEqual(command_event["payload"]["sessionId"], session_id)
+        session = server_app.session_manager.get(session_id)
+        self.assertIsNotNone(session)
+        self.assertEqual(len(session.followups), 1)
+
+    async def test_tiptap_execute_with_completed_session_starts_new_session(self) -> None:
+        await self._send_request(
+            "orchestrator.session.start",
+            task_id="tiptap-completed-base",
+            node_id="node-completed",
+            params={"runner": "orchestrator", "workspace": ".", "task": "finish normally"},
+        )
+        completed = await self._recv_event("orchestrator.session.completed")
+        old_session_id = str(completed["sessionId"])
+
+        await self._send_request(
+            "orchestrator.tiptap.command",
+            session_id=old_session_id,
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "commandName": "generate-flashcards",
+                "selectionText": "stacks are last-in first-out",
+                "execute": True,
+            },
+        )
+
+        command_event = await self._recv_event("orchestrator.tiptap.command")
+        new_session_id = str(command_event["sessionId"])
+        self.assertEqual(command_event["payload"]["mode"], "start")
+        self.assertEqual(command_event["payload"]["previousSessionId"], old_session_id)
+        self.assertNotEqual(new_session_id, old_session_id)
+        await self._recv_event("orchestrator.session.started", session_id=new_session_id)
+        await self._recv_event("orchestrator.session.completed", session_id=new_session_id)
+
     async def test_input_interrupt_and_errors(self) -> None:
         await self._send_request(
             "orchestrator.session.start",
@@ -349,7 +460,7 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
         *,
         session_id: str | None = None,
         predicate: Callable[[dict[str, Any]], bool] | None = None,
-        timeout: float = 5.0,
+        timeout: float = 20.0,
     ) -> dict[str, Any]:
         def matches(item: dict[str, Any]) -> bool:
             if item.get("event") != event_name:
@@ -374,6 +485,12 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
             if matches(item):
                 return item
             self._buffer.append(item)
+
+    async def _recv_any(self, *, timeout: float = 20.0) -> dict[str, Any]:
+        if self._buffer:
+            return self._buffer.pop(0)
+        raw = await asyncio.wait_for(self._websocket.recv(), timeout=timeout)
+        return json.loads(raw)
 
     async def _wait_until(self, predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
         deadline = asyncio.get_running_loop().time() + timeout

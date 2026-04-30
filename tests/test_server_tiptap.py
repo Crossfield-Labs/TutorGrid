@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 import unittest
@@ -50,9 +51,16 @@ class ServerTipTapTests(unittest.IsolatedAsyncioTestCase):
 
             original_manager = app.session_manager
             original_trace_store = app.trace_store
+            original_session_tasks = app.session_tasks
             app.session_manager = manager
             app.trace_store = trace_store
+            app.session_tasks = {}
+            session.mark(status="RUNNING", message="running")
+            manager.update(session)
+            pending_task = None
             try:
+                pending_task = asyncio.create_task(asyncio.sleep(60))
+                app.session_tasks[session.session_id] = pending_task
                 websocket = _FakeWebSocket(
                     [
                         {
@@ -70,8 +78,12 @@ class ServerTipTapTests(unittest.IsolatedAsyncioTestCase):
                 )
                 await app.websocket_handler(websocket, "/ws/orchestrator", "")
             finally:
+                app.session_tasks.pop(session.session_id, None)
+                if pending_task is not None:
+                    pending_task.cancel()
                 app.session_manager = original_manager
                 app.trace_store = original_trace_store
+                app.session_tasks = original_session_tasks
 
             self.assertEqual(websocket.sent[0]["event"], "orchestrator.tiptap.command")
             self.assertEqual(websocket.sent[0]["payload"]["mode"], "followup")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from backend.config import OrchestratorConfig
 from backend.workers.base import Worker
 from backend.workers.common import resolve_command, run_cli_worker
@@ -26,13 +28,14 @@ class OpencodeWorker(Worker):
         on_control=None,
     ) -> WorkerResult:
         executable = resolve_command(self.config.opencode_command)
+        workspace_path = Path(workspace or ".").resolve()
         command = [
             executable,
             "run",
             "--format",
             "json",
             "--dir",
-            workspace,
+            str(workspace_path),
         ]
         if self.config.opencode_model.strip():
             command.extend(["--model", self.config.opencode_model.strip()])
@@ -42,7 +45,7 @@ class OpencodeWorker(Worker):
         return await run_cli_worker(
             worker_name=self.name,
             command=command,
-            workspace=workspace,
+            workspace=str(workspace_path),
             task=task,
             on_progress=on_progress,
         )
