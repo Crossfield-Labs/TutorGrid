@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -18,6 +18,7 @@ function createMainWindow() {
     minWidth: 1024,
     minHeight: 700,
     show: false,
+    titleBarStyle: "hidden",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -28,6 +29,13 @@ function createMainWindow() {
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
+  });
+
+  mainWindow.on("maximize", () => {
+    mainWindow?.webContents.send("window:maximizedChanged", true);
+  });
+  mainWindow.on("unmaximize", () => {
+    mainWindow?.webContents.send("window:maximizedChanged", false);
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -228,6 +236,28 @@ function registerIpcHandlers() {
     const fullPath = resolveSafe(relPath);
     await shell.openPath(fullPath);
   });
+
+  ipcMain.handle("window:minimize", () => {
+    mainWindow?.minimize();
+  });
+
+  ipcMain.handle("window:toggleMaximize", () => {
+    if (!mainWindow) return false;
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+      return false;
+    }
+    mainWindow.maximize();
+    return true;
+  });
+
+  ipcMain.handle("window:close", () => {
+    mainWindow?.close();
+  });
+
+  ipcMain.handle("window:isMaximized", () => {
+    return mainWindow?.isMaximized() ?? false;
+  });
 }
 
 const gotLock = app.requestSingleInstanceLock();
@@ -242,6 +272,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    Menu.setApplicationMenu(null);
     registerIpcHandlers();
     createMainWindow();
 

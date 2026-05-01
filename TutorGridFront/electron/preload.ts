@@ -30,6 +30,19 @@ const api = {
     openExternal: (relPath: string) =>
       ipcRenderer.invoke("workspace:openExternal", relPath),
   },
+  window: {
+    minimize: () => ipcRenderer.invoke("window:minimize"),
+    toggleMaximize: () =>
+      ipcRenderer.invoke("window:toggleMaximize") as Promise<boolean>,
+    close: () => ipcRenderer.invoke("window:close"),
+    isMaximized: () =>
+      ipcRenderer.invoke("window:isMaximized") as Promise<boolean>,
+    onMaximizedChanged: (cb: (maximized: boolean) => void) => {
+      const listener = (_: unknown, value: boolean) => cb(value);
+      ipcRenderer.on("window:maximizedChanged", listener);
+      return () => ipcRenderer.off("window:maximizedChanged", listener);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld("metaAgent", api);
