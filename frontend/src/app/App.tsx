@@ -25,6 +25,7 @@ import {
 import { SessionList } from "../features/sessions/SessionList";
 import { StatePanel } from "../features/state-panel/StatePanel";
 import { Timeline } from "../features/timeline/Timeline";
+import { ChatStreamWorkbench } from "../features/chat/ChatStreamWorkbench";
 import { KnowledgeWorkbench } from "../features/knowledge/KnowledgeWorkbench";
 import { MemoryWorkbench } from "../features/memory/MemoryWorkbench";
 import {
@@ -110,7 +111,7 @@ export function App() {
   const [connectionState, setConnectionState] = useState("未连接");
   const [serverUrl, setServerUrl] = useState(defaultWsUrl);
   const [settingsUrl, setSettingsUrl] = useState(defaultWsUrl);
-  const [view, setView] = useState<"workspace" | "knowledge" | "memory" | "settings">("workspace");
+  const [view, setView] = useState<"workspace" | "chat" | "knowledge" | "memory" | "settings">("workspace");
   const [composerValue, setComposerValue] = useState("");
   const [pendingTaskId, setPendingTaskId] = useState<string>("");
   const [plannerSettings, setPlannerSettings] = useState<PlannerSettings>({
@@ -1005,10 +1006,11 @@ export function App() {
             />
             <Tabs
               value={view}
-              onChange={(_, value: "workspace" | "knowledge" | "memory" | "settings") => setView(value)}
+              onChange={(_, value: "workspace" | "chat" | "knowledge" | "memory" | "settings") => setView(value)}
               sx={{ minHeight: 32, "& .MuiTab-root": { minHeight: 32 } }}
             >
               <Tab value="workspace" label="工作台" />
+              <Tab value="chat" label="Chat SSE" />
               <Tab value="knowledge" label="知识库/RAG" />
               <Tab value="memory" label="记忆" />
               <Tab value="settings" label="设置" />
@@ -1045,6 +1047,8 @@ export function App() {
               artifactData={selectedArtifacts}
             />
           </Box>
+        ) : view === "chat" ? (
+          <ChatStreamWorkbench courses={knowledgeCourses} selectedCourseId={selectedCourseId} />
         ) : view === "knowledge" ? (
           <KnowledgeWorkbench
             courses={knowledgeCourses}
