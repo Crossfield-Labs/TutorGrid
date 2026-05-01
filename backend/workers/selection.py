@@ -24,11 +24,7 @@ class WorkerProfileSelection:
 
 def _normalize_worker_name(name: str) -> str:
     normalized = (name or "").strip().lower()
-    aliases = {
-        "claude_sdk": "claude",
-        "claude-code": "claude",
-        "opencodeai": "opencode",
-    }
+    aliases = {"opencodeai": "opencode"}
     return aliases.get(normalized, normalized)
 
 
@@ -38,7 +34,12 @@ def select_worker(
     available_workers: list[str],
     preferred_worker: str | None = None,
 ) -> WorkerSelection:
-    normalized_available = [_normalize_worker_name(item) for item in available_workers if item.strip()]
+    supported_workers = {"codex", "opencode"}
+    normalized_available = [
+        item
+        for item in (_normalize_worker_name(value) for value in available_workers if value.strip())
+        if item in supported_workers
+    ]
     preferred = _normalize_worker_name(preferred_worker or "")
     task_lower = task.lower()
 
@@ -51,48 +52,26 @@ def select_worker(
             fallback_order=[item for item in normalized_available if item != preferred],
         )
 
-    if "claude" in task_lower and "claude" in normalized_available:
-        selected = "claude"
-        reason = "The task explicitly mentions Claude."
-    elif "codex" in task_lower and "codex" in normalized_available:
+    if "codex" in task_lower and "codex" in normalized_available:
         selected = "codex"
         reason = "The task explicitly mentions Codex."
     elif "opencode" in task_lower and "opencode" in normalized_available:
         selected = "opencode"
         reason = "The task explicitly mentions OpenCode."
-    elif any(
-        keyword in task_lower
-        for keyword in (
-            "document",
-            "docs",
-            "documentation",
-            "report",
-            "research",
-            "outline",
-            "writeup",
-            "summary",
-            "readme",
-            "architecture",
-            "usage",
-            "guide",
-            "学习",
-            "讲解",
-            "文档",
-            "报告",
-            "总结",
-        )
-    ) and "claude" in normalized_available:
-        selected = "claude"
-        reason = "The task looks documentation- or research-heavy, which fits Claude well."
-    elif any(keyword in task_lower for keyword in ("review", "analyze", "inspect", "explain")) and "codex" in normalized_available:
+    elif any(keyword in task_lower for keyword in ("review", "analyze", "inspect", "explain", "diagnose")) and "codex" in normalized_available:
         selected = "codex"
         reason = "The task emphasizes structured analysis, which fits Codex well."
-    elif any(keyword in task_lower for keyword in ("implement", "write", "create", "fix", "patch", "edit", "refactor")) and "opencode" in normalized_available:
+    elif any(
+        keyword in task_lower
+        for keyword in ("implement", "write", "create", "fix", "patch", "edit", "refactor", "generate")
+    ) and "opencode" in normalized_available:
         selected = "opencode"
         reason = "The task emphasizes concrete implementation work, which fits OpenCode well."
     else:
-        priority = [name for name in ("opencode", "codex", "claude") if name in normalized_available]
-        selected = priority[0] if priority else normalized_available[0]
+        priority = [name for name in ("opencode", "codex") if name in normalized_available]
+        if not priority:
+            raise RuntimeError("No supported worker is available. Enable codex or opencode.")
+        selected = priority[0]
         reason = "Defaulting to the most execution-oriented backend available."
 
     return WorkerSelection(
@@ -127,28 +106,25 @@ def select_session_mode(
             return SessionModeSelection(mode=requested, reason=reasons[requested])
 
     normalized_worker = _normalize_worker_name(worker)
-    if normalized_worker not in {"codex", "claude"}:
+    if normalized_worker != "codex":
         return SessionModeSelection(
             mode="new",
-            reason="Only Codex and Claude currently support native long-lived sessions in this orchestration layer.",
+            reason="Only Codex currently supports native long-lived sessions in this orchestration layer.",
         )
     if not has_existing_session:
         return SessionModeSelection(
             mode="new",
-            reason=f"No previous {normalized_worker.capitalize()} session is available yet, so a new session will be created.",
+            reason="No previous Codex session is available yet, so a new session will be created.",
         )
     task_lower = task.lower()
-    if any(
-        keyword in task_lower
-        for keyword in ("continue", "follow up", "same session", "继续", "接着", "在刚才基础上", "继续修改", "继续完善")
-    ):
+    if any(keyword in task_lower for keyword in ("continue", "follow up", "same session")):
         return SessionModeSelection(
             mode="resume",
-            reason=f"This looks like a follow-up request, so the existing {normalized_worker.capitalize()} session should be resumed.",
+            reason="This looks like a follow-up request, so the existing Codex session should be resumed.",
         )
     return SessionModeSelection(
         mode="new",
-        reason=f"This looks like a fresh delegated task, so a new {normalized_worker.capitalize()} session will be created.",
+        reason="This looks like a fresh delegated task, so a new Codex session will be created.",
     )
 
 
@@ -159,20 +135,7 @@ def select_worker_profile(
     requested_profile: str | None = None,
 ) -> WorkerProfileSelection:
     normalized_worker = _normalize_worker_name(worker)
-    requested = (requested_profile or "").strip().lower()
-    if normalized_worker != "claude":
-        return WorkerProfileSelection(profile="", reason=f"{normalized_worker or 'worker'} does not use Claude task profiles.")
-    valid_profiles = {"code", "doc", "study", "research"}
-    if requested:
-        if requested not in valid_profiles:
-            raise RuntimeError(f"Unsupported Claude profile: {requested_profile}")
-        return WorkerProfileSelection(profile=requested, reason=f"The task explicitly requested the Claude {requested} profile.")
-    task_lower = task.lower()
-    if any(keyword in task_lower for keyword in ("study", "learning", "teach", "学习", "讲解", "教程", "课程")):
-        return WorkerProfileSelection(profile="study", reason="The task looks like a learning or teaching flow, so the Claude study profile fits best.")
-    if any(keyword in task_lower for keyword in ("document", "docs", "documentation", "readme", "文档", "说明", ".md")):
-        return WorkerProfileSelection(profile="doc", reason="The task emphasizes documentation artifacts, so the Claude doc profile fits best.")
-    if any(keyword in task_lower for keyword in ("research", "investigate", "compare", "summary", "总结", "调研", "比较")):
-        return WorkerProfileSelection(profile="research", reason="The task emphasizes synthesis or investigation, so the Claude research profile fits best.")
-    return WorkerProfileSelection(profile="code", reason="Defaulting to the Claude code profile.")
-
+    return WorkerProfileSelection(
+        profile="",
+        reason=f"{normalized_worker or 'worker'} does not use worker profiles.",
+    )

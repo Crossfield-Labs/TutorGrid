@@ -1,4 +1,4 @@
-{
+﻿{
   "planner": {
     "provider": "openai_compat",
     "model": "",
@@ -22,24 +22,9 @@
   "opencodeAgent": "",
   "codexCommand": "codex",
   "codexModel": "",
-  "codexMcpConfig": "",
-  "claudeCommand": "claude",
-  "claudeSdkEnabled": true,
-  "claudeModel": "",
-  "claudePermissionMode": "acceptEdits",
-  "claudeAllowedTools": [],
-  "claudeDisallowedTools": [],
-  "claudeSettingsPath": "",
-  "claudeMcpConfig": "",
-  "claudeProfileDefault": "code",
-  "claudeEnableInterrupt": true,
-  "claudeEnableHooks": true,
-  "claudeEnableSessionIntrospection": true,
-  "claudeEnableFileCheckpointing": false,
   "opencodeCommand": "opencode",
   "enabledWorkers": [
     "codex",
-    "claude",
     "opencode"
   ]
 }

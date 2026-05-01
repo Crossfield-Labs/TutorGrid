@@ -1,0 +1,25 @@
+// enforce font globally
+// @use "vuetify/variables";
+@import "./variables";
+@import 'vuetify/styles';
+@import "./override";
+
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('/fonts/HarmonyOS_Sans_SC_Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'HarmonyOS Sans SC';
+  src: url('/fonts/HarmonyOS_Sans_SC_Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@import "./common/gradients.scss";
+@import "./common/animation.scss";
+@import "./common/beautify.scss";
+@import './pages/editor';

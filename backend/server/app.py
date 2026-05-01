@@ -316,6 +316,11 @@ def _classify_input_handling(*, input_intent: str, waiter_active: bool) -> str:
     return "unsupported"
 
 
+def _can_accept_followup(session: OrchestratorSessionState) -> bool:
+    task = session_tasks.get(session.session_id)
+    return session.status.upper() == "RUNNING" and task is not None and not task.done()
+
+
 def _coerce_float(value: object, default: float) -> float:
     try:
         return float(value)
@@ -471,16 +476,6 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
     session = session_manager.get(session_id)
     if session is None:
         return
-    runner = runner_router.get(session.runner)
-    session.phase = "starting"
-    session.mark(status="RUNNING", message="Session started")
-    session_manager.update(session)
-    await _broadcast_event(
-        session,
-        event="orchestrator.session.started",
-        payload={"message": "session started", "runner": session.runner, "snapshot": session.build_snapshot()},
-    )
-    await _emit_projection_updates(session)
 
     async def emit_progress(message: str, progress: float | None = None) -> None:
         session.mark(status="RUNNING", message=message)
@@ -548,6 +543,16 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         )
 
     try:
+        runner = runner_router.get(session.runner)
+        session.phase = "starting"
+        session.mark(status="RUNNING", message="Session started")
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event="orchestrator.session.started",
+            payload={"message": "session started", "runner": session.runner, "snapshot": session.build_snapshot()},
+        )
+        await _emit_projection_updates(session)
         if hasattr(runner, "set_event_callbacks"):
             runner.set_event_callbacks(emit_substep=emit_substep, emit_message_event=emit_message_event)
         result = await runner.run(session, emit_progress, await_user)
@@ -879,6 +884,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     document_text=request.params.document_text,
                     instruction_text=request.params.text or request.params.task,
                 )
+                session_to_start: OrchestratorSessionState | None = None
                 payload: dict[str, Any] = {
                     **resolved.to_payload(),
                     "executed": False,
@@ -886,12 +892,12 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 }
                 if request.params.execute:
                     if request.session_id:
-                        session = session_manager.get(request.session_id)
+                        existing_session = session_manager.get(request.session_id)
                     else:
-                        session = None
-                    if session is not None:
+                        existing_session = None
+                    if existing_session is not None and _can_accept_followup(existing_session):
                         session_manager.enqueue_followup(
-                            session.session_id,
+                            existing_session.session_id,
                             text=resolved.task,
                             intent="instruction",
                             target=request.params.target,
@@ -900,7 +906,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                             {
                                 "executed": True,
                                 "mode": "followup",
-                                "sessionId": session.session_id,
+                                "sessionId": existing_session.session_id,
                             }
                         )
                     else:
@@ -914,8 +920,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         )
                         _subscribe(session.session_id, websocket, event_namespace)
                         subscribed_session_ids.add(session.session_id)
-                        session_task = asyncio.create_task(_run_session(session.session_id, websocket))
-                        session_tasks[session.session_id] = session_task
+                        session_to_start = session
                         payload.update(
                             {
                                 "executed": True,
@@ -923,6 +928,8 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                                 "sessionId": session.session_id,
                             }
                         )
+                        if request.session_id:
+                            payload["previousSessionId"] = request.session_id
                 await send_event(
                     websocket,
                     event=event_name("orchestrator.tiptap.command"),
@@ -931,6 +938,9 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     session_id=payload.get("sessionId") or request.session_id,
                     payload=payload,
                 )
+                if session_to_start is not None:
+                    session_task = asyncio.create_task(_run_session(session_to_start.session_id, websocket))
+                    session_tasks[session_to_start.session_id] = session_task
                 continue
 
             if request.method in {"orchestrator.profile.l1.set", "pc.profile.l1.set"}:

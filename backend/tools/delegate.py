@@ -191,39 +191,18 @@ async def delegate_task(
                     },
                 )
             )
-            if candidate == "claude" and profile_selection.profile:
-                await on_progress(
-                    WorkerProgressEvent(
-                        phase="worker_profile",
-                        message=f"Using {candidate} profile {profile_selection.profile}: {profile_selection.reason}",
-                        raw_type="worker_profile",
-                        metadata={
-                            "worker": candidate,
-                            "worker_profile": profile_selection.profile,
-                            "worker_profile_reason": profile_selection.reason,
-                        },
-                    )
-                )
-
         try:
             run_kwargs: dict[str, Any] = {
                 "task": candidate_task,
                 "workspace": workspace,
                 "on_progress": on_progress if session is not None else None,
             }
-            if candidate in {"codex", "claude"}:
+            if candidate == "codex":
                 run_kwargs.update(
                     {
                         "session_id": str(existing_session.get("session_id") or "") if existing_session else "",
                         "session_mode": mode_selection.mode,
                         "session_key": normalized_session_key,
-                    }
-                )
-            if candidate == "claude":
-                run_kwargs.update(
-                    {
-                        "profile": profile_selection.profile,
-                        "on_control": (lambda control, current=candidate: on_control(current, control)),
                     }
                 )
             result = await backend.run(**run_kwargs)

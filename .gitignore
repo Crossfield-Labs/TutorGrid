@@ -29,6 +29,18 @@ frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 
+# Migrated TutorGridFront dependencies, builds, and local generated files
+TutorGridFront/node_modules/
+TutorGridFront/dist/
+TutorGridFront/dist-electron/
+TutorGridFront/release/
+TutorGridFront/out/
+TutorGridFront/.vite/
+TutorGridFront/*.tsbuildinfo
+TutorGridFront/auto-imports.d.ts
+TutorGridFront/components.d.ts
+TutorGridFront/.claude/settings.local.json
+
 # Editor and OS files
 .vscode/
 .idea/
