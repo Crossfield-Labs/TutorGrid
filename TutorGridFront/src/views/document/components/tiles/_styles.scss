@@ -1,0 +1,91 @@
+// Win10/Fluent 风格磨砂 mixin
+// 使用方式：
+//   @use "./_styles" as t;
+//   .tile { @include t.frosted-tile; }       // 磁贴：带 hover 抬升
+//   .panel { @include t.frosted-panel; }     // 大面板：静态，无 hover
+
+// 静态磨砂面板（不含交互动效）—— 文档编辑器等大面积容器用这个
+@mixin frosted-panel {
+  position: relative;
+  background: rgba(255, 255, 255, 0.35) !important;
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 3px;
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+}
+
+// 磁贴 = 面板 + 顶部高光 + hover 抬升
+@mixin frosted-tile {
+  @include frosted-panel;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+
+  // 顶部一道高光，更像 Fluent acrylic
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.35) 0%,
+      rgba(255, 255, 255, 0) 35%
+    );
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 12px 36px rgba(0, 0, 0, 0.14),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  }
+}
+
+// 暗色主题——静态面板
+@mixin frosted-panel-dark {
+  background: rgba(28, 28, 30, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+// 暗色主题——磁贴（面板 + hover）
+@mixin frosted-tile-dark {
+  @include frosted-panel-dark;
+
+  &::before {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(255, 255, 255, 0) 35%
+    );
+  }
+
+  &:hover {
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+}
+
+// 磁贴内部 padding 标准
+@mixin tile-padding {
+  padding: 14px 16px;
+}
+
+// 强调色磁贴（如活跃 Agent）
+@mixin frosted-tile-accent($color) {
+  background: linear-gradient(
+    135deg,
+    rgba($color, 0.25),
+    rgba($color, 0.1)
+  ) !important;
+  border-color: rgba($color, 0.35);
+}

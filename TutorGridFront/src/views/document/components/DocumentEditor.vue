@@ -847,24 +847,26 @@ defineExpose({ editor });
 </script>
 
 <style scoped lang="scss">
+@use "./tiles/_styles" as t;
+
 .document-editor {
+  @include t.frosted-panel;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
-  border: 1px solid rgba(30, 41, 59, 0.12);
-  border-radius: 10px;
-  background: #fff;
 }
 
+:global(.v-theme--dark) .document-editor {
+  @include t.frosted-panel-dark;
+}
+
+// 保留 card-shadow 作为兼容类，但不再叠加额外阴影
 .card-shadow {
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.06),
-    0 12px 28px rgba(15, 23, 42, 0.08) !important;
+  box-shadow: none !important;
 }
 
 .editor-toolbar-wrap {
-  background: #fff;
-  border-bottom: 1px solid rgba(30, 41, 59, 0.08);
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
   padding: 8px 10px;
 }
 
@@ -890,7 +892,7 @@ defineExpose({ editor });
 .editor-body {
   flex: 1 1 auto;
   min-height: 0;
-  background: #fafafa;
+  background: transparent;
   padding: 28px 30px;
   overflow: hidden;
 }
@@ -910,21 +912,24 @@ defineExpose({ editor });
   margin: 0 auto;
 }
 
+// 内层"纸面"——默认透明，只在聚焦时显出浅色描边（参考设计）
 .editor-frame {
   min-height: 100%;
   padding: 30px 34px;
-  border: 2px solid #c6ccd6;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.8),
-    0 1px 2px rgba(15, 23, 42, 0.04);
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius:  4px 4px 12px 12px;
+  transition: border-color 0.15s ease;
+
+  &:focus-within {
+    border-color: #c2c7d1;
+  }
 }
 
 .editor-footer {
   min-height: 34px;
-  border-top: 1px solid rgba(30, 41, 59, 0.08);
-  background: #fff;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
 }
 
 .editor-content :deep(.ProseMirror) {
