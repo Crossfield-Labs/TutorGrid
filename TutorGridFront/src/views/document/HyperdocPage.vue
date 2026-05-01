@@ -18,44 +18,6 @@
         class="title-input mx-3 flex-fill"
         @blur="saveTitle"
       />
-      <v-tooltip
-        location="bottom"
-        :text="orchestratorStore.forceMock ? '当A' : 'B'"
-      >
-        <template #activator="{ props: tipProps }">
-          <v-btn
-            v-bind="tipProps"
-            :prepend-icon="orchestratorStore.forceMock ? 'mdi-theater' : 'mdi-theater-outline'"
-            variant="text"
-            size="small"
-            :color="orchestratorStore.forceMock ? 'warning' : 'grey-darken-1'"
-            class="mr-2"
-            @click="toggleDemoMode"
-          >
-            {{ orchestratorStore.forceMock ? 'A模式' : 'B模式' }}
-          </v-btn>
-        </template>
-      </v-tooltip>
-
-      <v-tooltip
-        v-if="currentSessionId"
-        location="bottom"
-        text="清掉本文档绑定的旧 sessionId（适合演示前先按一下）"
-      >
-        <template #activator="{ props: tipProps }">
-          <v-btn
-            v-bind="tipProps"
-            prepend-icon="mdi-restart"
-            variant="text"
-            size="small"
-            color="warning"
-            class="mr-2"
-            @click="resetSession"
-          >
-            重置会话
-          </v-btn>
-        </template>
-      </v-tooltip>
       <v-btn
         prepend-icon="mdi-export"
         variant="tonal"
@@ -110,7 +72,6 @@
       </v-row>
     </div>
 
-    <ChatFAB ref="chatRef" :tile-id="tileId" />
   </div>
 </template>
 
@@ -120,26 +81,13 @@ import { useRoute, useRouter } from "vue-router";
 import type { Editor } from "@tiptap/vue-3";
 import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
-import ChatFAB from "./components/ChatFAB.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-import { useOrchestratorStore } from "@/stores/orchestratorStore";
 
 const route = useRoute();
 const router = useRouter();
 const workspaceStore = useWorkspaceStore();
 const snackbarStore = useSnackbarStore();
-const orchestratorStore = useOrchestratorStore();
-
-const toggleDemoMode = () => {
-  const next = !orchestratorStore.forceMock;
-  orchestratorStore.setForceMock(next);
-  snackbarStore.showInfoMessage(
-    next
-      ? "已切到演示模式：所有 AI 命令走本地 mock 数据"
-      : "已切回真实模式：使用后端 LLM"
-  );
-};
 
 const tileId = computed(() => route.params.id as string);
 const tile = computed(() => workspaceStore.findTile(tileId.value));
@@ -149,7 +97,6 @@ const content = ref("");
 const loading = ref(true);
 const saveStatus = ref<"idle" | "saving" | "saved" | "error">("idle");
 const editorReady = ref(false);
-const chatRef = ref<{ open: (text?: string) => void } | null>(null);
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -201,16 +148,6 @@ const exportPdf = async () => {
   snackbarStore.showInfoMessage("PDF 导出功能将在 Phase 4 接入");
 };
 
-const currentSessionId = computed(
-  () => tile.value?.metadata?.sessionId || ""
-);
-
-const resetSession = async () => {
-  if (!tile.value) return;
-  await workspaceStore.setTileMetadata(tile.value.id, { sessionId: undefined });
-  snackbarStore.showSuccessMessage("已清除本文档的会话绑定");
-};
-
 watch(tile, (t) => {
   if (t) title.value = t.title;
 });
@@ -240,10 +177,9 @@ onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
 });
 
-const onAiCommand = (command: string, payload?: any) => {
-  if (command === "send-to-chat") {
-    chatRef.value?.open(payload?.selectionText || "");
-  }
+// [TODO F07] AI 命令处理 —— F07 重新接入 AiBubbleNode 时实现
+const onAiCommand = (command: string, _payload?: unknown) => {
+  snackbarStore.showInfoMessage(`[F07 待接入] 命令 ${command}`);
 };
 </script>
 

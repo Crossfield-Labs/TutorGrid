@@ -104,12 +104,10 @@ export const useOrchestratorStore = defineStore("orchestrator", {
     status: "idle" as WsStatus,
     lastError: "" as string,
     sessions: [] as string[],
-    forceMock: localStorage.getItem("metaagent.forceMock") === "1",
   }),
 
   getters: {
     isLive(state): boolean {
-      if (state.forceMock) return false;
       return state.status === "connected";
     },
   },
@@ -117,12 +115,6 @@ export const useOrchestratorStore = defineStore("orchestrator", {
   actions: {
     setWsUrl(url: string) {
       this.wsUrl = url;
-    },
-
-    setForceMock(on: boolean) {
-      this.forceMock = on;
-      if (on) localStorage.setItem("metaagent.forceMock", "1");
-      else localStorage.removeItem("metaagent.forceMock");
     },
 
     connect(): Promise<void> {

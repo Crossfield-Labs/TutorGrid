@@ -23,6 +23,9 @@ app.add_middleware(
     allow_origins=[
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://127.0.0.1:4399",
+        "http://localhost:4399",
+        "app://./",  # Electron 打包后协议
     ],
     allow_credentials=True,
     allow_methods=["*"],

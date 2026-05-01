@@ -59,21 +59,6 @@ import Image from "@tiptap/extension-image";
 import Highlight from "@tiptap/extension-highlight";
 import RichEditorMenubar from "./RichEditorMenubar.vue";
 import EditorBubbleMenu from "./EditorBubbleMenu.vue";
-import { AiBlock } from "../extensions/ai-block";
-import {
-  PLACEHOLDER_LABELS,
-  makeAiBlockId,
-} from "../extensions/ai-block-types";
-import {
-  resolveMockBlock,
-  mockAgentProgress,
-  mockRagResolution,
-} from "../extensions/mock-ai-data";
-import {
-  parseQuizMarkdown,
-  parseFlashcardMarkdown,
-  markdownToSimpleHtml,
-} from "../extensions/markdown-parsers";
 import SlashCommandMenu from "../extensions/SlashCommandMenu.vue";
 import type { SlashItem } from "../extensions/SlashCommandMenu.vue";
 import {
@@ -81,9 +66,6 @@ import {
   filterSlashItems,
 } from "../extensions/slash-command-items";
 import { useOrchestratorStore } from "@/stores/orchestratorStore";
-import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { useKnowledgeStore } from "@/stores/knowledgeStore";
-import type { AgentArtifact, AgentData, AgentPhaseEvent } from "../extensions/ai-block-types";
 
 interface Props {
   modelValue: string;
@@ -99,25 +81,11 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const orchestratorStore = useOrchestratorStore();
-const workspaceStore = useWorkspaceStore();
-const knowledgeStore = useKnowledgeStore();
-
-const COMMAND_TARGET_KIND: Record<string, "text" | "quiz" | "flashcard" | "agent"> = {
-  "explain-selection": "text",
-  "summarize-selection": "text",
-  "rewrite-selection": "text",
-  "continue-writing": "text",
-  "ask": "text",
-  "rag-query": "text",
-  "generate-quiz": "quiz",
-  "generate-flashcards": "flashcard",
-  "do-task": "agent",
-};
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
   (e: "ready", editor: Editor): void;
-  (e: "aiCommand", command: string, payload?: any): void;
+  (e: "aiCommand", command: string, payload?: { selectionText: string }): void;
 }>();
 
 const slashState = reactive({
@@ -142,7 +110,7 @@ const editor = useEditor({
       HTMLAttributes: { class: "doc-image" },
     }),
     Highlight.configure({ multicolor: true }),
-    AiBlock,
+    // [TODO F07] AiBubbleNode TipTap 扩展将在这里注册
   ],
   editorProps: {
     handleKeyDown(_view, event) {
@@ -284,488 +252,32 @@ const wsStatusIcon = computed(() => {
   }
 });
 
-const MOCK_PLACEHOLDER_DELAY_MS = 2200;
-const MOCK_AGENT_STEP_INTERVAL_MS = 1600;
+// [TODO F07] 旧 ai-block 流水线已清理。F07 阶段在这里挂入：
+//   - SSE 客户端调用 /api/chat/stream
+//   - AiBubbleNode 节点的流式 delta 追加
+//   - 统一消息 store 同步（renderIn: 'both'）
+// 旧 runAiCommand / runMockPipeline / runLivePipeline / runRagPipeline /
+// streamTextLikeBlock / streamAgentLifecycle / applyMockRag / applyTextLikeFinal
+// 全部已删除。F07 阶段会引入新的 SSE pipeline。
 
-const persistSessionId = async (sessionId: string) => {
-  if (!props.tileId || !sessionId) return;
-  const tile = workspaceStore.findTile(props.tileId);
-  if (!tile) return;
-  if (tile.metadata?.sessionId === sessionId) return;
-  await workspaceStore.setTileMetadata(props.tileId, { sessionId });
-};
 
-const currentSessionId = (): string => {
-  if (!props.tileId) return "";
-  const tile = workspaceStore.findTile(props.tileId);
-  return tile?.metadata?.sessionId || "";
-};
-
-const runAiCommand = (command: string, selectionText: string) => {
-  const ed = editor.value;
-  if (!ed) return;
-  const blockId = makeAiBlockId();
-  const targetKind = COMMAND_TARGET_KIND[command] || "text";
-  ed.chain()
-    .focus()
-    .insertAiBlock({
-      id: blockId,
-      kind: "placeholder",
-      command,
-      createdBy: "ai",
-      data: { label: PLACEHOLDER_LABELS[command] || "AI 思考中" },
-    })
-    .run();
-
-  if (command === "rag-query") {
-    if (orchestratorStore.isLive) {
-      runRagPipeline(blockId, selectionText).catch((err) => {
-        console.warn("[rag] live pipeline failed, falling back to mock", err);
-        applyMockRag(blockId, selectionText);
-      });
-    } else {
-      applyMockRag(blockId, selectionText);
-    }
-    return;
-  }
-
-  if (orchestratorStore.isLive) {
-    runLivePipeline(blockId, command, targetKind, selectionText).catch(
-      (err) => {
-        console.warn("[orchestrator] live pipeline failed, falling back to mock", err);
-        runMockPipeline(blockId, command, selectionText);
-      }
-    );
-  } else {
-    runMockPipeline(blockId, command, selectionText);
-  }
-};
-
-const applyMockRag = (blockId: string, question: string) => {
-  const ed = editor.value;
-  if (!ed) return;
-  const m = mockRagResolution(question || "（请先选中要查询的问题）");
-  setTimeout(() => {
-    if (!editor.value || editor.value.isDestroyed) return;
-    editor.value.commands.updateAiBlockById(blockId, {
-      kind: "citation",
-      data: {
-        question: m.question,
-        answer: m.answer,
-        answerHtml: markdownToSimpleHtml(m.answer),
-        courseName: "MetaAgent 默认课程（mock）",
-        chunks: m.chunks,
-      },
-    });
-  }, 1200);
-};
-
-const runRagPipeline = async (blockId: string, question: string) => {
-  const ed = editor.value;
-  if (!ed) return;
-  if (!question.trim()) {
-    ed.commands.updateAiBlockById(blockId, {
-      kind: "text",
-      data: { html: "<p>请先选中要查询的问题文本。</p>" },
-    });
-    return;
-  }
-  const courseId = await knowledgeStore.ensureDefaultCourse();
-  const res = await orchestratorStore.knowledgeRagQuery({
-    courseId,
-    text: question,
-    limit: 8,
-  });
-  const items: any[] = res?.items || [];
-  const fileNameById = new Map<string, string>();
-  knowledgeStore.files.forEach((f) => fileNameById.set(f.fileId, f.fileName));
-  const chunks = items.map((it) => ({
-    chunkId: it.chunkId || "",
-    fileId: it.fileId || "",
-    fileName: fileNameById.get(it.fileId) || it.fileName || "",
-    content: (it.content || "").slice(0, 320),
-    sourcePage: it.sourcePage || 0,
-    sourceSection: it.sourceSection || "",
-    score: typeof it.score === "number" ? it.score : it.rerankScore || 0,
-  }));
-  const answer = res?.answer || "（后端未返回答案）";
-  ed.commands.updateAiBlockById(blockId, {
-    kind: "citation",
-    data: {
-      question,
-      answer,
-      answerHtml: markdownToSimpleHtml(answer),
-      courseId,
-      courseName: knowledgeStore.courseName,
-      chunks,
-    },
-  });
-};
-
-const runMockPipeline = (blockId: string, command: string, selectionText: string) => {
-  setTimeout(() => {
-    if (!editor.value || editor.value.isDestroyed) return;
-    const resolved = resolveMockBlock({ command, selectionText });
-    editor.value.commands.updateAiBlockById(blockId, {
-      kind: resolved.kind,
-      data: resolved.data,
-    });
-    if (resolved.kind === "agent") {
-      runMockAgentTimeline(blockId, resolved.data);
-    }
-  }, MOCK_PLACEHOLDER_DELAY_MS);
-};
-
-const runMockAgentTimeline = (blockId: string, initialData: any) => {
-  let step = 0;
-  let current = initialData;
-  const tick = () => {
-    if (!editor.value || editor.value.isDestroyed) return;
-    const next = mockAgentProgress(current, step);
-    editor.value.commands.updateAiBlockById(blockId, { data: next });
-    current = next;
-    step += 1;
-    if (next.done) return;
-    if (next.awaitingPrompt) return;
-    setTimeout(tick, MOCK_AGENT_STEP_INTERVAL_MS);
-  };
-  setTimeout(tick, MOCK_AGENT_STEP_INTERVAL_MS);
-};
-
-const runLivePipeline = async (
-  blockId: string,
-  command: string,
-  targetKind: "text" | "quiz" | "flashcard" | "agent",
-  selectionText: string
-) => {
-  const ed = editor.value;
-  if (!ed) return;
-  const documentText = ed.getText();
-  const existingSessionId = currentSessionId();
-  const workspace = workspaceStore.root || undefined;
-
-  const { sessionId, isNew } = await orchestratorStore.runTipTapCommand({
-    command,
-    selectionText,
-    documentText,
-    sessionId: existingSessionId || undefined,
-    workspace,
-  });
-
-  if (!sessionId) {
-    throw new Error("tiptap.command 返回缺少 sessionId");
-  }
-
-  ed.commands.updateAiBlockById(blockId, { sessionId });
-  if (isNew || !existingSessionId) {
-    await persistSessionId(sessionId);
-  }
-
-  if (targetKind === "agent") {
-    await streamAgentLifecycle(blockId, sessionId, selectionText);
-  } else {
-    await streamTextLikeBlock(blockId, command, targetKind, sessionId);
-  }
-};
-
-const STREAM_IDLE_FALLBACK_MS = 30_000;
-
-const streamTextLikeBlock = (
-  blockId: string,
-  command: string,
-  targetKind: "text" | "quiz" | "flashcard",
-  sessionId: string
-): Promise<void> => {
-  const ed = editor.value;
-  if (!ed) return Promise.resolve();
-  let messageId = "";
-  let accumulated = "";
-  let finalized = false;
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
-
-  return new Promise<void>((resolve) => {
-    const settle = () => {
-      if (finalized) return;
-      finalized = true;
-      if (watchdog) clearTimeout(watchdog);
-      unsub();
-      resolve();
-    };
-    const armWatchdog = () => {
-      if (watchdog) clearTimeout(watchdog);
-      watchdog = setTimeout(() => {
-        if (finalized) return;
-        if (accumulated.length > 0) {
-          applyTextLikeFinal(blockId, command, targetKind, accumulated);
-          settle();
-          return;
-        }
-        console.warn("[orchestrator] no events for 30s, falling back to mock for", command);
-        const resolved = resolveMockBlock({ command, selectionText: "" });
-        if (editor.value && !editor.value.isDestroyed) {
-          editor.value.commands.updateAiBlockById(blockId, {
-            kind: resolved.kind,
-            data: resolved.data,
-          });
-        }
-        settle();
-      }, STREAM_IDLE_FALLBACK_MS);
-    };
-    armWatchdog();
-    const unsub = orchestratorStore.subscribeSession(sessionId, (event, payload) => {
-      const cur = editor.value;
-      if (!cur || cur.isDestroyed) {
-        settle();
-        return;
-      }
-      if (event === "orchestrator.session.message.started") {
-        if (!messageId) messageId = payload?.messageId || "";
-        armWatchdog();
-        return;
-      }
-      if (
-        event === "orchestrator.session.message.delta" &&
-        (!messageId || payload?.messageId === messageId)
-      ) {
-        if (!messageId) messageId = payload?.messageId || "";
-        accumulated += payload?.delta || "";
-        cur.commands.updateAiBlockById(blockId, {
-          data: {
-            label: PLACEHOLDER_LABELS[command] || "AI 思考中",
-            stream: accumulated,
-          },
-        });
-        armWatchdog();
-        return;
-      }
-      if (
-        event === "orchestrator.session.message.completed" &&
-        (!messageId || payload?.messageId === messageId)
-      ) {
-        const finalContent = payload?.content || accumulated;
-        applyTextLikeFinal(blockId, command, targetKind, finalContent);
-        settle();
-        return;
-      }
-      if (event === "orchestrator.session.failed") {
-        cur.commands.updateAiBlockById(blockId, {
-          kind: "text",
-          data: {
-            html: `<p>任务失败：${
-              payload?.message || payload?.error || "未知错误"
-            }</p>`,
-          },
-        });
-        settle();
-        return;
-      }
-      if (event === "orchestrator.session.completed" && accumulated && !finalized) {
-        applyTextLikeFinal(blockId, command, targetKind, accumulated);
-        settle();
-      }
-    });
-  });
-};
-
-const applyTextLikeFinal = (
-  blockId: string,
-  command: string,
-  targetKind: "text" | "quiz" | "flashcard",
-  content: string
-) => {
-  const ed = editor.value;
-  if (!ed) return;
-  if (targetKind === "quiz") {
-    const questions = parseQuizMarkdown(content);
-    if (questions.length > 0) {
-      ed.commands.updateAiBlockById(blockId, {
-        kind: "quiz",
-        data: { questions, markdown: content },
-      });
-      return;
-    }
-    ed.commands.updateAiBlockById(blockId, {
-      kind: "text",
-      data: {
-        html: markdownToSimpleHtml(content),
-        markdown: content,
-      },
-      command,
-    });
-    return;
-  }
-  if (targetKind === "flashcard") {
-    const cards = parseFlashcardMarkdown(content);
-    if (cards.length > 0) {
-      ed.commands.updateAiBlockById(blockId, {
-        kind: "flashcard",
-        data: { cards, markdown: content },
-      });
-      return;
-    }
-    ed.commands.updateAiBlockById(blockId, {
-      kind: "text",
-      data: {
-        html: markdownToSimpleHtml(content),
-        markdown: content,
-      },
-      command,
-    });
-    return;
-  }
-  ed.commands.updateAiBlockById(blockId, {
-    kind: "text",
-    data: {
-      html: markdownToSimpleHtml(content),
-      markdown: content,
-    },
-  });
-};
-
-const streamAgentLifecycle = (
-  blockId: string,
-  sessionId: string,
-  selectionText: string
-): Promise<void> => {
-  const ed = editor.value;
-  if (!ed) return Promise.resolve();
-  const initialAgent: AgentData = {
-    task: selectionText
-      ? `基于选区执行：${selectionText.slice(0, 40)}`
-      : "执行用户任务",
-    currentPhase: "starting",
-    history: [
-      { phase: "created", message: "会话已创建", timestamp: Date.now() },
-    ],
-    awaitingPrompt: "",
-    artifacts: [],
-    finalAnswer: "",
-    done: false,
-  };
-  ed.commands.updateAiBlockById(blockId, {
-    kind: "agent",
-    sessionId,
-    data: initialAgent,
-  });
-
-  let messageId = "";
-
-  const getCurrentAgentData = (): AgentData => {
-    const ed2 = editor.value;
-    if (!ed2) return initialAgent;
-    let data: AgentData = initialAgent;
-    ed2.state.doc.descendants((node) => {
-      if (node.type.name === "aiBlock" && node.attrs.id === blockId) {
-        data = (node.attrs.data as AgentData) || initialAgent;
-        return false;
-      }
-      return true;
-    });
-    return data;
-  };
-
-  const pushPhase = (phase: string, message?: string) => {
-    const cur = getCurrentAgentData();
-    const last = cur.history?.[cur.history.length - 1];
-    const next: AgentPhaseEvent[] = [...(cur.history || [])];
-    if (!last || last.phase !== phase) {
-      next.push({ phase, message: message || "", timestamp: Date.now() });
-    } else if (message && last.message !== message) {
-      next.push({ phase, message, timestamp: Date.now() });
-    }
-    ed.commands.updateAiBlockById(blockId, {
-      data: { ...cur, currentPhase: phase, history: next },
-    });
-  };
-
-  const setData = (patch: Partial<AgentData>) => {
-    const cur = getCurrentAgentData();
-    ed.commands.updateAiBlockById(blockId, { data: { ...cur, ...patch } });
-  };
-
-  return new Promise<void>((resolve) => {
-    const unsub = orchestratorStore.subscribeSession(sessionId, async (event, payload) => {
-      if (!editor.value || editor.value.isDestroyed) {
-        unsub();
-        resolve();
-        return;
-      }
-      switch (event) {
-        case "orchestrator.session.phase":
-          pushPhase(payload?.phase || "planning", payload?.message);
-          break;
-        case "orchestrator.session.summary":
-          if (payload?.message) pushPhase(getCurrentAgentData().currentPhase || "planning", payload.message);
-          break;
-        case "orchestrator.session.await_user":
-          setData({
-            awaitingPrompt: payload?.message || "请提供进一步信息",
-            currentPhase: "awaiting_user",
-          });
-          break;
-        case "orchestrator.session.message.started":
-          if (!messageId) messageId = payload?.messageId || "";
-          break;
-        case "orchestrator.session.message.delta":
-          if (
-            (!messageId || payload?.messageId === messageId) &&
-            payload?.delta
-          ) {
-            if (!messageId) messageId = payload?.messageId || "";
-            const cur = getCurrentAgentData();
-            setData({
-              finalAnswer: (cur.finalAnswer || "") + payload.delta,
-            });
-          }
-          break;
-        case "orchestrator.session.message.completed":
-          if (!messageId || payload?.messageId === messageId) {
-            setData({ finalAnswer: payload?.content || getCurrentAgentData().finalAnswer || "" });
-          }
-          break;
-        case "orchestrator.session.artifact.created":
-        case "orchestrator.session.artifact.updated":
-        case "orchestrator.session.artifact_summary":
-          // refresh full artifact list lazily
-          try {
-            const res = await orchestratorStore.fetchSessionArtifacts(sessionId);
-            const items: AgentArtifact[] = (res?.items || []).map((it: any) => ({
-              path: it.path,
-              title: it.path?.split(/[\\/]/).pop() || it.path,
-              summary: it.summary || "",
-            }));
-            setData({ artifacts: items });
-          } catch {
-            /* ignore */
-          }
-          break;
-        case "orchestrator.session.completed":
-          pushPhase("completed", payload?.summary || "任务结束");
-          setData({ done: true, currentPhase: "completed" });
-          unsub();
-          resolve();
-          break;
-        case "orchestrator.session.failed":
-          pushPhase("failed", payload?.message || payload?.error || "失败");
-          setData({ done: true, currentPhase: "failed" });
-          unsub();
-          resolve();
-          break;
-      }
-    });
-  });
-};
-
+// ──────────────────────────────────────────────────────────
+// AI 命令派发（占位版，F07 阶段重写）
+// 现状：所有命令都通过 emit('aiCommand') 上抛给 HyperdocPage，
+//      HyperdocPage 暂时显示 snackbar 提示。
+// F07 阶段会拆分为：
+//   - 文本类（explain/summarize/rewrite/continue/ask）→ 在文档插入 AiBubbleNode + SSE 填充
+//   - rag-query → 走 RAG，结果落右侧 CitationTile
+//   - do-task → F12 编排链路
+// ──────────────────────────────────────────────────────────
 const onAi = (command: string) => {
   const ed = editor.value;
   if (!ed) return;
   const { from, to } = ed.state.selection;
   const selectionText = ed.state.doc.textBetween(from, to, "\n");
   emit("aiCommand", command, { selectionText });
-  if (command === "send-to-chat") return;
-  ed.chain().focus().setTextSelection(to).run();
-  runAiCommand(command, selectionText);
 };
+
 
 const closeSlash = () => {
   slashState.open = false;
@@ -828,7 +340,7 @@ const onSlashSelect = (item: SlashItem) => {
     .focus()
     .deleteRange({ from: slashFrom, to: cursorTo })
     .run();
-  runAiCommand(item.command, "");
+  emit("aiCommand", item.command, { selectionText: "" });
 };
 
 onMounted(() => {

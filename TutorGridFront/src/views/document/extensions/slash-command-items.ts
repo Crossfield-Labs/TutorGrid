@@ -42,20 +42,7 @@ export const SLASH_ITEMS: SlashItem[] = [
     icon: "mdi-text-long",
     keywords: ["continue", "续写"],
   },
-  {
-    command: "generate-quiz",
-    title: "出测验",
-    subtitle: "基于上方内容生成单选题",
-    icon: "mdi-help-circle-outline",
-    keywords: ["quiz", "测验", "题目"],
-  },
-  {
-    command: "generate-flashcards",
-    title: "生成闪卡",
-    subtitle: "正反面记忆卡片",
-    icon: "mdi-cards-outline",
-    keywords: ["flashcard", "闪卡", "记忆"],
-  },
+  // [F14 待做] generate-quiz / generate-flashcards 已移除，未来由 AI 自动判断后产出右侧磁贴
   {
     command: "do-task",
     title: "Agent 执行任务",

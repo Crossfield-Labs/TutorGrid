@@ -5,7 +5,7 @@
 -->
 <script setup lang="ts">
 import { Icon } from "@iconify/vue";
-
+import ChatAssistant from "@/components/ai/ChatAssistant.vue";
 const toolboxShow = ref(false);
 </script>
 
@@ -25,28 +25,10 @@ const toolboxShow = ref(false);
       elevation="10"
       class="d-flex flex-column mb-1 toolbox"
     >
-      <!-- ---------------------------------------------- -->
-      <!-- Code Assistant -->
-      <!-- ---------------------------------------------- -->
-      <v-btn size="50" @click="">
-        <v-icon size="30">mdi-code-tags</v-icon>
-        <v-tooltip
-          activator="parent"
-          location="left"
-          text="代码助手"
-        ></v-tooltip>
-      </v-btn>
-      <!-- ---------------------------------------------- -->
-      <!-- Code Assistant -->
-      <!-- ---------------------------------------------- -->
-      <v-btn size="50" @click="">
-        <v-icon size="30">mdi-seesaw</v-icon>
-        <v-tooltip
-          activator="parent"
-          location="left"
-          text="PlayGround"
-        ></v-tooltip>
-      </v-btn>
+      <!-- Chat Assistant -->
+      <ChatAssistant />
+      <v-divider />
+      <!-- 后续可加 Translation / Voice / 其它工具 -->
     </v-card>
   </transition>
 </template>

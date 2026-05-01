@@ -32,31 +32,75 @@
         :max-h="2"
         class="tile-handle"
       >
-        <!-- AgentTile -->
-        <AgentTile
-          v-if="item.kind === 'agent'"
-          :agent="agent"
-          @dismiss="$emit('dismissAgent')"
-        />
+        <div
+          class="tile-slot"
+          @contextmenu.prevent="(e) => onContextMenu(e, item)"
+        >
+          <!-- AgentTile -->
+          <AgentTile
+            v-if="item.kind === 'agent'"
+            :agent="agent"
+            @dismiss="$emit('dismissAgent')"
+          />
 
-        <!-- SelectionTile -->
-        <SelectionTile
-          v-else-if="item.kind === 'selection'"
-          :card="card"
-          @clear="$emit('clearCard')"
-        />
+          <!-- SelectionTile -->
+          <SelectionTile
+            v-else-if="item.kind === 'selection'"
+            :card="card"
+            @clear="$emit('clearCard')"
+          />
 
-        <!-- 占位磁贴（F08 替换） -->
-        <PlaceholderTile
-          v-else
-          :title="item.title || '占位'"
-          :subtitle="item.subtitle"
-          :icon="item.icon"
-          :icon-color="item.iconColor"
-          :size="sizeLabel(item)"
-        />
+          <!-- 占位磁贴（F08 替换） -->
+          <PlaceholderTile
+            v-else
+            :title="item.title || '占位'"
+            :subtitle="item.subtitle"
+            :icon="item.icon"
+            :icon-color="item.iconColor"
+            :size="sizeLabel(item)"
+          />
+        </div>
       </GridItem>
     </GridLayout>
+
+    <!-- 右键菜单（共享一个） -->
+    <v-menu
+      v-model="menuOpen"
+      :target="menuTarget"
+      :close-on-content-click="true"
+      location="end"
+    >
+      <v-list density="compact" min-width="180" rounded="lg">
+        <v-list-subheader class="text-caption">调整大小</v-list-subheader>
+        <v-list-item
+          v-for="size in SIZE_OPTIONS"
+          :key="size.key"
+          :prepend-icon="size.icon"
+          :title="size.label"
+          :disabled="isCurrentSize(size)"
+          @click="onResize(size.w, size.h)"
+        />
+        <v-divider class="my-1" />
+        <v-list-item
+          prepend-icon="mdi-delete-outline"
+          title="删除磁贴"
+          base-color="error"
+          :disabled="!!menuTargetItem?.fixed"
+          @click="onDelete"
+        >
+          <template v-if="menuTargetItem?.fixed" #append>
+            <v-tooltip
+              location="left"
+              text="系统磁贴，不可删除"
+            >
+              <template #activator="{ props: tipProps }">
+                <v-icon v-bind="tipProps" icon="mdi-lock-outline" size="14" />
+              </template>
+            </v-tooltip>
+          </template>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </div>
 </template>
 
@@ -98,7 +142,15 @@ interface TileLayoutItem {
   subtitle?: string;
   icon?: string;
   iconColor?: string;
+  fixed?: boolean;          // true = 系统磁贴，不可删除（仍可调大小）
 }
+
+// 右键菜单可选尺寸（任务书定义：1×1 / 1×2 / 2×2）
+const SIZE_OPTIONS: { key: string; label: string; icon: string; w: 1 | 2; h: 1 | 2 }[] = [
+  { key: "1x1", label: "小 · 1×1", icon: "mdi-square-outline", w: 1, h: 1 },
+  { key: "1x2", label: "竖 · 1×2", icon: "mdi-rectangle-outline", w: 1, h: 2 },
+  { key: "2x2", label: "大 · 2×2", icon: "mdi-checkbox-blank-outline", w: 2, h: 2 },
+];
 
 withDefaults(
   defineProps<{
@@ -142,6 +194,7 @@ const defaultLayout: TileLayoutItem[] = [
     w: 2,
     h: 2,
     kind: "agent",
+    fixed: true,
   },
   {
     i: "place-1",
@@ -210,6 +263,7 @@ const defaultLayout: TileLayoutItem[] = [
     w: 1,
     h: 1,
     kind: "selection",
+    fixed: true,
   },
   {
     i: "place-6",
@@ -238,6 +292,46 @@ watch(
 
 const sizeLabel = (item: { w: number; h: number }) =>
   `${item.w}×${item.h}` as "1x1" | "1x2" | "2x2";
+
+// ─────────────────────────────────────────────────────────
+// 右键菜单
+// ─────────────────────────────────────────────────────────
+const menuOpen = ref(false);
+const menuTarget = ref<[number, number]>([0, 0]);
+const menuTargetItem = ref<TileLayoutItem | null>(null);
+
+const onContextMenu = (e: MouseEvent, item: TileLayoutItem) => {
+  // 先关再开，强制 v-menu 重新定位（防止连续右键不同磁贴时位置黏住）
+  menuOpen.value = false;
+  menuTargetItem.value = item;
+  menuTarget.value = [e.clientX, e.clientY];
+  // 下一帧再开，确保 target 已更新
+  requestAnimationFrame(() => {
+    menuOpen.value = true;
+  });
+};
+
+const isCurrentSize = (size: { w: 1 | 2; h: 1 | 2 }) => {
+  const t = menuTargetItem.value;
+  return !!t && t.w === size.w && t.h === size.h;
+};
+
+const onResize = (w: 1 | 2, h: 1 | 2) => {
+  const t = menuTargetItem.value;
+  if (!t) return;
+  // 直接改 layout 数组里的引用，grid-layout-plus 会重新排布并自动推挤碰撞磁贴
+  const idx = internalLayout.value.findIndex((x) => x.i === t.i);
+  if (idx === -1) return;
+  internalLayout.value[idx] = { ...internalLayout.value[idx], w, h };
+  menuOpen.value = false;
+};
+
+const onDelete = () => {
+  const t = menuTargetItem.value;
+  if (!t || t.fixed) return;
+  internalLayout.value = internalLayout.value.filter((x) => x.i !== t.i);
+  menuOpen.value = false;
+};
 </script>
 
 <style scoped lang="scss">
@@ -247,6 +341,12 @@ const sizeLabel = (item: { w: number; h: number }) =>
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0px 4px 16px;
+
+  // 包裹磁贴内容，承接 contextmenu 事件
+  .tile-slot {
+    width: 100%;
+    height: 100%;
+  }
 
   // grid-layout-plus 容器需要相对定位
   :deep(.vgl-layout) {
