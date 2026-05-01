@@ -57,6 +57,29 @@ class LangSmithConfigTests(unittest.TestCase):
                     self.assertEqual(loaded.langsmith.api_key, "env-key")
                     self.assertEqual(loaded.langsmith.api_url, "https://env")
 
+    def test_update_and_load_search_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text("{}", encoding="utf-8")
+            with patch("backend.config._config_path", return_value=config_path):
+                config_module.update_search_config(tavily_api_key="tvly-test-key")
+
+                loaded = config_module.load_config()
+                self.assertEqual(loaded.search.tavily_api_key, "tvly-test-key")
+
+                runtime_view = config_module.get_runtime_config_view()
+                self.assertIn("search", runtime_view)
+                self.assertEqual(runtime_view["search"]["tavilyApiKey"], "tvly-test-key")
+
+    def test_env_overrides_search_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.json"
+            config_path.write_text('{"search":{"tavilyApiKey":"file-key"}}', encoding="utf-8")
+            with patch("backend.config._config_path", return_value=config_path):
+                with patch.dict(os.environ, {"TAVILY_API_KEY": "env-key"}, clear=False):
+                    loaded = config_module.load_config()
+                    self.assertEqual(loaded.search.tavily_api_key, "env-key")
+
 
 if __name__ == "__main__":
     unittest.main()

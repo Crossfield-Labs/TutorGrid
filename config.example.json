@@ -1,4 +1,4 @@
-{
+﻿{
   "planner": {
     "provider": "openai_compat",
     "model": "",
@@ -12,6 +12,9 @@
     "project": "pc-orchestrator-core",
     "apiKey": "",
     "apiUrl": ""
+  },
+  "search": {
+    "tavilyApiKey": ""
   },
   "maxIterations": 8,
   "shellTimeoutSeconds": 90,

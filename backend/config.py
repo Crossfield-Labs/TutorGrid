@@ -46,11 +46,17 @@ class LangSmithConfig:
 
 
 @dataclass(slots=True)
+class SearchConfig:
+    tavily_api_key: str = ""
+
+
+@dataclass(slots=True)
 class OrchestratorConfig:
     planner: PlannerConfig
     memory: MemoryConfig
     push: PushConfig
     langsmith: LangSmithConfig
+    search: SearchConfig = field(default_factory=SearchConfig)
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
     python_command: str = sys.executable or "python"
@@ -85,6 +91,7 @@ class OrchestratorConfig:
     opencode_agent: str = ""
     codex_command: str = "codex"
     codex_model: str = ""
+    codex_mcp_config: str = ""
     claude_command: str = "claude"
     claude_sdk_enabled: bool = False
     claude_model: str = ""
@@ -205,6 +212,15 @@ def update_langsmith_config(
     write_config_data(data)
 
 
+def update_search_config(*, tavily_api_key: str) -> None:
+    data = read_config_data()
+    search = data.get("search")
+    search_data = search if isinstance(search, dict) else {}
+    search_data["tavilyApiKey"] = tavily_api_key
+    data["search"] = search_data
+    write_config_data(data)
+
+
 def get_runtime_config_view() -> dict[str, object]:
     config = load_config()
     return {
@@ -235,6 +251,9 @@ def get_runtime_config_view() -> dict[str, object]:
             "apiKey": config.langsmith.api_key,
             "apiUrl": config.langsmith.api_url,
         },
+        "search": {
+            "tavilyApiKey": config.search.tavily_api_key,
+        },
     }
 
 
@@ -249,6 +268,8 @@ def load_config() -> OrchestratorConfig:
     push_dict = push_data if isinstance(push_data, dict) else {}
     langsmith_data = data.get("langsmith") if isinstance(data, dict) else {}
     langsmith_dict = langsmith_data if isinstance(langsmith_data, dict) else {}
+    search_data = data.get("search") if isinstance(data, dict) else {}
+    search_dict = search_data if isinstance(search_data, dict) else {}
     planner = PlannerConfig(
         provider=os.environ.get("ORCHESTRATOR_PROVIDER", str(planner_dict.get("provider") or "openai_compat")),
         model=os.environ.get("ORCHESTRATOR_MODEL", str(planner_dict.get("model") or "")),
@@ -347,11 +368,17 @@ def load_config() -> OrchestratorConfig:
             )
         ),
     )
+    search = SearchConfig(
+        tavily_api_key=str(
+            os.environ.get("TAVILY_API_KEY", os.environ.get("ORCHESTRATOR_TAVILY_API_KEY", search_dict.get("tavilyApiKey") or ""))
+        ),
+    )
     return OrchestratorConfig(
         planner=planner,
         memory=memory,
         push=push,
         langsmith=langsmith,
+        search=search,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
         python_command=os.environ.get(
@@ -389,6 +416,7 @@ def load_config() -> OrchestratorConfig:
         opencode_agent=str(os.environ.get("ORCHESTRATOR_OPENCODE_AGENT", data.get("opencodeAgent") or "")),
         codex_command=os.environ.get("ORCHESTRATOR_CODEX_COMMAND", str(data.get("codexCommand") or "codex")),
         codex_model=str(os.environ.get("ORCHESTRATOR_CODEX_MODEL", data.get("codexModel") or "")),
+        codex_mcp_config=str(os.environ.get("ORCHESTRATOR_CODEX_MCP_CONFIG", data.get("codexMcpConfig") or "")),
         claude_command=os.environ.get("ORCHESTRATOR_CLAUDE_COMMAND", str(data.get("claudeCommand") or "claude")),
         claude_sdk_enabled=str(
             os.environ.get("ORCHESTRATOR_CLAUDE_SDK_ENABLED", data.get("claudeSdkEnabled", False))
