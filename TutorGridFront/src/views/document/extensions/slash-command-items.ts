@@ -13,50 +13,73 @@ export function filterSlashItems(
   });
 }
 
+/**
+ * Slash 命令菜单 = 插入格式块（参考 Notion）
+ * AI 操作不放这里，要触发 AI 请选中文字弹出 BubbleMenu
+ */
 export const SLASH_ITEMS: SlashItem[] = [
   {
-    command: "explain-selection",
-    title: "讲解",
-    subtitle: "讲解上方选中或最近内容",
-    icon: "mdi-message-text-outline",
-    keywords: ["explain", "讲解", "解释"],
+    command: "h1",
+    title: "标题 1",
+    subtitle: "大号章节标题",
+    icon: "mdi-format-header-1",
+    keywords: ["h1", "title", "标题"],
   },
   {
-    command: "summarize-selection",
-    title: "总结",
-    subtitle: "用一句话 + 三点要点总结",
-    icon: "mdi-text-short",
-    keywords: ["summary", "总结", "概括"],
+    command: "h2",
+    title: "标题 2",
+    subtitle: "中号小节标题",
+    icon: "mdi-format-header-2",
+    keywords: ["h2"],
   },
   {
-    command: "rewrite-selection",
-    title: "改写",
-    subtitle: "重写上方文字",
-    icon: "mdi-pencil-outline",
-    keywords: ["rewrite", "改写", "润色"],
+    command: "h3",
+    title: "标题 3",
+    subtitle: "小号子标题",
+    icon: "mdi-format-header-3",
+    keywords: ["h3"],
   },
   {
-    command: "continue-writing",
-    title: "续写",
-    subtitle: "承接上文继续写",
-    icon: "mdi-text-long",
-    keywords: ["continue", "续写"],
-  },
-  // [F14 待做] generate-quiz / generate-flashcards 已移除，未来由 AI 自动判断后产出右侧磁贴
-  {
-    command: "do-task",
-    title: "Agent 执行任务",
-    subtitle: "把这段当作任务交给 Agent",
-    icon: "mdi-robot-outline",
-    color: "warning",
-    keywords: ["agent", "任务", "执行"],
+    command: "bullet-list",
+    title: "无序列表",
+    subtitle: "项目符号列表",
+    icon: "mdi-format-list-bulleted",
+    keywords: ["bullet", "ul", "列表"],
   },
   {
-    command: "rag-query",
-    title: "问知识库",
-    subtitle: "RAG 检索课程资料",
-    icon: "mdi-bookshelf",
-    color: "success",
-    keywords: ["rag", "知识库", "查询"],
+    command: "ordered-list",
+    title: "有序列表",
+    subtitle: "数字编号列表",
+    icon: "mdi-format-list-numbered",
+    keywords: ["ordered", "ol", "数字"],
+  },
+  {
+    command: "code-block",
+    title: "代码块",
+    subtitle: "插入多行代码",
+    icon: "mdi-code-tags",
+    keywords: ["code", "代码"],
+  },
+  {
+    command: "blockquote",
+    title: "引用",
+    subtitle: "引用块",
+    icon: "mdi-format-quote-open",
+    keywords: ["quote", "blockquote", "引用"],
+  },
+  {
+    command: "hr",
+    title: "分隔线",
+    subtitle: "水平分隔",
+    icon: "mdi-minus",
+    keywords: ["divider", "hr", "分隔"],
+  },
+  {
+    command: "ask-ai",
+    title: "向 AI 提问",
+    subtitle: "在光标处插入 AI 气泡，基于上文回答",
+    icon: "mdi-sparkles",
+    color: "primary",
+    keywords: ["ai", "ask", "提问", "气泡"],
   },
 ];

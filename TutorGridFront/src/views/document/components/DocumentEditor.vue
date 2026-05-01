@@ -65,22 +65,32 @@ import {
   SLASH_ITEMS,
   filterSlashItems,
 } from "../extensions/slash-command-items";
+import { AiBubbleNode } from "../extensions/ai-bubble-node";
 import { useOrchestratorStore } from "@/stores/orchestratorStore";
+import { useMessageStore } from "@/stores/messageStore";
+import { useChatSessionStore } from "@/stores/chatSessionStore";
+import { useSnackbarStore } from "@/stores/snackbarStore";
+import { streamChat } from "@/lib/chat-sse";
 
 interface Props {
   modelValue: string;
   saveStatus?: "idle" | "saving" | "saved" | "error";
   editable?: boolean;
   tileId?: string;
+  sessionId: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   saveStatus: "idle",
   editable: true,
   tileId: "",
+  sessionId: "",
 });
 
 const orchestratorStore = useOrchestratorStore();
+const messageStore = useMessageStore();
+const chatSession = useChatSessionStore();
+const snackbarStore = useSnackbarStore();
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
@@ -110,7 +120,7 @@ const editor = useEditor({
       HTMLAttributes: { class: "doc-image" },
     }),
     Highlight.configure({ multicolor: true }),
-    // [TODO F07] AiBubbleNode TipTap 扩展将在这里注册
+    AiBubbleNode,
   ],
   editorProps: {
     handleKeyDown(_view, event) {
@@ -211,72 +221,211 @@ const saveStatusIcon = computed(() => {
   }
 });
 
-const wsStatusText = computed(() => {
-  switch (orchestratorStore.status) {
-    case "connected":
-      return "AI 已连接";
-    case "connecting":
-      return "连接中…";
-    case "disconnected":
-      return "AI 已断开（mock）";
-    case "error":
-      return "AI 连接失败（mock）";
-    default:
-      return "AI 离线（mock）";
-  }
-});
-
-const wsStatusColor = computed(() => {
-  switch (orchestratorStore.status) {
-    case "connected":
-      return "success";
-    case "connecting":
-      return "warning";
-    case "error":
-      return "error";
-    default:
-      return "grey";
-  }
-});
-
-const wsStatusIcon = computed(() => {
-  switch (orchestratorStore.status) {
-    case "connected":
-      return "mdi-circle";
-    case "connecting":
-      return "mdi-loading";
-    case "error":
-      return "mdi-alert";
-    default:
-      return "mdi-circle-outline";
-  }
-});
-
-// [TODO F07] 旧 ai-block 流水线已清理。F07 阶段在这里挂入：
-//   - SSE 客户端调用 /api/chat/stream
-//   - AiBubbleNode 节点的流式 delta 追加
-//   - 统一消息 store 同步（renderIn: 'both'）
-// 旧 runAiCommand / runMockPipeline / runLivePipeline / runRagPipeline /
-// streamTextLikeBlock / streamAgentLifecycle / applyMockRag / applyTextLikeFinal
-// 全部已删除。F07 阶段会引入新的 SSE pipeline。
-
+// AI 状态：Chat SSE 是按请求发起，没有持久连接，所以默认"就绪"
+// 编排 WS 状态留给 F12 task 时用，不在这里展示
+const wsStatusText = computed(() => "AI 就绪");
+const wsStatusColor = computed(() => "success");
+const wsStatusIcon = computed(() => "mdi-circle");
 
 // ──────────────────────────────────────────────────────────
-// AI 命令派发（占位版，F07 阶段重写）
-// 现状：所有命令都通过 emit('aiCommand') 上抛给 HyperdocPage，
-//      HyperdocPage 暂时显示 snackbar 提示。
-// F07 阶段会拆分为：
-//   - 文本类（explain/summarize/rewrite/continue/ask）→ 在文档插入 AiBubbleNode + SSE 填充
-//   - rag-query → 走 RAG，结果落右侧 CitationTile
-//   - do-task → F12 编排链路
+// F07 · AI 命令派发：在文档插入 AiBubbleNode + 走 Chat SSE
 // ──────────────────────────────────────────────────────────
+
+const COMMAND_LABELS: Record<string, string> = {
+  "explain-selection": "讲解",
+  "summarize-selection": "总结",
+  "rewrite-selection": "改写",
+  "continue-writing": "续写",
+  "rag-query": "问知识库",
+  "do-task": "执行任务",
+  ask: "提问",
+};
+
+/** 按命令构造 (展示给用户的文本, 实际发给 LLM 的 prompt) */
+function buildCommandPrompt(
+  command: string,
+  selectionText: string,
+  recentParagraphs: string[]
+): { displayText: string; prompt: string } {
+  const sel = selectionText.trim();
+  const ctx = recentParagraphs.join("\n").trim();
+  const fallback = sel || ctx || "（空）";
+  switch (command) {
+    case "explain-selection":
+      return {
+        displayText: sel ? `讲解：${truncate(sel, 60)}` : "[讲解上文]",
+        prompt: `请讲解以下内容，用通俗易懂的方式说明核心概念：\n\n${fallback}`,
+      };
+    case "summarize-selection":
+      return {
+        displayText: sel ? `总结：${truncate(sel, 60)}` : "[总结上文]",
+        prompt: `请用一句话主旨 + 三个要点的格式总结以下内容：\n\n${fallback}`,
+      };
+    case "rewrite-selection":
+      return {
+        displayText: sel ? `改写：${truncate(sel, 60)}` : "[改写上文]",
+        prompt: `请重写以下文字，使其更清晰、简洁、通顺：\n\n${fallback}`,
+      };
+    case "continue-writing":
+      return {
+        displayText: "[续写上文]",
+        prompt: `请承接以下内容继续写一段，保持风格一致：\n\n${ctx || sel || ""}`,
+      };
+    case "rag-query":
+      return {
+        displayText: sel || ctx ? truncate(sel || ctx, 80) : "[问知识库]",
+        prompt: sel || ctx || "请基于课程知识库总结一下重点",
+      };
+    case "do-task":
+      return {
+        displayText: sel ? `执行：${truncate(sel, 60)}` : "[执行任务]",
+        prompt: `请帮我完成：${sel || ctx || "（请补充任务描述）"}`,
+      };
+    case "ask":
+      return {
+        displayText: ctx ? `[基于上文提问]` : "[提问 AI]",
+        prompt: ctx
+          ? `基于以下我刚写的内容，给我一些建议或补充说明：\n\n${ctx}`
+          : "请简单介绍一下我们正在讨论的主题。",
+      };
+    default:
+      return { displayText: sel || `[${command}]`, prompt: sel || command };
+  }
+}
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max) + "…";
+}
+
+/** 取光标附近最多 3 段作为上下文 */
+function getRecentParagraphs(): string[] {
+  const ed = editor.value;
+  if (!ed) return [];
+  const text = ed.getText();
+  const paragraphs = text
+    .split(/\n+/)
+    .map((p) => p.trim())
+    .filter((p) => !!p);
+  return paragraphs.slice(-3);
+}
+
+/**
+ * 主入口：把一条 AI 命令变成 (用户消息 + AI 占位消息 + AiBubbleNode + SSE 流)
+ */
+async function runAiCommand(command: string, selectionText: string) {
+  const ed = editor.value;
+  if (!ed) return;
+  if (!props.sessionId) {
+    snackbarStore.showErrorMessage("当前文档没有 sessionId，无法发起 AI 对话");
+    return;
+  }
+
+  const recent = getRecentParagraphs();
+  const { displayText, prompt } = buildCommandPrompt(command, selectionText, recent);
+
+  // 1. 写入 store：用户消息 + AI 占位消息
+  const userMsg = messageStore.addUserMessage(
+    props.sessionId,
+    displayText,
+    "document",
+    command
+  );
+  const aiMsg = messageStore.startAiMessage(
+    props.sessionId,
+    "document",
+    command
+  );
+
+  // 2. 在文档当前位置插入 AiBubbleNode
+  ed.chain()
+    .focus()
+    .insertAiBubble({
+      sessionId: props.sessionId,
+      userMessageId: userMsg.id,
+      aiMessageId: aiMsg.id,
+      command,
+    })
+    .run();
+
+  // 3. 启动 SSE 流
+  const tools = ["rag", "tavily"];
+  const courseId = chatSession.courseId || "";
+  try {
+    await streamChat({
+      payload: {
+        session_id: props.sessionId,
+        message: prompt,
+        course_id: courseId || undefined,
+        tools,
+        context: {
+          doc_id: props.tileId || undefined,
+          recent_paragraphs: recent,
+        },
+      },
+      onEvent: (event) => {
+        switch (event.type) {
+          case "tool_call":
+            messageStore.addToolUsed(props.sessionId, aiMsg.id, event.tool);
+            break;
+          case "tool_result":
+            if (event.citations?.length) {
+              messageStore.addCitations(
+                props.sessionId,
+                aiMsg.id,
+                event.citations
+              );
+            }
+            if (event.results?.length) {
+              messageStore.addSearchResults(
+                props.sessionId,
+                aiMsg.id,
+                event.results
+              );
+            }
+            break;
+          case "delta":
+            messageStore.appendDelta(props.sessionId, aiMsg.id, event.content);
+            break;
+          case "done":
+            messageStore.finishMessage(props.sessionId, aiMsg.id);
+            break;
+          case "error":
+            messageStore.failMessage(props.sessionId, aiMsg.id, event.message);
+            snackbarStore.showErrorMessage(`AI 出错：${event.message}`);
+            break;
+        }
+      },
+    });
+  } catch (e) {
+    messageStore.failMessage(
+      props.sessionId,
+      aiMsg.id,
+      (e as Error).message || "网络错误"
+    );
+    snackbarStore.showErrorMessage(`Chat SSE 失败：${(e as Error).message}`);
+  } finally {
+    // 防御：done 没收到时也终止 streaming 状态
+    if (
+      messageStore.findMessage(props.sessionId, aiMsg.id)?.streaming
+    ) {
+      messageStore.finishMessage(props.sessionId, aiMsg.id);
+    }
+  }
+}
+
 const onAi = (command: string) => {
   const ed = editor.value;
   if (!ed) return;
   const { from, to } = ed.state.selection;
   const selectionText = ed.state.doc.textBetween(from, to, "\n");
   emit("aiCommand", command, { selectionText });
+  // 把光标定位到选区末尾，气泡插入到选区下方
+  ed.chain().focus().setTextSelection(to).run();
+  void runAiCommand(command, selectionText);
 };
+// 仅用于打标签显示（消除 AiBubble.vue 中要求的引用）
+void COMMAND_LABELS;
 
 
 const closeSlash = () => {
@@ -336,11 +485,45 @@ const onSlashSelect = (item: SlashItem) => {
   const cursorTo = ed.state.selection.from;
   closeSlash();
   if (slashFrom < 0) return;
+  // 1. 删除 "/xxx" 占位文字
   ed.chain()
     .focus()
     .deleteRange({ from: slashFrom, to: cursorTo })
     .run();
-  emit("aiCommand", item.command, { selectionText: "" });
+
+  // 2. 按命令分发：格式块用 TipTap 内置 commands，AI 入口走 SSE
+  switch (item.command) {
+    case "h1":
+      ed.chain().focus().toggleHeading({ level: 1 }).run();
+      break;
+    case "h2":
+      ed.chain().focus().toggleHeading({ level: 2 }).run();
+      break;
+    case "h3":
+      ed.chain().focus().toggleHeading({ level: 3 }).run();
+      break;
+    case "bullet-list":
+      ed.chain().focus().toggleBulletList().run();
+      break;
+    case "ordered-list":
+      ed.chain().focus().toggleOrderedList().run();
+      break;
+    case "code-block":
+      ed.chain().focus().toggleCodeBlock().run();
+      break;
+    case "blockquote":
+      ed.chain().focus().toggleBlockquote().run();
+      break;
+    case "hr":
+      ed.chain().focus().setHorizontalRule().run();
+      break;
+    case "ask-ai":
+      // 在光标处发起一次 AI 对话，prompt 用 recent paragraphs 当上下文
+      void runAiCommand("ask", "");
+      break;
+    default:
+      console.warn("[slash] 未知命令:", item.command);
+  }
 };
 
 onMounted(() => {

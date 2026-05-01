@@ -54,6 +54,7 @@
             v-model="content"
             :save-status="saveStatus"
             :tile-id="tileId"
+            :session-id="sessionId"
             class="flex-fill"
             @ready="onEditorReady"
             @ai-command="onAiCommand"
@@ -83,11 +84,13 @@ import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
+import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
 
 const route = useRoute();
 const router = useRouter();
 const workspaceStore = useWorkspaceStore();
 const snackbarStore = useSnackbarStore();
+const chatSession = useChatSessionStore();
 
 const tileId = computed(() => route.params.id as string);
 const tile = computed(() => workspaceStore.findTile(tileId.value));
@@ -97,6 +100,7 @@ const content = ref("");
 const loading = ref(true);
 const saveStatus = ref<"idle" | "saving" | "saved" | "error">("idle");
 const editorReady = ref(false);
+const sessionId = ref("");
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -163,6 +167,20 @@ onMounted(async () => {
     return;
   }
   title.value = tile.value.title;
+
+  // F07：每个文档绑定一个 session id；从 metadata 读取，没有就新建并持久化
+  const existing = tile.value.metadata?.sessionId;
+  if (existing) {
+    sessionId.value = existing;
+  } else {
+    sessionId.value = makeSessionId();
+    await workspaceStore.setTileMetadata(tile.value.id, {
+      sessionId: sessionId.value,
+    });
+  }
+  // 把当前 session 注入全局 store，让 Toolbox 里的 ChatAssistant 能拿到
+  chatSession.setSession(sessionId.value, tileId.value);
+
   try {
     content.value = await workspaceStore.readText(tile.value.source.relPath);
   } catch (e) {
@@ -175,11 +193,13 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
+  // 离开文档时把全局 session 重置，让 Toolbox 回到 GLOBAL session
+  chatSession.resetToGlobal();
 });
 
-// [TODO F07] AI 命令处理 —— F07 重新接入 AiBubbleNode 时实现
-const onAiCommand = (command: string, _payload?: unknown) => {
-  snackbarStore.showInfoMessage(`[F07 待接入] 命令 ${command}`);
+// AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
+const onAiCommand = (_command: string, _payload?: unknown) => {
+  // no-op
 };
 </script>
 

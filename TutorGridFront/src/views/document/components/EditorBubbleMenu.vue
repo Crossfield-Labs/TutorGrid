@@ -128,28 +128,6 @@
         <v-icon icon="mdi-text-long" size="18" />
         <v-tooltip activator="parent" location="top" text="续写" />
       </v-btn>
-      <v-btn
-        icon
-        size="small"
-        density="comfortable"
-        variant="text"
-        color="primary"
-        @click="emit('aiCommand', 'generate-quiz')"
-      >
-        <v-icon icon="mdi-help-circle-outline" size="18" />
-        <v-tooltip activator="parent" location="top" text="出测验" />
-      </v-btn>
-      <v-btn
-        icon
-        size="small"
-        density="comfortable"
-        variant="text"
-        color="primary"
-        @click="emit('aiCommand', 'generate-flashcards')"
-      >
-        <v-icon icon="mdi-cards-outline" size="18" />
-        <v-tooltip activator="parent" location="top" text="生成闪卡" />
-      </v-btn>
 
       <v-divider vertical class="mx-1" />
 
