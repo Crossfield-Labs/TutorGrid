@@ -61,6 +61,7 @@ class OrchestratorParams:
     langsmith_project: str = ""
     langsmith_api_key: str = ""
     langsmith_api_url: str = ""
+    search_tavily_api_key: str = ""
     profile_level: str = ""
     profile_key: str = ""
     course_id: str = ""
@@ -133,6 +134,7 @@ class OrchestratorRequest:
                 langsmith_project=str(params.get("langsmithProject") or ""),
                 langsmith_api_key=str(params.get("langsmithApiKey") or ""),
                 langsmith_api_url=str(params.get("langsmithApiUrl") or ""),
+                search_tavily_api_key=str(params.get("searchTavilyApiKey") or ""),
                 profile_level=str(params.get("profileLevel") or ""),
                 profile_key=str(params.get("profileKey") or ""),
                 course_id=str(params.get("courseId") or ""),

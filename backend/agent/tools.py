@@ -92,17 +92,21 @@ async def _run_tavily_search(*, query: str, max_results: int = 5) -> dict[str, A
         from backend.config import load_config
 
         config = load_config()
-        api_key = config.planner.api_key if "tavily" in config.planner.api_base.lower() else ""
+        api_key = config.search.tavily_api_key
     except Exception:
         api_key = ""
-    # Env is the canonical source for Tavily.
+    # Environment variables intentionally override config.json for deployments.
     import os
 
-    env_key = os.environ.get("TAVILY_API_KEY", "").strip()
+    env_key = os.environ.get("TAVILY_API_KEY", os.environ.get("ORCHESTRATOR_TAVILY_API_KEY", "")).strip()
     if env_key:
         api_key = env_key
     if not api_key:
-        return await _duckduckgo_fallback(query=query, max_results=max_results, reason="TAVILY_API_KEY is not configured")
+        return await _duckduckgo_fallback(
+            query=query,
+            max_results=max_results,
+            reason="Tavily API key is not configured. Set search.tavilyApiKey in config.json.",
+        )
 
     payload = {
         "query": query,
@@ -111,22 +115,39 @@ async def _run_tavily_search(*, query: str, max_results: int = 5) -> dict[str, A
         "include_answer": True,
     }
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        response = await client.post("https://api.tavily.com/search", json=payload, headers=headers)
-        response.raise_for_status()
-        data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post("https://api.tavily.com/search", json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPError as exc:
+        return await _duckduckgo_fallback(
+            query=query,
+            max_results=max_results,
+            reason=f"Tavily request failed: {exc}",
+        )
 
+    results = _normalize_tavily_results(data)
+    return {"answer": str(data.get("answer") or ""), "results": results, "raw": json.loads(json.dumps(data))}
+
+
+def _normalize_tavily_results(data: dict[str, Any]) -> list[dict[str, Any]]:
     results = []
     for item in data.get("results", []):
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get("url") or "").strip()
+        if not url:
+            continue
         results.append(
             {
-                "title": str(item.get("title") or ""),
-                "url": str(item.get("url") or ""),
+                "title": str(item.get("title") or url).strip(),
+                "url": url,
                 "content": str(item.get("content") or "")[:500],
                 "score": float(item.get("score") or 0.0),
             }
         )
-    return {"answer": str(data.get("answer") or ""), "results": results, "raw": json.loads(json.dumps(data))}
+    return results
 
 
 async def _duckduckgo_fallback(*, query: str, max_results: int = 5, reason: str = "") -> dict[str, Any]:

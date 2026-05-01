@@ -14,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import type { KnowledgeCourse } from "../../lib/ws-client";
-import { streamChat, type ChatCitation, type ChatSseEvent } from "../../lib/chat-sse";
+import { streamChat, type ChatCitation, type ChatSearchResult, type ChatSseEvent } from "../../lib/chat-sse";
 
 type ChatEventRecord = {
   id: string;
@@ -38,6 +38,7 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
   const [answer, setAnswer] = useState("");
   const [events, setEvents] = useState<ChatEventRecord[]>([]);
   const [citations, setCitations] = useState<ChatCitation[]>([]);
+  const [searchResults, setSearchResults] = useState<ChatSearchResult[]>([]);
   const [error, setError] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
@@ -49,6 +50,7 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
   const hasDone = eventTypes.includes("done");
   const hasDelta = eventTypes.includes("delta");
   const hasRagCall = events.some((item) => item.event.type === "tool_call" && item.event.tool === "rag");
+  const hasTavilyCall = events.some((item) => item.event.type === "tool_call" && item.event.tool === "tavily");
   const canSubmit = Boolean(sessionId.trim() && message.trim() && !isStreaming);
 
   const submit = async () => {
@@ -61,6 +63,7 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
     setAnswer("");
     setEvents([]);
     setCitations([]);
+    setSearchResults([]);
     setError("");
 
     const tools = [
@@ -93,6 +96,9 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
             }
             if (event.type === "tool_result" && event.tool === "rag" && Array.isArray(event.citations)) {
               setCitations(event.citations);
+            }
+            if (event.type === "tool_result" && event.tool === "tavily" && Array.isArray(event.results)) {
+              setSearchResults(event.results as ChatSearchResult[]);
             }
             if (event.type === "error") {
               setError(event.message || "Stream failed.");
@@ -189,6 +195,7 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
                 <Chip size="small" color={hasDelta ? "success" : "default"} label={hasDelta ? "delta" : "waiting"} />
                 <Chip size="small" color={hasDone ? "success" : "default"} label={hasDone ? "done" : "open"} />
                 {hasRagCall ? <Chip size="small" color="primary" label="rag" /> : null}
+                {hasTavilyCall ? <Chip size="small" color="secondary" label="tavily" /> : null}
               </Stack>
               <Divider />
               <Typography variant="body1" sx={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
@@ -225,6 +232,37 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle1">Citations</Typography>
               <Stack spacing={1} sx={{ mt: 1.2 }}>
+                {searchResults.map((result, index) => (
+                  <Box key={`${result.url ?? "search"}-${index}`} sx={{ p: 1, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                      <Typography variant="caption" color="text.secondary" noWrap title={result.url}>
+                        Tavily
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {typeof result.score === "number" ? result.score.toFixed(4) : "-"}
+                      </Typography>
+                    </Stack>
+                    <Typography variant="body2" sx={{ mt: 0.5, fontWeight: 700, overflowWrap: "anywhere" }}>
+                      {result.title || result.url || "Untitled search result"}
+                    </Typography>
+                    {result.url ? (
+                      <Typography
+                        component="a"
+                        href={result.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="caption"
+                        color="primary"
+                        sx={{ display: "block", mt: 0.5, overflowWrap: "anywhere" }}
+                      >
+                        {result.url}
+                      </Typography>
+                    ) : null}
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                      {result.content || ""}
+                    </Typography>
+                  </Box>
+                ))}
                 {citations.map((citation, index) => (
                   <Box key={`${citation.source ?? "source"}-${index}`} sx={{ p: 1, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
                     <Stack direction="row" justifyContent="space-between" spacing={1}>
@@ -240,9 +278,9 @@ export function ChatStreamWorkbench({ courses, selectedCourseId }: ChatStreamWor
                     </Typography>
                   </Box>
                 ))}
-                {!citations.length ? (
+                {!citations.length && !searchResults.length ? (
                   <Typography variant="body2" color="text.secondary">
-                    RAG citations will appear here.
+                    RAG citations and Tavily URLs will appear here.
                   </Typography>
                 ) : null}
               </Stack>

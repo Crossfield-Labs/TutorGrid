@@ -13,6 +13,13 @@ export type ChatCitation = {
   score?: number;
 };
 
+export type ChatSearchResult = {
+  title?: string;
+  url?: string;
+  content?: string;
+  score?: number;
+};
+
 export type ChatStreamRequest = {
   session_id: string;
   message: string;

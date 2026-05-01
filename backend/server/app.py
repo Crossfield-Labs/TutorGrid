@@ -15,6 +15,7 @@ from backend.config import (
     update_memory_config,
     update_planner_config,
     update_push_config,
+    update_search_config,
 )
 from backend.config import load_config
 from backend.editor import TipTapAICommandService
@@ -786,6 +787,9 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     project=request.params.langsmith_project.strip() or "pc-orchestrator-core",
                     api_key=request.params.langsmith_api_key.strip(),
                     api_url=request.params.langsmith_api_url.strip(),
+                )
+                update_search_config(
+                    tavily_api_key=request.params.search_tavily_api_key.strip(),
                 )
                 # Rebuild runtime services so new planner/embedding settings apply immediately.
                 reset_langsmith_tracer()

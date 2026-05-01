@@ -61,6 +61,10 @@ type LangSmithSettings = {
   apiUrl: string;
 };
 
+type SearchSettings = {
+  tavilyApiKey: string;
+};
+
 type MemorySettings = {
   enabled: boolean;
   autoCompact: boolean;
@@ -125,6 +129,9 @@ export function App() {
     project: "pc-orchestrator-core",
     apiKey: "",
     apiUrl: "",
+  });
+  const [searchSettings, setSearchSettings] = useState<SearchSettings>({
+    tavilyApiKey: "",
   });
   const [memorySettings, setMemorySettings] = useState<MemorySettings>({
     enabled: true,
@@ -221,6 +228,7 @@ export function App() {
           const planner = message.payload?.planner;
           const memory = message.payload?.memory;
           const langsmith = message.payload?.langsmith;
+          const search = message.payload?.search;
           if (planner && typeof planner === "object") {
             setPlannerSettings({
               provider: getString((planner as Record<string, unknown>).provider) ?? "openai_compat",
@@ -235,6 +243,11 @@ export function App() {
               project: getString((langsmith as Record<string, unknown>).project) ?? "pc-orchestrator-core",
               apiKey: getString((langsmith as Record<string, unknown>).apiKey) ?? "",
               apiUrl: getString((langsmith as Record<string, unknown>).apiUrl) ?? "",
+            });
+          }
+          if (search && typeof search === "object") {
+            setSearchSettings({
+              tavilyApiKey: getString((search as Record<string, unknown>).tavilyApiKey) ?? "",
             });
           }
           if (memory && typeof memory === "object") {
@@ -766,6 +779,7 @@ export function App() {
         langsmithProject: langsmithSettings.project,
         langsmithApiKey: langsmithSettings.apiKey,
         langsmithApiUrl: langsmithSettings.apiUrl,
+        searchTavilyApiKey: searchSettings.tavilyApiKey,
       },
     });
   };
@@ -1187,6 +1201,30 @@ export function App() {
                             apiKey: event.target.value,
                           }))
                         }
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Divider />
+
+                  <Box>
+                    <Typography variant="subtitle1">Search Tools</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
+                      Configure persistent API keys for Agent web-search tools.
+                    </Typography>
+                    <Stack spacing={2}>
+                      <TextField
+                        fullWidth
+                        label="Tavily API Key"
+                        type="password"
+                        value={searchSettings.tavilyApiKey}
+                        onChange={(event) =>
+                          setSearchSettings((current) => ({
+                            ...current,
+                            tavilyApiKey: event.target.value,
+                          }))
+                        }
+                        helperText="Saved to config.json as search.tavilyApiKey; TAVILY_API_KEY can still override it."
                       />
                     </Stack>
                   </Box>

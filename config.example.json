@@ -13,12 +13,16 @@
     "apiKey": "",
     "apiUrl": ""
   },
+  "search": {
+    "tavilyApiKey": ""
+  },
   "maxIterations": 8,
   "shellTimeoutSeconds": 90,
   "opencodeModel": "",
   "opencodeAgent": "",
   "codexCommand": "codex",
   "codexModel": "",
+  "codexMcpConfig": "",
   "claudeCommand": "claude",
   "claudeSdkEnabled": true,
   "claudeModel": "",
