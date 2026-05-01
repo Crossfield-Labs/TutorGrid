@@ -46,6 +46,23 @@ class PdfParser:
                     metadata={"parser": "pymupdf", "sourcePath": str(file_path)},
                 )
 
+        if normalized_strategy in {"auto", "pymupdf"}:
+            text_blocks = self._parse_with_pdfplumber_text(file_path)
+            if text_blocks:
+                return ParsedDocument(
+                    title=file_path.stem,
+                    blocks=text_blocks,
+                    metadata={"parser": "pdfplumber", "sourcePath": str(file_path)},
+                )
+
+        sidecar_blocks = self._parse_with_sidecar_text(file_path)
+        if sidecar_blocks:
+            return ParsedDocument(
+                title=file_path.stem,
+                blocks=sidecar_blocks,
+                metadata={"parser": "pdf-sidecar", "sourcePath": str(file_path)},
+            )
+
         if normalized_strategy in {"auto", "ocr"} and self.enable_ocr_fallback:
             ocr_blocks = self._parse_with_ocr(file_path)
             if ocr_blocks:
@@ -59,7 +76,7 @@ class PdfParser:
             return ParsedDocument(
                 title=file_path.stem,
                 blocks=text_blocks,
-                metadata={"parser": "pymupdf", "sourcePath": str(file_path)},
+                metadata={"parser": "pdf-text", "sourcePath": str(file_path)},
             )
 
         if mineru_error:
@@ -74,7 +91,12 @@ class PdfParser:
                 raise RuntimeError("PyMuPDF is required for PDF parsing.") from exc
             return []
 
-        doc = fitz.open(str(file_path))
+        try:
+            doc = fitz.open(str(file_path))
+        except Exception as exc:
+            if self.strategy == "pymupdf":
+                raise RuntimeError("PyMuPDF failed to read PDF text.") from exc
+            return []
         blocks: list[ParsedBlock] = []
         try:
             for page_index in range(doc.page_count):
@@ -93,6 +115,103 @@ class PdfParser:
         finally:
             doc.close()
         return blocks
+
+    def _parse_with_pdfplumber_text(self, file_path: Path) -> list[ParsedBlock]:
+        try:
+            import pdfplumber
+        except ImportError:
+            return []
+
+        blocks: list[ParsedBlock] = []
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                for page_index, page in enumerate(pdf.pages, start=1):
+                    text = str(page.extract_text() or "").strip()
+                    if not text:
+                        continue
+                    blocks.append(
+                        ParsedBlock(
+                            text=text,
+                            section=f"page-{page_index}",
+                            page=page_index,
+                            metadata={"pageIndex": page_index, "source": "pdfplumber"},
+                        )
+                    )
+        except Exception:
+            return []
+        return blocks
+
+    def _parse_with_sidecar_text(self, file_path: Path) -> list[ParsedBlock]:
+        sidecar = self._find_sidecar_text(file_path)
+        if sidecar is None:
+            return []
+        text = sidecar.read_text(encoding="utf-8", errors="replace").strip()
+        if not text:
+            return []
+
+        import re
+
+        marker = re.compile(
+            r"^\s*(?:---\s*)?(?:(?:page|p)\s*(\d+)|\u7b2c\s*(\d+)\s*\u9875)\s*(?:---)?\s*$",
+            re.IGNORECASE,
+        )
+        blocks: list[ParsedBlock] = []
+        current_page = 0
+        current_lines: list[str] = []
+
+        def flush() -> None:
+            nonlocal current_lines
+            merged = "\n".join(line for line in current_lines if line.strip()).strip()
+            if not merged:
+                current_lines = []
+                return
+            blocks.append(
+                ParsedBlock(
+                    text=merged,
+                    section=f"page-{current_page}" if current_page else sidecar.stem,
+                    page=current_page,
+                    metadata={
+                        "pageIndex": current_page,
+                        "source": "sidecar",
+                        "sidecarPath": str(sidecar),
+                    },
+                )
+            )
+            current_lines = []
+
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            match = marker.match(line)
+            if match:
+                flush()
+                page_text = next(group for group in match.groups() if group)
+                current_page = int(page_text)
+                continue
+            current_lines.append(raw_line)
+        flush()
+        if blocks:
+            return blocks
+        return [
+            ParsedBlock(
+                text=text,
+                section=sidecar.stem,
+                page=0,
+                metadata={"pageIndex": 0, "source": "sidecar", "sidecarPath": str(sidecar)},
+            )
+        ]
+
+    @staticmethod
+    def _find_sidecar_text(file_path: Path) -> Path | None:
+        candidates = [
+            file_path.with_name(f"{file_path.name}.ocr.txt"),
+            file_path.with_name(f"{file_path.stem}.ocr.txt"),
+            file_path.with_name(f"{file_path.stem}.txt"),
+            file_path.with_name(f"{file_path.stem}.md"),
+        ]
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_file():
+                return candidate
+        return None
 
     def _parse_with_ocr(self, file_path: Path) -> list[ParsedBlock]:
         try:

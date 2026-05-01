@@ -247,6 +247,31 @@ class KnowledgeParsersTests(unittest.TestCase):
         self.assertEqual(parsed.metadata.get("parser"), "pymupdf")
         self.assertEqual(parsed.blocks[0].text, "pymupdf block")
 
+    def test_pdf_parser_uses_sidecar_text_before_ocr(self) -> None:
+        parser = PdfParser()
+        parser.strategy = "auto"
+        parser.enable_mineru = False
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "scan.pdf"
+            file_path.write_bytes(b"%PDF-1.4 fake")
+            file_path.with_name("scan.pdf.ocr.txt").write_text(
+                "page 1\nEntropy measures sample purity.\n\n"
+                "\u7b2c 2 \u9875\nInformation gain selects the best split.",
+                encoding="utf-8",
+            )
+            with (
+                patch.object(parser, "_parse_with_pymupdf_text", return_value=[]),
+                patch.object(parser, "_parse_with_pdfplumber_text", return_value=[]),
+                patch.object(parser, "_parse_with_ocr", return_value=[]) as ocr_mock,
+            ):
+                parsed = parser.parse(file_path)
+
+        self.assertEqual(parsed.metadata.get("parser"), "pdf-sidecar")
+        self.assertEqual([block.page for block in parsed.blocks], [1, 2])
+        self.assertIn("Entropy measures sample purity.", parsed.blocks[0].text)
+        self.assertIn("Information gain selects the best split.", parsed.blocks[1].text)
+        ocr_mock.assert_not_called()
+
     def test_pdf_parser_uses_ocr_when_text_empty(self) -> None:
         parser = PdfParser()
         parser.strategy = "auto"

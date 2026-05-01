@@ -124,6 +124,7 @@ class KnowledgeBaseService:
         staged_file_name = f"{Path(source_path).stem}_{source_path.stat().st_size}{file_ext}"
         staged_path = raw_dir / staged_file_name
         shutil.copy2(source_path, staged_path)
+        self._copy_parser_sidecars(source_path=source_path, staged_path=staged_path)
 
         display_name = file_name.strip() or source_path.name
         file_record = self.store.create_file_record(
@@ -194,6 +195,13 @@ class KnowledgeBaseService:
                 chunks = chunk_builder.chunk_document(parsed)
                 if not chunks:
                     raise RuntimeError("Parser returned no usable text chunks.")
+                for chunk in chunks:
+                    chunk.metadata = {
+                        **chunk.metadata,
+                        "originalName": display_name,
+                        "storedPath": str(staged_path),
+                        "fileExt": file_ext,
+                    }
             except Exception as exc:
                 self.tracer.end_run(
                     chunk_run_id,
@@ -543,7 +551,7 @@ class KnowledgeBaseService:
 
     def _build_default_embedder(self) -> TextEmbedder:
         config = load_config()
-        embedding_provider = os.environ.get("ORCHESTRATOR_EMBEDDING_PROVIDER", "openai_compat").strip().lower()
+        embedding_provider = os.environ.get("ORCHESTRATOR_EMBEDDING_PROVIDER", "hash").strip().lower()
         embedding_model = os.environ.get("ORCHESTRATOR_EMBEDDING_MODEL", "text-embedding-3-large").strip()
         api_key = os.environ.get("ORCHESTRATOR_EMBEDDING_API_KEY", config.planner.api_key).strip()
         api_base = os.environ.get("ORCHESTRATOR_EMBEDDING_API_BASE", config.planner.api_base).strip()
@@ -576,6 +584,31 @@ class KnowledgeBaseService:
             return self.vector_index.rebuild_course(course_id=normalized_course, chunks=chunks)
         except Exception:
             return {"courseId": normalized_course, "backend": "none", "chunkCount": 0, "dimension": 0}
+
+    @staticmethod
+    def _copy_parser_sidecars(*, source_path: Path, staged_path: Path) -> None:
+        candidates = [
+            source_path.with_name(f"{source_path.name}.ocr.txt"),
+            source_path.with_name(f"{source_path.stem}.ocr.txt"),
+            source_path.with_name(f"{source_path.stem}.txt"),
+            source_path.with_name(f"{source_path.stem}.md"),
+        ]
+        suffixes = [
+            f"{staged_path.name}.ocr.txt",
+            f"{staged_path.stem}.ocr.txt",
+            f"{staged_path.stem}.txt",
+            f"{staged_path.stem}.md",
+        ]
+        for candidate in candidates:
+            if not candidate.exists() or not candidate.is_file():
+                continue
+            for target_name in suffixes:
+                target = staged_path.with_name(target_name)
+                try:
+                    shutil.copy2(candidate, target)
+                except OSError:
+                    pass
+            return
 
     @staticmethod
     def _bool_env(name: str, default: bool) -> bool:

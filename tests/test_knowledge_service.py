@@ -64,6 +64,34 @@ class KnowledgeServiceTests(unittest.TestCase):
             self.assertIsNotNone(job)
             self.assertEqual(job["status"], "success")
 
+    def test_ingest_pdf_copies_sidecar_and_preserves_source_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            db_path = temp_root / "orchestrator.sqlite3"
+            store = SQLiteKnowledgeStore(db_path)
+            service = KnowledgeBaseService(store=store, root=temp_root / "knowledge_bases")
+
+            course = service.create_course(name="Machine Learning", description="PDF sidecar regression")
+            source_file = temp_root / "lecture.pdf"
+            source_file.write_bytes(b"%PDF-1.4 fake")
+            source_file.with_name("lecture.pdf.ocr.txt").write_text(
+                "page 1\n"
+                "Decision tree entropy and information gain are used to choose the best split. "
+                "This sidecar text simulates OCR extracted from a scanned course slide.",
+                encoding="utf-8",
+            )
+
+            result = service.ingest_file(course_id=str(course["courseId"]), file_path=str(source_file), chunk_size=200)
+
+            self.assertEqual(result["status"], "success")
+            self.assertGreater(result["chunkCount"], 0)
+            chunks = service.list_chunks_for_retrieval(course_id=str(course["courseId"]), limit=10)
+            self.assertTrue(chunks)
+            metadata = chunks[0]["metadata"]
+            self.assertEqual(metadata.get("originalName"), "lecture.pdf")
+            self.assertEqual(metadata.get("fileExt"), ".pdf")
+            self.assertIn("Decision tree entropy", chunks[0]["content"])
+
     def test_list_jobs_returns_course_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)

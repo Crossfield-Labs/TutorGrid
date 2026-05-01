@@ -68,7 +68,8 @@ async def execute_tool_call(
         for item in result.get("items", []):
             citations.append(
                 {
-                    "source": str(item.get("fileId") or ""),
+                    "source": str(item.get("sourceName") or item.get("fileId") or ""),
+                    "file_id": str(item.get("fileId") or ""),
                     "page": int(item.get("sourcePage") or 0),
                     "chunk": str(item.get("content") or "")[:300],
                     "score": float(item.get("score") or 0.0),

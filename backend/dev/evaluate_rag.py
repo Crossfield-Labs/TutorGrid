@@ -43,7 +43,7 @@ def _parse_ks(raw: str) -> list[int]:
 
 
 def _load_dataset(dataset_path: Path, *, default_limit: int) -> tuple[str, str, list[dict[str, Any]], list[RagEvalCase]]:
-    raw = json.loads(dataset_path.read_text(encoding="utf-8"))
+    raw = json.loads(dataset_path.read_text(encoding="utf-8-sig"))
     if not isinstance(raw, dict):
         raise ValueError("Dataset json root must be an object.")
     course_name = str(raw.get("courseName") or "").strip() or "RAG Evaluation Course"

@@ -84,6 +84,7 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("denseScore", top)
             self.assertIn("lexicalScore", top)
             self.assertIn("rerankScore", top)
+            self.assertEqual(top.get("sourceName"), "observer.md")
             self.assertIn("multiQueries", response["debug"])
             self.assertIn("answer", response)
             self.assertTrue(str(response.get("answer") or "").strip())
@@ -134,14 +135,16 @@ class RagServiceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ingest["status"], "success")
 
             rag_service = RagService(knowledge_service=kb_service, llm_provider=_HydeFailProvider())
+            rag_service.enable_hyde = True
+            question = "Observer pattern \u6838\u5fc3\u601d\u60f3\u662f\u4ec0\u4e48\uff1f"
             response = await rag_service.query(
                 course_id=str(course["courseId"]),
-                question="Observer pattern 核心思想是什么？",
+                question=question,
                 limit=3,
             )
             debug = response.get("debug") or {}
             self.assertEqual(str(debug.get("hydeSource") or ""), "question_fallback")
-            self.assertEqual(str(debug.get("hyde") or ""), "Observer pattern 核心思想是什么？")
+            self.assertEqual(str(debug.get("hyde") or ""), question)
             self.assertTrue(str(debug.get("hydeError") or "").strip())
             self.assertTrue(str(response.get("answer") or "").strip())
 

@@ -74,10 +74,10 @@ class RagService:
         self.knowledge_service = knowledge_service or KnowledgeBaseService()
         self.config = load_config()
         self.llm_provider = llm_provider or self._build_llm_provider()
-        self.enable_multi_query = self._bool_env("ORCHESTRATOR_RAG_MULTI_QUERY", True)
-        self.enable_hyde = self._bool_env("ORCHESTRATOR_RAG_HYDE", True)
+        self.enable_multi_query = self._bool_env("ORCHESTRATOR_RAG_MULTI_QUERY", False)
+        self.enable_hyde = self._bool_env("ORCHESTRATOR_RAG_HYDE", False)
         self.enable_rerank = self._bool_env("ORCHESTRATOR_RAG_RERANK", True)
-        self.enable_answer = self._bool_env("ORCHESTRATOR_RAG_ANSWER_ENABLED", True)
+        self.enable_answer = self._bool_env("ORCHESTRATOR_RAG_ANSWER_ENABLED", False)
         self.multi_query_count = max(1, int(os.environ.get("ORCHESTRATOR_RAG_MULTI_QUERY_COUNT", "3")))
         self.hyde_attempts = max(1, int(os.environ.get("ORCHESTRATOR_RAG_HYDE_ATTEMPTS", "2")))
         self.answer_attempts = max(1, int(os.environ.get("ORCHESTRATOR_RAG_ANSWER_ATTEMPTS", "2")))
@@ -291,6 +291,7 @@ class RagService:
                         "content": item["content"],
                         "sourcePage": item["sourcePage"],
                         "sourceSection": item["sourceSection"],
+                        "sourceName": item["sourceName"],
                         "score": item["finalScore"],
                         "denseScore": item["denseScore"],
                         "lexicalScore": item["lexicalScore"],
@@ -424,6 +425,7 @@ class RagService:
                 {
                     "chunkId": str(chunk.get("chunkId") or ""),
                     "fileId": str(chunk.get("fileId") or ""),
+                    "sourceName": self._source_name_for_chunk(chunk),
                     "content": chunk_text,
                     "sourcePage": int(chunk.get("sourcePage") or 0),
                     "sourceSection": str(chunk.get("sourceSection") or ""),
@@ -435,6 +437,18 @@ class RagService:
                 }
             )
         return reranked
+
+    @staticmethod
+    def _source_name_for_chunk(chunk: dict[str, Any]) -> str:
+        metadata = chunk.get("metadata")
+        if isinstance(metadata, dict):
+            original_name = str(metadata.get("originalName") or "").strip()
+            if original_name:
+                return original_name
+            source_path = str(metadata.get("sourcePath") or metadata.get("storedPath") or "").strip()
+            if source_path:
+                return Path(source_path).name
+        return str(chunk.get("fileId") or "")
 
     def _local_rerank_score(self, *, query_tokens: set[str], chunk_text: str) -> float:
         if not query_tokens:
@@ -641,7 +655,7 @@ class RagService:
         if normalized.count("\ufffd") > max(8, len(normalized) // 8):
             return False
         token_count = len(_tokenize(normalized))
-        return token_count >= 3
+        return token_count >= 3 and len(normalized) >= 20
 
     def _normalize(self, values: list[float]) -> list[float]:
         if not values:
