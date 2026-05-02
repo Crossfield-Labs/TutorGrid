@@ -1,21 +1,28 @@
 <script setup lang="ts">
+import { ref, watch, onMounted } from "vue";
+import { useRouter } from "vue-router";
 import { useTheme } from "vuetify";
-import { useCustomizeThemeStore } from "@/stores/customizeTheme";
 import { Icon } from "@iconify/vue";
+import { useCustomizeThemeStore } from "@/stores/customizeTheme";
+
 interface Color {
   colorId: number;
   colorName: string;
   colorValue: string;
 }
+
 const customizeTheme = useCustomizeThemeStore();
+const router = useRouter();
 const theme = useTheme();
 const themeDrawer = ref(false);
+
 const currentColor = ref<Color>({
   colorId: 2,
   colorName: "grey",
   colorValue: "#344767",
 });
-const primaryColors = ref([
+
+const primaryColors = ref<Color[]>([
   {
     colorId: 1,
     colorName: "purple",
@@ -48,10 +55,12 @@ const primaryColors = ref([
   },
 ]);
 
-onMounted(() => updatePrimaryColor(customizeTheme.primaryColor));
+onMounted(() => {
+  updatePrimaryColor(customizeTheme.primaryColor);
+});
 
 watch(currentColor, (newVal) => {
-  updatePrimaryColor(newVal)
+  updatePrimaryColor(newVal);
 });
 
 const updatePrimaryColor = (newColor: Color) => {
@@ -59,7 +68,11 @@ const updatePrimaryColor = (newColor: Color) => {
   theme.themes.value.dark.colors.primary = newColor.colorValue;
   customizeTheme.setPrimaryColor(newColor);
   currentColor.value = newColor;
+};
 
+function goToSettings() {
+  themeDrawer.value = false;
+  void router.push("/settings");
 }
 </script>
 
@@ -73,22 +86,21 @@ const updatePrimaryColor = (newColor: Color) => {
       v-model="themeDrawer"
       location="right"
       temporary
-      width="300"
+      width="360"
       class="theme-drawer"
     >
       <div class="pa-5">
         <div class="top-area">
           <div class="d-flex align-center">
-            <b>UI Configurator</b>
-            <v-spacer></v-spacer>
+            <b>偏好设置</b>
           </div>
-          <div>See our dashboard options.</div>
+          <div class="text-medium-emphasis">外观与使用偏好</div>
         </div>
 
         <hr class="my-6" />
 
         <div class="theme-area">
-          <b>Global Theme Mode</b>
+          <b>显示主题</b>
           <div class="px-3 pt-3" v-if="customizeTheme.darkTheme">
             <v-btn
               @click="customizeTheme.darkTheme = !customizeTheme.darkTheme"
@@ -98,7 +110,7 @@ const updatePrimaryColor = (newColor: Color) => {
             >
               <Icon width="30" icon="line-md:moon-filled-loop" />
             </v-btn>
-            <span class="ml-5">Dark Mode</span>
+            <span class="ml-5">深色模式</span>
           </div>
           <div class="px-3 pt-3" v-else>
             <v-btn
@@ -112,13 +124,14 @@ const updatePrimaryColor = (newColor: Color) => {
                 icon="line-md:moon-filled-alt-to-sunny-filled-loop-transition"
               />
             </v-btn>
-            <span class="ml-5">Light Mode</span>
+            <span class="ml-5">浅色模式</span>
           </div>
         </div>
+
         <hr class="my-6" />
 
         <div class="primary-color-area">
-          <b>Primary Colors</b>
+          <b>主色</b>
           <v-item-group
             class="mt-3"
             v-model="currentColor"
@@ -143,29 +156,34 @@ const updatePrimaryColor = (newColor: Color) => {
             </v-item>
           </v-item-group>
         </div>
+
         <hr class="my-6" />
-        <div class="">
-          <b>MiniSideBar</b>
+
+        <div>
+          <b>侧栏</b>
           <v-switch
+            v-model="customizeTheme.miniSidebar"
             color="primary"
             class="ml-2"
             hide-details
-            :label="`Mini: ${customizeTheme.miniSidebar}`"
-          ></v-switch>
+            :label="`紧凑侧栏：${customizeTheme.miniSidebar ? '开' : '关'}`"
+          />
         </div>
-        <hr class="mb-6" />
-        <div>
-          <v-btn color="" class="gradient info" block size="large"
-            >Contact Me</v-btn
-          >
-        </div>
-        <div class="ml-5 mt-5 d-flex align-center">
-          <v-icon color="primary" class="mr-6">mdi-email-outline</v-icon>
-          <a href="mailto:yjkbako@gmail.com">yjkbako@gmail.com</a>
-        </div>
-        <div>
-          <img src="@/assets/wechat.jpg" alt="" />
-        </div>
+
+        <hr class="my-6" />
+
+        <v-alert
+          type="info"
+          variant="tonal"
+          density="comfortable"
+          class="mb-4"
+        >
+          你可以在设置页面中管理模型、连接与搜索选项。
+        </v-alert>
+
+        <v-btn color="primary" block size="large" @click="goToSettings">
+          前往设置
+        </v-btn>
       </div>
     </v-navigation-drawer>
   </div>
@@ -184,6 +202,7 @@ const updatePrimaryColor = (newColor: Color) => {
   box-shadow: 1px 1px 9px #705cf6;
   transition: all 0.5s;
   cursor: pointer;
+
   &:hover {
     box-shadow: 1px 1px 18px #705cf6;
     right: 0px;
@@ -199,6 +218,7 @@ const updatePrimaryColor = (newColor: Color) => {
     0% {
       transform: rotate(0deg);
     }
+
     100% {
       transform: rotate(360deg);
     }

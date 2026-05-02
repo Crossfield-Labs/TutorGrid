@@ -66,7 +66,6 @@ import {
   filterSlashItems,
 } from "../extensions/slash-command-items";
 import { AiBubbleNode } from "../extensions/ai-bubble-node";
-import { useOrchestratorStore } from "@/stores/orchestratorStore";
 import { useMessageStore } from "@/stores/messageStore";
 import { useChatSessionStore } from "@/stores/chatSessionStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
@@ -87,7 +86,6 @@ const props = withDefaults(defineProps<Props>(), {
   sessionId: "",
 });
 
-const orchestratorStore = useOrchestratorStore();
 const messageStore = useMessageStore();
 const chatSession = useChatSessionStore();
 const snackbarStore = useSnackbarStore();
@@ -525,14 +523,6 @@ const onSlashSelect = (item: SlashItem) => {
       console.warn("[slash] 未知命令:", item.command);
   }
 };
-
-onMounted(() => {
-  if (orchestratorStore.status === "idle" || orchestratorStore.status === "disconnected") {
-    orchestratorStore.connect().catch((err) => {
-      console.warn("[orchestrator] connect failed, will keep retrying / fall back to mock:", err);
-    });
-  }
-});
 
 onBeforeUnmount(() => {
   editor.value?.destroy();

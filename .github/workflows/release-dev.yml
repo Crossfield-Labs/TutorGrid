@@ -56,28 +56,27 @@ jobs:
       - name: Stage backend binary for electron package (unix)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p frontend/backend-bin
-          cp dist/pc-orchestrator-backend frontend/backend-bin/pc-orchestrator-backend
+          mkdir -p TutorGridFront/backend-bin
+          cp dist/pc-orchestrator-backend TutorGridFront/backend-bin/pc-orchestrator-backend
 
       - name: Stage backend binary for electron package (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path frontend/backend-bin -Force | Out-Null
-          Copy-Item dist/pc-orchestrator-backend.exe frontend/backend-bin/pc-orchestrator-backend.exe
+          New-Item -ItemType Directory -Path TutorGridFront/backend-bin -Force | Out-Null
+          Copy-Item dist/pc-orchestrator-backend.exe TutorGridFront/backend-bin/pc-orchestrator-backend.exe
 
       - name: Build frontend and desktop executable
-        working-directory: frontend
+        working-directory: TutorGridFront
         run: |
-          npm run build
-          npm run package:desktop
+          yarn electron:build
 
       - name: Package source tarballs (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist-release
           tar -czf dist-release/backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz backend main.py requirements.txt config.example.json
-          tar -czf dist-release/frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+          tar -czf dist-release/frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz TutorGridFront/dist TutorGridFront/dist-electron TutorGridFront/electron TutorGridFront/package.json TutorGridFront/yarn.lock
 
       - name: Package source tarballs (windows)
         if: runner.os == 'Windows'
@@ -85,14 +84,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist-release -Force | Out-Null
           tar -czf dist-release/backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz backend main.py requirements.txt config.example.json
-          tar -czf dist-release/frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz frontend/dist frontend/electron frontend/package.json frontend/package-lock.json
+          tar -czf dist-release/frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz TutorGridFront/dist TutorGridFront/dist-electron TutorGridFront/electron TutorGridFront/package.json TutorGridFront/yarn.lock
 
       - name: Collect binary artifacts (unix)
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist-release
           cp dist/pc-orchestrator-backend dist-release/pc-orchestrator-backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}
-          find frontend/release -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" \) | while read -r file; do
+          find TutorGridFront/release -maxdepth 1 -type f \( -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" \) | while read -r file; do
             ext="${file##*.}"
             cp "$file" "dist-release/pc-orchestrator-frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.${ext}"
           done
@@ -103,7 +102,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist-release -Force | Out-Null
           Copy-Item dist/pc-orchestrator-backend.exe dist-release/pc-orchestrator-backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.exe
-          $frontendArtifact = Get-ChildItem frontend/release -File -Include *.exe,*.msi | Select-Object -First 1
+          $frontendArtifact = Get-ChildItem TutorGridFront/release -File -Include *.exe,*.msi | Select-Object -First 1
           if ($null -ne $frontendArtifact) {
             $ext = $frontendArtifact.Extension
             Copy-Item $frontendArtifact.FullName "dist-release/pc-orchestrator-frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA$ext"

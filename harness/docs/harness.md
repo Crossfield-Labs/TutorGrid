@@ -35,5 +35,6 @@
 
 修改时注意：
 - 不要让 harness 直接依赖 runtime 私有结构
-- 优先通过 `orchestrator.session.*` 协议驱动系统
+- 当前 harness 仍主要通过 `orchestrator.session.*` 做历史回归
+- F04 完成后，新编排 smoke 应补一套 `orchestrator.task.*` 任务协议用例
 - 新任务格式、新产物字段、新评测规则变化时同步更新本文件和 `docs/harness.md`

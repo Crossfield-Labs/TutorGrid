@@ -14,7 +14,8 @@
 
 当前优先阅读：
 - `persistence.md`：session / message / snapshot / error / trace 的持久化模型
-- `gui-protocol.md`：GUI 第一版需要的协议、字段和历史查询能力
+- `orchestrator-v5-protocol.md`：V5 编排任务协议与任务级事件模型
+- `gui-protocol.md`：旧 GUI 会话协议的兼容入口，实际编排请改读 V5 协议
 - `harness.md`：任务定义、统一执行入口、结果产物和基础评测
 - `知识库_RAG_记忆_操作手册.md`：知识库/RAG/记忆从启动到联调测试的完整步骤
 - `前端_知识库_RAG_记忆_详细测试文档.md`：前端联调测试清单（操作/输入/输出/期望）

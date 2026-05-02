@@ -7,6 +7,12 @@ from fastapi import APIRouter, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.config import (
+    get_runtime_config_view,
+    update_langsmith_config,
+    update_planner_config,
+    update_search_config,
+)
 from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
 from backend.rag.service import RagService
@@ -35,6 +41,7 @@ app.include_router(chat_router)
 
 knowledge_router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 profile_router = APIRouter(prefix="/api/profile", tags=["profile"])
+config_router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 class CreateCourseRequest(BaseModel):
@@ -42,10 +49,70 @@ class CreateCourseRequest(BaseModel):
     description: str = ""
 
 
+class LocalIngestRequest(BaseModel):
+    file_path: str
+    file_name: str = ""
+    chunk_size: int = Field(default=900, ge=200, le=4000)
+
+
 class RagQueryRequest(BaseModel):
     course_id: str
     question: str
     limit: int = Field(default=5, ge=1, le=20)
+
+
+class PlannerConfigPayload(BaseModel):
+    provider: str = "openai_compat"
+    model: str = ""
+    apiKey: str = ""
+    apiBase: str = ""
+
+
+class LangSmithConfigPayload(BaseModel):
+    enabled: bool = False
+    project: str = "pc-orchestrator-core"
+    apiKey: str = ""
+    apiUrl: str = ""
+
+
+class SearchConfigPayload(BaseModel):
+    tavilyApiKey: str = ""
+
+
+class RuntimeConfigPayload(BaseModel):
+    planner: PlannerConfigPayload = Field(default_factory=PlannerConfigPayload)
+    langsmith: LangSmithConfigPayload = Field(default_factory=LangSmithConfigPayload)
+    search: SearchConfigPayload = Field(default_factory=SearchConfigPayload)
+
+
+@app.get("/api/health")
+async def health() -> dict[str, Any]:
+    return {"status": "ok"}
+
+
+@config_router.get("")
+async def get_config() -> dict[str, Any]:
+    return get_runtime_config_view()
+
+
+@config_router.put("")
+async def put_config(payload: RuntimeConfigPayload) -> dict[str, Any]:
+    update_planner_config(
+        provider=payload.planner.provider.strip() or "openai_compat",
+        model=payload.planner.model.strip(),
+        api_key=payload.planner.apiKey.strip(),
+        api_base=payload.planner.apiBase.strip(),
+    )
+    update_langsmith_config(
+        enabled=payload.langsmith.enabled,
+        project=payload.langsmith.project.strip() or "pc-orchestrator-core",
+        api_key=payload.langsmith.apiKey.strip(),
+        api_url=payload.langsmith.apiUrl.strip(),
+    )
+    update_search_config(
+        tavily_api_key=payload.search.tavilyApiKey.strip(),
+    )
+    return get_runtime_config_view()
 
 
 @knowledge_router.get("/courses")
@@ -85,6 +152,21 @@ async def upload_course_file(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@knowledge_router.post("/courses/{course_id}/files/import-local")
+async def import_local_course_file(course_id: str, payload: LocalIngestRequest) -> dict[str, Any]:
+    try:
+        return knowledge_service.ingest_file(
+            course_id=course_id,
+            file_path=payload.file_path,
+            file_name=payload.file_name or Path(payload.file_path).name,
+            chunk_size=payload.chunk_size,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @knowledge_router.get("/courses/{course_id}/files")
 async def list_course_files(course_id: str, limit: int = 200) -> list[dict[str, Any]]:
     try:
@@ -113,3 +195,4 @@ async def get_mastery(user_id: str = "default", course_id: str = "", limit: int 
 
 app.include_router(knowledge_router)
 app.include_router(profile_router)
+app.include_router(config_router)

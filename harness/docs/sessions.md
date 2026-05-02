@@ -14,7 +14,7 @@
 - snapshot 字段要与 server 广播事件保持一致
 - follow-up 和等待用户输入状态应该在这里收敛，不要散落在全局变量里
 - 下一阶段要把当前内存态 session 投影到持久化层，详见 `../docs/persistence.md`
-- GUI 依赖的稳定 snapshot 字段也要从这里继续补，详见 `../docs/gui-protocol.md`
+- GUI 依赖的稳定任务投影字段也要从这里继续补，详见 `../../docs/orchestrator-v5-protocol.md`
 
 修改时注意：
 - 新状态字段要谨慎增加
