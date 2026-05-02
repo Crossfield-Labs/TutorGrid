@@ -8,6 +8,14 @@ interface RuntimeConfigForm {
     model: string;
     apiKey: string;
     apiBase: string;
+    providerOptions: {
+      extra_body: {
+        thinking?: {
+          type: string;
+        };
+        reasoning_effort?: string;
+      };
+    };
   };
   langsmith: {
     enabled: boolean;
@@ -27,10 +35,18 @@ const savingConfig = ref(false);
 
 const configForm = reactive<RuntimeConfigForm>({
   planner: {
-    provider: "openai_compat",
+    provider: "deepseek",
     model: "",
     apiKey: "",
     apiBase: "",
+    providerOptions: {
+      extra_body: {
+        thinking: {
+          type: "enabled",
+        },
+        reasoning_effort: "high",
+      },
+    },
   },
   langsmith: {
     enabled: false,
@@ -60,6 +76,18 @@ async function loadRuntimeConfig() {
     configForm.planner.model = data?.planner?.model || "";
     configForm.planner.apiKey = data?.planner?.apiKey || "";
     configForm.planner.apiBase = data?.planner?.apiBase || "";
+    configForm.planner.providerOptions = {
+      extra_body: {
+        thinking: {
+          type:
+            data?.planner?.providerOptions?.extra_body?.thinking?.type ||
+            "enabled",
+        },
+        reasoning_effort:
+          data?.planner?.providerOptions?.extra_body?.reasoning_effort ||
+          "high",
+      },
+    };
     configForm.langsmith.enabled = Boolean(data?.langsmith?.enabled);
     configForm.langsmith.project =
       data?.langsmith?.project || "pc-orchestrator-core";
@@ -94,6 +122,18 @@ async function saveRuntimeConfig() {
     configForm.planner.model = data?.planner?.model || "";
     configForm.planner.apiKey = data?.planner?.apiKey || "";
     configForm.planner.apiBase = data?.planner?.apiBase || "";
+    configForm.planner.providerOptions = {
+      extra_body: {
+        thinking: {
+          type:
+            data?.planner?.providerOptions?.extra_body?.thinking?.type ||
+            "enabled",
+        },
+        reasoning_effort:
+          data?.planner?.providerOptions?.extra_body?.reasoning_effort ||
+          "high",
+      },
+    };
     configForm.langsmith.enabled = Boolean(data?.langsmith?.enabled);
     configForm.langsmith.project =
       data?.langsmith?.project || "pc-orchestrator-core";
@@ -144,7 +184,7 @@ async function saveRuntimeConfig() {
                   <v-select
                     v-model="configForm.planner.provider"
                     label="Provider"
-                    :items="['openai_compat']"
+                    :items="['deepseek', 'openai_compat']"
                     variant="solo"
                     density="comfortable"
                     class="mb-2"
@@ -169,6 +209,27 @@ async function saveRuntimeConfig() {
                     label="API Key"
                     type="password"
                     autocomplete="off"
+                    variant="solo"
+                    density="comfortable"
+                    class="mb-3"
+                  />
+                  <v-switch
+                    :model-value="configForm.planner.providerOptions.extra_body.thinking?.type === 'enabled'"
+                    color="primary"
+                    inset
+                    hide-details
+                    label="启用 Thinking 模式"
+                    class="mb-3"
+                    @update:model-value="
+                      configForm.planner.providerOptions.extra_body.thinking = {
+                        type: $event ? 'enabled' : 'disabled',
+                      }
+                    "
+                  />
+                  <v-select
+                    v-model="configForm.planner.providerOptions.extra_body.reasoning_effort"
+                    label="推理强度"
+                    :items="['low', 'medium', 'high']"
                     variant="solo"
                     density="comfortable"
                     hide-details
@@ -281,6 +342,26 @@ async function saveRuntimeConfig() {
                 <v-list-item-title>API Base</v-list-item-title>
                 <v-list-item-subtitle>
                   {{ configForm.planner.apiBase || "未设置" }}
+                </v-list-item-subtitle>
+              </v-list-item>
+
+              <v-list-item>
+                <template #prepend>
+                  <v-icon color="warning">mdi-head-cog-outline</v-icon>
+                </template>
+                <v-list-item-title>Thinking 模式</v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ configForm.planner.providerOptions.extra_body.thinking?.type === "enabled" ? "已启用" : "未启用" }}
+                </v-list-item-subtitle>
+              </v-list-item>
+
+              <v-list-item>
+                <template #prepend>
+                  <v-icon color="warning">mdi-speedometer</v-icon>
+                </template>
+                <v-list-item-title>推理强度</v-list-item-title>
+                <v-list-item-subtitle>
+                  {{ configForm.planner.providerOptions.extra_body.reasoning_effort || "未设置" }}
                 </v-list-item-subtitle>
               </v-list-item>
 

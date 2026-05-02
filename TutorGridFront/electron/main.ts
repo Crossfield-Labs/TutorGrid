@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import fs from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -9,23 +10,71 @@ const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const isDevelopment = Boolean(devServerUrl);
 const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
+const ORCHESTRATOR_PORT = 3210;
 const REPO_ROOT = path.resolve(__dirname, "../..");
-const PYTHON_CANDIDATES =
-  process.platform === "win32"
-    ? [
-        { command: "py", args: ["-3"] },
-        { command: "python", args: [] },
-      ]
-    : [
-        { command: "python3", args: [] },
-        { command: "python", args: [] },
-      ];
+
+function buildPythonCandidates(): Array<{ command: string; args: string[] }> {
+  const candidates: Array<{ command: string; args: string[] }> = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (command: string, args: string[] = []) => {
+    const key = `${command}::${args.join(" ")}`;
+    if (!command || seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ command, args });
+  };
+
+  const envPython = process.env.PYTHON_EXECUTABLE?.trim();
+  if (envPython) {
+    pushCandidate(envPython);
+  }
+
+  const virtualEnv = process.env.VIRTUAL_ENV?.trim();
+  if (virtualEnv) {
+    pushCandidate(
+      process.platform === "win32"
+        ? path.join(virtualEnv, "Scripts", "python.exe")
+        : path.join(virtualEnv, "bin", "python")
+    );
+  }
+
+  const condaPrefix = process.env.CONDA_PREFIX?.trim();
+  if (condaPrefix) {
+    pushCandidate(
+      process.platform === "win32"
+        ? path.join(condaPrefix, "python.exe")
+        : path.join(condaPrefix, "bin", "python")
+    );
+  }
+
+  const repoVirtualEnvNames = [".venv", "venv", "env"];
+  for (const name of repoVirtualEnvNames) {
+    pushCandidate(
+      process.platform === "win32"
+        ? path.join(REPO_ROOT, name, "Scripts", "python.exe")
+        : path.join(REPO_ROOT, name, "bin", "python")
+    );
+  }
+
+  if (process.platform === "win32") {
+    pushCandidate("python");
+    pushCandidate("py", ["-3"]);
+  } else {
+    pushCandidate("python3");
+    pushCandidate("python");
+  }
+
+  return candidates;
+}
+
+const PYTHON_CANDIDATES = buildPythonCandidates();
 
 const DEFAULT_WORKSPACE_ROOT = "D:\\SoftInnovationCompetition\\TestFolder";
 let workspaceRoot = DEFAULT_WORKSPACE_ROOT;
 
 let mainWindow: BrowserWindow | null = null;
-let backendProcess: ChildProcess | null = null;
+let httpBackendProcess: ChildProcess | null = null;
+let orchestratorProcess: ChildProcess | null = null;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -54,16 +103,46 @@ async function waitForBackendReady(timeoutMs = 20000): Promise<boolean> {
   return false;
 }
 
-async function ensureBackendStarted(): Promise<void> {
+async function isOrchestratorHealthy(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = net.createConnection(
+      { host: "127.0.0.1", port: ORCHESTRATOR_PORT },
+      () => {
+        socket.end();
+        resolve(true);
+      }
+    );
+    socket.on("error", () => resolve(false));
+    socket.setTimeout(1500, () => {
+      socket.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForOrchestratorReady(timeoutMs = 20000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isOrchestratorHealthy()) return true;
+    await wait(500);
+  }
+  return false;
+}
+
+async function ensureHttpBackendStarted(): Promise<void> {
   if (await isBackendHealthy()) return;
-  if (backendProcess) {
+  if (httpBackendProcess) {
     const ready = await waitForBackendReady();
     if (ready) return;
-    throw new Error("本地后端进程存在，但健康检查未通过。");
+    throw new Error("本地 HTTP 后端进程存在，但健康检查未通过。");
   }
 
   const startupErrors: string[] = [];
   for (const candidate of PYTHON_CANDIDATES) {
+    if (path.isAbsolute(candidate.command) && !fs.existsSync(candidate.command)) {
+      startupErrors.push(`${candidate.command} 不存在`);
+      continue;
+    }
     const child = spawn(
       candidate.command,
       [
@@ -84,10 +163,17 @@ async function ensureBackendStarted(): Promise<void> {
     );
 
     let spawnFailed = false;
+    let exitedEarly = false;
     let spawnErrorMessage = "";
     child.once("error", (error) => {
       spawnFailed = true;
       spawnErrorMessage = error instanceof Error ? error.message : String(error);
+    });
+    child.once("exit", (code, signal) => {
+      exitedEarly = true;
+      if (!spawnErrorMessage) {
+        spawnErrorMessage = `exit code=${code ?? "null"} signal=${signal ?? "null"}`;
+      }
     });
     child.stdout?.on("data", (chunk) => {
       process.stdout.write(`[backend] ${chunk}`);
@@ -102,8 +188,13 @@ async function ensureBackendStarted(): Promise<void> {
       startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 启动失败: ${spawnErrorMessage || "unknown error"}`);
       continue;
     }
+    if (exitedEarly) {
+      child.removeAllListeners();
+      startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 启动后立即退出: ${spawnErrorMessage || "unknown error"}`);
+      continue;
+    }
 
-    backendProcess = child;
+    httpBackendProcess = child;
     const ready = await waitForBackendReady();
     if (ready) return;
     startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 已启动，但 ${BACKEND_URL}/api/health 未在超时时间内就绪`);
@@ -112,13 +203,100 @@ async function ensureBackendStarted(): Promise<void> {
     } catch {
       /* noop */
     }
-    backendProcess = null;
+    httpBackendProcess = null;
   }
 
   throw new Error(
-    "无法自动拉起本地后端，请确认已安装 Python 及 requirements.txt 依赖。\n" +
+    "无法自动拉起本地 HTTP 后端，请确认已安装 Python 及 requirements.txt 依赖。\n" +
       startupErrors.join("\n")
   );
+}
+
+async function ensureOrchestratorStarted(): Promise<void> {
+  if (await isOrchestratorHealthy()) return;
+  if (orchestratorProcess) {
+    const ready = await waitForOrchestratorReady();
+    if (ready) return;
+    throw new Error("本地编排后端进程存在，但健康检查未通过。");
+  }
+
+  const startupErrors: string[] = [];
+  for (const candidate of PYTHON_CANDIDATES) {
+    if (path.isAbsolute(candidate.command) && !fs.existsSync(candidate.command)) {
+      startupErrors.push(`${candidate.command} 不存在`);
+      continue;
+    }
+    const child = spawn(
+      candidate.command,
+      [
+        ...candidate.args,
+        "-m",
+        "backend.main",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(ORCHESTRATOR_PORT),
+      ],
+      {
+        cwd: REPO_ROOT,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+
+    let spawnFailed = false;
+    let exitedEarly = false;
+    let spawnErrorMessage = "";
+    child.once("error", (error) => {
+      spawnFailed = true;
+      spawnErrorMessage = error instanceof Error ? error.message : String(error);
+    });
+    child.once("exit", (code, signal) => {
+      exitedEarly = true;
+      if (!spawnErrorMessage) {
+        spawnErrorMessage = `exit code=${code ?? "null"} signal=${signal ?? "null"}`;
+      }
+    });
+    child.stdout?.on("data", (chunk) => {
+      process.stdout.write(`[orchestrator] ${chunk}`);
+    });
+    child.stderr?.on("data", (chunk) => {
+      process.stderr.write(`[orchestrator] ${chunk}`);
+    });
+
+    await wait(1200);
+    if (spawnFailed) {
+      child.removeAllListeners();
+      startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 启动失败: ${spawnErrorMessage || "unknown error"}`);
+      continue;
+    }
+    if (exitedEarly) {
+      child.removeAllListeners();
+      startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 启动后立即退出: ${spawnErrorMessage || "unknown error"}`);
+      continue;
+    }
+
+    orchestratorProcess = child;
+    const ready = await waitForOrchestratorReady();
+    if (ready) return;
+    startupErrors.push(`${candidate.command} ${candidate.args.join(" ")} 已启动，但 ws://127.0.0.1:${ORCHESTRATOR_PORT}/ws/orchestrator 未在超时时间内就绪`);
+    try {
+      child.kill();
+    } catch {
+      /* noop */
+    }
+    orchestratorProcess = null;
+  }
+
+  throw new Error(
+    "无法自动拉起本地编排后端，请确认已安装 Python 及 requirements.txt 依赖。\n" +
+      startupErrors.join("\n")
+  );
+}
+
+async function ensureBackendStarted(): Promise<void> {
+  await ensureHttpBackendStarted();
+  await ensureOrchestratorStarted();
 }
 
 function createMainWindow() {
@@ -166,9 +344,21 @@ function createMainWindow() {
 
   if (isDevelopment && devServerUrl) {
     mainWindow.loadURL(devServerUrl);
+    mainWindow.webContents.once("did-finish-load", () => {
+      mainWindow?.webContents.openDevTools({ mode: "detach" });
+    });
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
+
+  mainWindow.webContents.on("before-input-event", (_event, input) => {
+    if ((input.control || input.meta) && input.shift && input.key.toLowerCase() === "i") {
+      mainWindow?.webContents.toggleDevTools();
+    }
+    if (input.key === "F12") {
+      mainWindow?.webContents.toggleDevTools();
+    }
+  });
 }
 
 function workspacePaths() {
@@ -417,13 +607,21 @@ if (!gotLock) {
 }
 
 app.on("window-all-closed", () => {
-  if (backendProcess) {
+  if (httpBackendProcess) {
     try {
-      backendProcess.kill();
+      httpBackendProcess.kill();
     } catch {
       /* noop */
     }
-    backendProcess = null;
+    httpBackendProcess = null;
+  }
+  if (orchestratorProcess) {
+    try {
+      orchestratorProcess.kill();
+    } catch {
+      /* noop */
+    }
+    orchestratorProcess = null;
   }
   if (process.platform !== "darwin") {
     app.quit();

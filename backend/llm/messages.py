@@ -19,6 +19,9 @@ def serialize_messages(messages: list[BaseMessage]) -> list[dict[str, Any]]:
             tool_calls = _extract_openai_tool_calls(message)
             if tool_calls:
                 payload["tool_calls"] = tool_calls
+            reasoning_content = _extract_reasoning_content(message)
+            if reasoning_content:
+                payload["reasoning_content"] = reasoning_content
         tool_call_id = getattr(message, "tool_call_id", "")
         if tool_call_id:
             payload["tool_call_id"] = tool_call_id
@@ -31,10 +34,13 @@ def append_assistant_message(
     *,
     content: str | None,
     tool_calls: list[dict[str, Any]] | None = None,
+    reasoning_content: str | None = None,
 ) -> list[dict[str, Any]]:
     entry: dict[str, Any] = {"role": "assistant", "content": content}
     if tool_calls:
         entry["tool_calls"] = tool_calls
+    if reasoning_content:
+        entry["reasoning_content"] = reasoning_content
     messages.append(entry)
     return messages
 
@@ -72,7 +78,12 @@ def deserialize_messages(history: list[dict[str, Any]]) -> list[BaseMessage]:
         content = str(item.get("content") or "")
         if role == "assistant":
             tool_calls = item.get("tool_calls")
-            additional_kwargs = {"tool_calls": tool_calls} if isinstance(tool_calls, list) and tool_calls else {}
+            additional_kwargs: dict[str, Any] = {}
+            if isinstance(tool_calls, list) and tool_calls:
+                additional_kwargs["tool_calls"] = tool_calls
+            reasoning_content = item.get("reasoning_content")
+            if isinstance(reasoning_content, str) and reasoning_content:
+                additional_kwargs["reasoning_content"] = reasoning_content
             messages.append(AIMessage(content=content, additional_kwargs=additional_kwargs))
         elif role == "tool":
             messages.append(ToolMessage(content=content, tool_call_id=str(item.get("tool_call_id") or "tool")))
@@ -118,4 +129,10 @@ def _extract_openai_tool_calls(message: BaseMessage) -> list[dict[str, Any]]:
             }
         )
     return converted
+
+
+def _extract_reasoning_content(message: BaseMessage) -> str:
+    additional_kwargs = getattr(message, "additional_kwargs", {}) or {}
+    value = additional_kwargs.get("reasoning_content")
+    return str(value) if isinstance(value, str) and value else ""
 

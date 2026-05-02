@@ -575,5 +575,58 @@ export const useOrchestratorStore = defineStore("orchestrator", {
         }
       );
     },
+
+    createTask(opts: {
+      instruction: string;
+      docId: string;
+      workspace?: string;
+      runner?: string;
+    }): Promise<any> {
+      return this.request<any>(
+        "orchestrator.task.create",
+        {
+          runner: opts.runner || "orchestrator",
+          workspace: opts.workspace || ".",
+          instruction: opts.instruction,
+          docId: opts.docId,
+        },
+        {
+          taskId: `task_${Date.now()}`,
+          nodeId: "doc_task",
+          expectEventName: "orchestrator.task.create",
+        }
+      );
+    },
+
+    resumeTask(opts: { taskId: string; sessionId: string; content: string }): Promise<any> {
+      return this.request<any>(
+        "orchestrator.task.resume",
+        {
+          sessionId: opts.sessionId,
+          kind: "reply",
+          content: opts.content,
+        },
+        {
+          sessionId: opts.sessionId,
+          taskId: opts.taskId,
+          expectEventName: "orchestrator.session.followup.accepted",
+        }
+      );
+    },
+
+    interruptTask(opts: { taskId: string; sessionId: string; text?: string }): Promise<any> {
+      return this.request<any>(
+        "orchestrator.task.interrupt",
+        {
+          sessionId: opts.sessionId,
+          text: opts.text || "Interrupt requested.",
+        },
+        {
+          sessionId: opts.sessionId,
+          taskId: opts.taskId,
+          expectEventName: "orchestrator.session.followup.accepted",
+        }
+      );
+    },
   },
 });

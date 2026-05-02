@@ -434,6 +434,57 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(interrupt_control._event.is_set())
 
+    async def test_task_protocol_create_resume_and_result(self) -> None:
+        await self._send_request(
+            "orchestrator.task.create",
+            task_id="task-protocol",
+            node_id="node-doc",
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "instruction": "wait for reply",
+                "docId": "hyper_001",
+            },
+        )
+
+        created = await self._recv_event("orchestrator.task.create")
+        session_id = str(created["sessionId"])
+        self.assertEqual(created["payload"]["doc_id"], "hyper_001")
+
+        first_step = await self._recv_event("orchestrator.task.step", session_id=session_id)
+        self.assertEqual(first_step["payload"]["phase"], "planning")
+
+        awaiting_user = await self._recv_event("orchestrator.task.awaiting_user", session_id=session_id)
+        self.assertEqual(awaiting_user["payload"]["resume_method"], "orchestrator.task.resume")
+
+        waiting_step = await self._recv_event(
+            "orchestrator.task.step",
+            session_id=session_id,
+            predicate=lambda event: event["payload"]["status"] == "awaiting_user",
+        )
+        self.assertEqual(waiting_step["payload"]["doc_id"], "hyper_001")
+
+        await self._send_request(
+            "orchestrator.task.resume",
+            session_id=session_id,
+            params={
+                "sessionId": session_id,
+                "kind": "reply",
+                "content": "resume payload",
+            },
+        )
+
+        resumed_step = await self._recv_event(
+            "orchestrator.task.step",
+            session_id=session_id,
+            predicate=lambda event: "继续执行" in str(event["payload"].get("summary") or ""),
+        )
+        self.assertEqual(resumed_step["payload"]["status"], "running")
+
+        result = await self._recv_event("orchestrator.task.result", session_id=session_id)
+        self.assertEqual(result["payload"]["status"], "done")
+        self.assertEqual(result["payload"]["content"], "reply=resume payload")
+
     async def _send_request(
         self,
         method: str,

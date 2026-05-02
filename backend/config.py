@@ -140,7 +140,14 @@ def _parse_json_object(raw: object) -> dict[str, object]:
     return dict(loaded) if isinstance(loaded, dict) else {}
 
 
-def update_planner_config(*, provider: str, model: str, api_key: str, api_base: str) -> None:
+def update_planner_config(
+    *,
+    provider: str,
+    model: str,
+    api_key: str,
+    api_base: str,
+    provider_options: dict[str, object] | None = None,
+) -> None:
     data = read_config_data()
     planner = data.get("planner")
     planner_data = planner if isinstance(planner, dict) else {}
@@ -148,6 +155,7 @@ def update_planner_config(*, provider: str, model: str, api_key: str, api_base: 
     planner_data["model"] = model
     planner_data["apiKey"] = api_key
     planner_data["apiBase"] = api_base
+    planner_data["providerOptions"] = dict(provider_options or {})
     data["planner"] = planner_data
     write_config_data(data)
 
@@ -229,6 +237,7 @@ def get_runtime_config_view() -> dict[str, object]:
             "model": config.planner.model,
             "apiKey": config.planner.api_key,
             "apiBase": config.planner.api_base,
+            "providerOptions": config.planner.provider_options,
         },
         "memory": {
             "enabled": config.memory.enabled,

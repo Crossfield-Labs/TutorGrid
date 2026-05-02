@@ -66,8 +66,13 @@
           <TileGrid
             :agent="activeAgent"
             :card="selectedCard"
+            :task="activeTask"
+            :task-starting="taskStore.starting"
             @dismiss-agent="activeAgent = null"
             @clear-card="selectedCard = null"
+            @start-task="startTask"
+            @resume-task="resumeTask"
+            @interrupt-task="interruptTask"
           />
         </v-col>
       </v-row>
@@ -85,12 +90,14 @@ import TileGrid from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
+import { useOrchestratorTaskStore } from "@/stores/orchestratorTaskStore";
 
 const route = useRoute();
 const router = useRouter();
 const workspaceStore = useWorkspaceStore();
 const snackbarStore = useSnackbarStore();
 const chatSession = useChatSessionStore();
+const taskStore = useOrchestratorTaskStore();
 
 const tileId = computed(() => route.params.id as string);
 const tile = computed(() => workspaceStore.findTile(tileId.value));
@@ -115,6 +122,7 @@ const selectedCard = ref<{
   icon?: string;
   detail?: string;
 } | null>(null);
+const activeTask = computed(() => taskStore.activeTaskForDoc(tileId.value));
 
 const goBack = () => router.push("/board");
 
@@ -200,6 +208,38 @@ onBeforeUnmount(() => {
 // AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
 const onAiCommand = (_command: string, _payload?: unknown) => {
   // no-op
+};
+
+const startTask = async (instruction: string) => {
+  try {
+    await taskStore.createTask({
+      docId: tileId.value,
+      instruction,
+    });
+    snackbarStore.showSuccessMessage("编排任务已启动");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`启动编排任务失败：${(error as Error).message}`);
+  }
+};
+
+const resumeTask = async (content: string) => {
+  if (!activeTask.value) return;
+  try {
+    await taskStore.resumeTask(activeTask.value.taskId, content);
+    snackbarStore.showSuccessMessage("已提交补充输入");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`继续执行失败：${(error as Error).message}`);
+  }
+};
+
+const interruptTask = async () => {
+  if (!activeTask.value) return;
+  try {
+    await taskStore.interruptTask(activeTask.value.taskId);
+    snackbarStore.showSuccessMessage("已发送中断请求");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`中断任务失败：${(error as Error).message}`);
+  }
 };
 </script>
 
