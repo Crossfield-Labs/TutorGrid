@@ -43,6 +43,17 @@ function createMainWindow() {
     return { action: "deny" };
   });
 
+  if (isDevelopment) {
+    mainWindow.webContents.on("before-input-event", (event, input) => {
+      const key = input.key.toLowerCase();
+      const toggleDevTools =
+        input.key === "F12" || (input.control && input.shift && key === "i");
+      if (!toggleDevTools) return;
+      event.preventDefault();
+      mainWindow?.webContents.toggleDevTools();
+    });
+  }
+
   if (isDevelopment && devServerUrl) {
     mainWindow.loadURL(new URL("index.html", devServerUrl).toString());
   } else {
@@ -153,7 +164,7 @@ function registerIpcHandlers() {
       await ensureDirs();
       const filename = await uniqueRootName(payload.originalName);
       const fullPath = path.join(workspaceRoot, filename);
-      await fs.promises.writeFile(fullPath, Buffer.from(payload.buffer));
+      await fs.promises.writeFile(fullPath, new Uint8Array(payload.buffer));
       return { relPath: filename };
     }
   );
