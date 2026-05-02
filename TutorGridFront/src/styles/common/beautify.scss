@@ -15,6 +15,16 @@
   background-color: #ccc;
 }
 
+/* 仅隐藏 html/body 根级滚动条（解决"全屏右侧灰白条"问题）。
+   不影响任何子元素的滚动条样式，作者原本好看的滚动条全部保留。
+   页面仍可滚动（鼠标滚轮 / 触控板正常用），只是看不到根级 scrollbar。 */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  background: transparent;
+}
+
 .shadow-1 {
   box-shadow: rgba(99, 99, 99, 0.2) 0px 2px 8px 0px !important;
 }
