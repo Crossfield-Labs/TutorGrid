@@ -29,6 +29,19 @@ const api = {
       ipcRenderer.invoke("workspace:deleteFile", relPath),
     openExternal: (relPath: string) =>
       ipcRenderer.invoke("workspace:openExternal", relPath),
+    // 工作区资源（如背景图）：复制到 <targetRoot>/.assets/，返回相对路径
+    saveAssetTo: (payload: {
+      targetRoot: string;
+      buffer: Uint8Array;
+      originalName: string;
+    }) => ipcRenderer.invoke("workspace:saveAssetTo", payload) as Promise<{
+      relPath: string;
+    }>,
+    // 读 <targetRoot>/<relPath> 返回 Uint8Array（用 new Blob([buf]) 转 blob URL 显示）
+    readAssetFrom: (payload: { targetRoot: string; relPath: string }) =>
+      ipcRenderer.invoke("workspace:readAssetFrom", payload) as Promise<
+        Uint8Array | null
+      >,
   },
   window: {
     minimize: () => ipcRenderer.invoke("window:minimize"),

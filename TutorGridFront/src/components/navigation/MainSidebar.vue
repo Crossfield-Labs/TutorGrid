@@ -6,6 +6,7 @@
 <script setup lang="ts">
 import configs from "@/configs";
 import MainMenu from "@/components/navigation/MainMenu.vue";
+import WorkspaceSection from "@/components/navigation/WorkspaceSection.vue";
 import { useCustomizeThemeStore } from "@/stores/customizeTheme";
 import { Icon } from "@iconify/vue";
 const customizeTheme = useCustomizeThemeStore();
@@ -70,6 +71,11 @@ const scrollToBottom = () => {
     <!-- ---------------------------------------------- -->
 
     <main-menu :menu="navigation.menu"></main-menu>
+
+    <!-- ---------------------------------------------- -->
+    <!---工作区目录（动态来源 projectStore）-->
+    <!-- ---------------------------------------------- -->
+    <WorkspaceSection />
 
     <!-- ---------------------------------------------- -->
     <!---Bottom Area -->

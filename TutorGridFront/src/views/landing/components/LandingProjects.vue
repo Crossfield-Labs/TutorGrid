@@ -205,6 +205,7 @@ const narrowCards = [
     align-items: center;
     gap: 4px;
     position: relative;
+    z-index: 1; /* 整个文字行提上去，盖住装饰图 */
 
     span {
       font-family: "Inter", sans-serif;
@@ -214,6 +215,8 @@ const narrowCards = [
       text-transform: uppercase;
       line-height: normal;
       white-space: nowrap;
+      position: relative; /* 让 z-index 生效 */
+      z-index: 1;
     }
   }
 
@@ -224,6 +227,13 @@ const narrowCards = [
     left: -74px;
     top: -110px;
     pointer-events: none;
+    /* 👇 终极解药：无视父级 inline-flex 的狭窄宽度限制 */
+    max-width: none !important;
+
+    /* 配合使用，确保图片无论尺寸怎么变都不会变形 */
+    object-fit: contain;
+
+    z-index: 0; /* 压到本层底部，不盖文字 */
   }
 }
 </style>

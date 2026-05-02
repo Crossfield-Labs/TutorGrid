@@ -17,11 +17,15 @@ from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
 from backend.rag.service import RagService
 from backend.server.chat_api import router as chat_router
+from backend.workspace_meta import WorkspaceMetaService
 
 
 knowledge_service = KnowledgeBaseService()
 rag_service = RagService(knowledge_service=knowledge_service)
 profile_service = LearningProfileService()
+workspace_meta_service = WorkspaceMetaService(
+    db_path=Path(__file__).resolve().parents[2] / "scratch" / "storage" / "orchestrator.sqlite3"
+)
 
 app = FastAPI(title="TutorGrid Backend B API", version="0.1.0")
 app.add_middleware(
@@ -42,6 +46,31 @@ app.include_router(chat_router)
 knowledge_router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 profile_router = APIRouter(prefix="/api/profile", tags=["profile"])
 config_router = APIRouter(prefix="/api/config", tags=["config"])
+workspace_router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
+hyperdoc_router = APIRouter(prefix="/api/hyperdocs", tags=["hyperdocs"])
+
+
+class WorkspaceAppearance(BaseModel):
+    topBarBg: str = ""    # AppBar 背景图 URL（可空）
+    pageBg: str = ""      # 整页背景图 URL（可空）
+    sidebarColor: str = ""  # Sidebar 色块（可空）
+
+
+class CreateWorkspaceRequest(BaseModel):
+    name: str
+    fsRoot: str  # Electron 选定的本地目录绝对路径
+    appearance: WorkspaceAppearance = Field(default_factory=WorkspaceAppearance)
+
+
+class UpdateWorkspaceRequest(BaseModel):
+    name: str | None = None
+    fsRoot: str | None = None
+    appearance: WorkspaceAppearance | None = None
+
+
+class CreateHyperdocMetaRequest(BaseModel):
+    title: str
+    fileRelPath: str
 
 
 class CreateCourseRequest(BaseModel):
@@ -195,6 +224,87 @@ async def get_mastery(user_id: str = "default", course_id: str = "", limit: int 
     return profile_service.list_l4_mastery(user_id=user_id, course_id=course_id, limit=limit)
 
 
+@workspace_router.get("")
+async def list_workspaces() -> list[dict[str, Any]]:
+    return workspace_meta_service.list_workspaces()
+
+
+@workspace_router.get("/{workspace_id}")
+async def get_workspace(workspace_id: str) -> dict[str, Any]:
+    item = workspace_meta_service.get_workspace(workspace_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    return item
+
+
+@workspace_router.post("")
+async def create_workspace(payload: CreateWorkspaceRequest) -> dict[str, Any]:
+    try:
+        return workspace_meta_service.create_workspace(
+            name=payload.name,
+            fs_root=payload.fsRoot,
+            appearance=payload.appearance.model_dump(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@workspace_router.put("/{workspace_id}")
+async def update_workspace(
+    workspace_id: str, payload: UpdateWorkspaceRequest
+) -> dict[str, Any]:
+    appearance_dict = payload.appearance.model_dump() if payload.appearance else None
+    item = workspace_meta_service.update_workspace(
+        workspace_id,
+        name=payload.name,
+        fs_root=payload.fsRoot,
+        appearance=appearance_dict,
+    )
+    if item is None:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    return item
+
+
+@workspace_router.delete("/{workspace_id}")
+async def delete_workspace(workspace_id: str) -> dict[str, Any]:
+    deleted = workspace_meta_service.delete_workspace(workspace_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="工作区不存在")
+    return {"status": "ok", "id": workspace_id}
+
+
+@workspace_router.get("/{workspace_id}/hyperdocs")
+async def list_workspace_hyperdocs(workspace_id: str) -> list[dict[str, Any]]:
+    try:
+        return workspace_meta_service.list_hyperdocs(workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@workspace_router.post("/{workspace_id}/hyperdocs")
+async def create_workspace_hyperdoc(
+    workspace_id: str, payload: CreateHyperdocMetaRequest
+) -> dict[str, Any]:
+    try:
+        return workspace_meta_service.create_hyperdoc(
+            workspace_id=workspace_id,
+            title=payload.title,
+            file_rel_path=payload.fileRelPath,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@hyperdoc_router.delete("/{hyperdoc_id}")
+async def delete_hyperdoc_meta(hyperdoc_id: str) -> dict[str, Any]:
+    deleted = workspace_meta_service.delete_hyperdoc(hyperdoc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Hyperdoc 不存在")
+    return {"status": "ok", "id": hyperdoc_id}
+
+
 app.include_router(knowledge_router)
 app.include_router(profile_router)
 app.include_router(config_router)
+app.include_router(workspace_router)
+app.include_router(hyperdoc_router)

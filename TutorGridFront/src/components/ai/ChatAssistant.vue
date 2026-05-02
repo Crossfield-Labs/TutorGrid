@@ -31,8 +31,12 @@ const inputRow = ref(1);
 const dialog = ref(false);
 
 const sessionId = computed(() => chatSession.currentSessionId);
+// 解耦文档/Chat：浮窗只显示 origin === 'chat' 的消息（或 origin 缺失的旧数据，兼容）
+// 文档内 AI 气泡（origin === 'document'）由 TipTap 节点单独渲染，不出现在浮窗
 const messages = computed(() =>
-  messageStore.getSessionMessages(sessionId.value)
+  messageStore
+    .getSessionMessages(sessionId.value)
+    .filter((m) => m.metadata?.origin !== "document")
 );
 
 const renderAi = (text: string) => postProcessLinks(renderMarkdown(text));

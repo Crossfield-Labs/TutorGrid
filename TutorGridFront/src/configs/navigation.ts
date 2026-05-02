@@ -1,7 +1,10 @@
 
 import menuLanding from "./menus/landing.menu";
 import menuUI from "./menus/ui.menu";
-import menuPages from "./menus/pages.menu";
+
+// 注：原 "Pages" 区块（权限页面）已迁移；
+// "工作区"目录由 components/navigation/WorkspaceSection.vue 动态渲染
+// （数据源：projectStore），不再走 navigation.ts 静态配置。
 
 export default {
   menu: [
@@ -9,7 +12,6 @@ export default {
       text: "",
       items: [
         {
-
           text: "仪表盘",
           link: "/dashboard",
           icon: "mdi-view-dashboard-outline",
@@ -26,22 +28,14 @@ export default {
         },
       ],
     },
-    
+
     {
       text: "Landing",
-      items: [
-        ...menuLanding,
-
-      ],
+      items: [...menuLanding],
     },
     {
       text: "UI - Theme Preview",
       items: menuUI,
     },
-    {
-      text: "Pages",
-      items: menuPages,
-    },
-
   ],
 };

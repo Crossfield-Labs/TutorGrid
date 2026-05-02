@@ -29,6 +29,16 @@ export const routes = [
     component: () => import("@/views/pages/BoardPage.vue"),
   },
   {
+    // 进入指定工作区 = BoardPage + 路由参数同步 projectStore.setCurrent
+    path: "/projects/:id",
+    name: "project-board",
+    meta: {
+      requiresAuth: true,
+      layout: "landing",
+    },
+    component: () => import("@/views/pages/BoardPage.vue"),
+  },
+  {
     path: "/settings",
     meta: {
       requiresAuth: true,

@@ -310,7 +310,8 @@ function createMainWindow() {
     show: false,
     title: "TutorGrid",
     icon: fs.existsSync(APP_ICON_PNG) ? APP_ICON_PNG : APP_ICON_FALLBACK,
-    titleBarStyle: "hidden",
+    frame: false,             // 去掉 Windows 系统级 1-2px 客户区边框（拖拽 region 在 MainAppbar.vue 里已实现）
+    titleBarStyle: "hidden",  // 保留：让 macOS 有交通灯按钮
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -551,6 +552,57 @@ function registerIpcHandlers() {
     const fullPath = resolveSafe(relPath);
     await shell.openPath(fullPath);
   });
+
+  // -------- 工作区资源（背景图等）：保存到 <targetRoot>/.assets/ ----------
+  // 不依赖当前 workspaceRoot，因为创建工作区时新 root 还没切过来
+  ipcMain.handle(
+    "workspace:saveAssetTo",
+    async (
+      _,
+      payload: { targetRoot: string; buffer: Uint8Array; originalName: string }
+    ): Promise<{ relPath: string }> => {
+      const { targetRoot, buffer, originalName } = payload;
+      if (!targetRoot || !fs.existsSync(targetRoot)) {
+        throw new Error(`目标目录不存在: ${targetRoot}`);
+      }
+      const assetsDir = path.join(targetRoot, ".assets");
+      if (!fs.existsSync(assetsDir)) {
+        fs.mkdirSync(assetsDir, { recursive: true });
+      }
+      const ext = (path.extname(originalName) || ".jpg").toLowerCase();
+      const newName = `${randomUUID()}${ext}`;
+      const fullPath = path.join(assetsDir, newName);
+      // 直接传 Uint8Array（fs.writeFile 接受 ArrayBufferView）
+      await fs.promises.writeFile(fullPath, buffer);
+      // 返回相对 targetRoot 的路径，统一用 POSIX 斜杠
+      return { relPath: `.assets/${newName}` };
+    }
+  );
+
+  ipcMain.handle(
+    "workspace:readAssetFrom",
+    async (
+      _,
+      payload: { targetRoot: string; relPath: string }
+    ): Promise<Uint8Array | null> => {
+      const { targetRoot, relPath } = payload;
+      if (!targetRoot || !relPath) return null;
+      // 安全：禁止 .. 跳出 targetRoot
+      const fullPath = path.resolve(targetRoot, relPath);
+      const normRoot = path.resolve(targetRoot);
+      if (!fullPath.startsWith(normRoot)) {
+        throw new Error(`非法路径: ${relPath}`);
+      }
+      try {
+        const buf = await fs.promises.readFile(fullPath);
+        // 返回 Uint8Array（IPC 可序列化），renderer 用 new Blob([uint8]) 转 blob URL
+        return new Uint8Array(buf);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw e;
+      }
+    }
+  );
 
   ipcMain.handle("window:minimize", () => {
     mainWindow?.minimize();

@@ -140,6 +140,26 @@ export const useWorkspaceStore = defineStore("workspace", {
   },
 
   actions: {
+    /**
+     * 切换工作区根目录（projectStore 调用，联动磁贴重新加载）
+     * 仅在 Electron 环境下生效。
+     */
+    async setWorkspaceRoot(newRoot: string) {
+      const api = getApi();
+      if (!api || !newRoot) return;
+      try {
+        await api.setRoot(newRoot);
+        this.root = newRoot;
+        this.loaded = false;
+        this.tiles = [];
+        this.missing = {};
+        await this.init();
+      } catch (e) {
+        console.error("[workspaceStore] setWorkspaceRoot failed", e);
+        useSnackbarStore().showErrorMessage(`切换工作区失败: ${String(e)}`);
+      }
+    },
+
     async init() {
       if (this.loaded) return;
       const api = getApi();
