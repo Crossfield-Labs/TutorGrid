@@ -107,5 +107,32 @@ class DelegateRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(registry.get("codex").calls), 1)
         self.assertGreaterEqual(len(session.worker_runs), 2)
 
+    async def test_delegate_returns_explicit_fallback_hint_when_all_workers_fail(self) -> None:
+        registry = _FakeRegistry(
+            {
+                "opencode": _FakeWorker("opencode", succeed=False),
+                "codex": _FakeWorker("codex", succeed=False),
+            }
+        )
+        session = _FakeSession()
+
+        result_json = await delegate_task(
+            task="Please implement this fix",
+            worker="",
+            session_mode="",
+            session_key="",
+            profile="",
+            workspace="D:/works/pc_orchestrator_core",
+            worker_registry=registry,
+            session=session,
+        )
+
+        result = json.loads(result_json)
+        self.assertEqual(result["worker"], "fallback")
+        self.assertFalse(result["success"])
+        self.assertTrue(result["metadata"]["fallback_recommended"])
+        self.assertEqual(result["metadata"]["attempted_workers"], ["opencode", "codex"])
+        self.assertIn("Fall back to pure LLM reasoning", result["summary"])
+
 
 

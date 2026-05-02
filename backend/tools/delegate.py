@@ -236,6 +236,19 @@ async def delegate_task(
 
     if last_result is None:
         raise RuntimeError("No worker attempts were executed.")
-    return last_result.to_json()
+    fallback_result = WorkerResult(
+        worker="fallback",
+        success=False,
+        summary="All worker backends are unavailable. Fall back to pure LLM reasoning without CLI execution.",
+        output="",
+        error=previous_error,
+        metadata={
+            "fallback_recommended": True,
+            "attempted_workers": attempts,
+        },
+    )
+    if session is not None:
+        session.set_latest_summary(fallback_result.summary)
+    return fallback_result.to_json()
 
 

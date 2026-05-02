@@ -12,6 +12,12 @@ from backend.runtime.state import RuntimeState, create_initial_state
 from backend.sessions.state import OrchestratorSessionState
 from backend.tools import build_langchain_tools, build_tool_definitions, build_tool_map
 from backend.workers.registry import WorkerRegistry
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+    from langgraph.types import Command
+except Exception:  # pragma: no cover
+    MemorySaver = None
+    Command = None
 
 AwaitUserCallback = Callable[[str, str | None], Awaitable[str]]
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
@@ -19,7 +25,17 @@ SubstepCallback = Callable[[str, str, str, str | None], Awaitable[None]]
 MessageEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
+class RuntimePaused(Exception):
+    def __init__(self, state: RuntimeState, *, prompt: str = "", input_mode: str = "text") -> None:
+        super().__init__(prompt or "Runtime paused for user input.")
+        self.state = state
+        self.prompt = prompt
+        self.input_mode = input_mode
+
+
 class OrchestratorRuntime:
+    _CHECKPOINTER = MemorySaver() if MemorySaver is not None else None
+
     def __init__(
         self,
         *,
@@ -35,7 +51,7 @@ class OrchestratorRuntime:
         self.emit_substep = emit_substep
         self.emit_message_event = emit_message_event
         self.config = load_config()
-        self.graph_build = build_runtime_graph()
+        self.graph_build = build_runtime_graph(checkpointer=self._CHECKPOINTER)
         self.planner = PlannerRuntime(self.config)
         self.worker_registry = WorkerRegistry(self.config)
         self.memory_service = MemoryService()
@@ -99,7 +115,23 @@ class OrchestratorRuntime:
         }
         recursion_limit = max(50, int(self.config.max_iterations) * 6)
         try:
-            final_state = await self._run_graph_stream(state=state, recursion_limit=recursion_limit)
+            runtime_input: RuntimeState | Any = state
+            resume_payload = self.session.context.pop("_resume_payload", None)
+            if resume_payload is not None and Command is not None:
+                runtime_input = Command(
+                    resume=resume_payload,
+                    update={
+                        "context": state["context"],
+                        "followups": list(self.session.followups),
+                        "worker_sessions": dict(self.session.worker_sessions),
+                        "stop_reason": str(self.session.stop_reason or ""),
+                    },
+                )
+            final_state = await self._run_graph_stream(
+                input_value=runtime_input,
+                state=state,
+                recursion_limit=recursion_limit,
+            )
             self._apply_runtime_state(final_state)
             self.tracer.end_run(
                 run_id,
@@ -123,28 +155,57 @@ class OrchestratorRuntime:
             )
             raise
 
-    async def _run_graph_stream(self, *, state: RuntimeState, recursion_limit: int) -> RuntimeState:
+    async def _run_graph_stream(self, *, input_value: Any, state: RuntimeState, recursion_limit: int) -> RuntimeState:
         graph = self.graph_build.graph
-        config = {"recursion_limit": recursion_limit}
+        config = {
+            "recursion_limit": recursion_limit,
+            "configurable": {"thread_id": self.session.session_id},
+        }
         latest_state = RuntimeState(**dict(state))
 
         if hasattr(graph, "astream"):
             astream_kwargs: dict[str, Any] = {"stream_mode": ["custom", "values"]}
             if self._supports_kwarg(graph.astream, "version"):
                 astream_kwargs["version"] = "v2"
-            async for mode, payload in graph.astream(state, config=config, **astream_kwargs):
+            async for mode, payload in graph.astream(input_value, config=config, **astream_kwargs):
                 if mode == "values" and isinstance(payload, dict):
                     latest_state = RuntimeState(**{**dict(latest_state), **payload})
                     continue
                 if mode == "custom" and isinstance(payload, dict):
                     await self._handle_custom_stream_event(payload)
-            return latest_state
+            return self._resolve_graph_completion(graph=graph, config=config, state=latest_state)
 
         ainvoke_kwargs: dict[str, Any] = {}
         if self._supports_kwarg(graph.ainvoke, "version"):
             ainvoke_kwargs["version"] = "v2"
-        result = await graph.ainvoke(state, config=config, **ainvoke_kwargs)
-        return RuntimeState(**{**dict(state), **dict(result)})
+        result = await graph.ainvoke(input_value, config=config, **ainvoke_kwargs)
+        latest_state = RuntimeState(**{**dict(state), **dict(result or {})})
+        return self._resolve_graph_completion(graph=graph, config=config, state=latest_state)
+
+    def _resolve_graph_completion(self, *, graph: Any, config: dict[str, Any], state: RuntimeState) -> RuntimeState:
+        get_state = getattr(graph, "get_state", None)
+        if not callable(get_state):
+            return state
+        graph_state = get_state(config)
+        values = getattr(graph_state, "values", None)
+        if isinstance(values, dict):
+            state = RuntimeState(**{**dict(state), **values})
+        for task in list(getattr(graph_state, "tasks", ()) or ()):
+            interrupts = list(getattr(task, "interrupts", ()) or ())
+            if not interrupts:
+                continue
+            prompt = ""
+            input_mode = "text"
+            value = getattr(interrupts[0], "value", None)
+            if isinstance(value, dict):
+                prompt = str(value.get("prompt") or "")
+                input_mode = str(value.get("input_mode") or "text")
+            state["awaiting_input"] = True
+            state["pending_user_prompt"] = prompt
+            state["phase"] = "awaiting_user"
+            state["status"] = "RUNNING"
+            raise RuntimePaused(state, prompt=prompt, input_mode=input_mode)
+        return state
 
     async def _handle_custom_stream_event(self, payload: dict[str, Any]) -> None:
         kind = str(payload.get("kind") or "").strip().lower()
@@ -152,6 +213,14 @@ class OrchestratorRuntime:
             await self.emit_progress(
                 str(payload.get("message") or ""),
                 float(payload["progress"]) if payload.get("progress") is not None else None,
+            )
+            return
+        if kind == "substep" and self.emit_substep is not None:
+            await self.emit_substep(
+                str(payload.get("substep_kind") or "runtime"),
+                str(payload.get("title") or ""),
+                str(payload.get("status") or "running"),
+                str(payload.get("detail") or ""),
             )
 
     @staticmethod

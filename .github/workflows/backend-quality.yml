@@ -27,11 +27,11 @@ jobs:
 
       - name: Validate JSON config files
         run: |
-          python -c "import json, pathlib; [json.loads(pathlib.Path(name).read_text(encoding='utf-8')) for name in ('config.example.json',)]"
+          python -c "import json, pathlib; [json.loads(pathlib.Path(name).read_text(encoding='utf-8-sig')) for name in ('config.example.json',)]"
 
       - name: Validate harness task files
         run: |
-          python -c "import json, pathlib; [json.loads(path.read_text(encoding='utf-8')) for path in pathlib.Path('harness/tasks').glob('*.json')]"
+          python -c "import json, pathlib; [json.loads(path.read_text(encoding='utf-8-sig')) for path in pathlib.Path('harness/tasks').glob('*.json')]"
 
       - name: Compile project source tree
         run: |

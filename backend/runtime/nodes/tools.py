@@ -23,9 +23,50 @@ async def tools_node(state: RuntimeState) -> RuntimeState:
     for call in planned_calls:
         tool_name = str(call.get("tool") or "").strip()
         arguments = dict(call.get("arguments") or {})
-        tool = tool_map.get(tool_name)
         phase = _phase_for_tool(tool_name)
         next_state["phase"] = phase
+        if tool_name == "await_user":
+            prompt = str(arguments.get("message") or "User input is required.").strip() or "User input is required."
+            input_mode = str(arguments.get("input_mode") or "text").strip() or "text"
+            if emit_substep is not None:
+                await emit_substep("tool", tool_name, "started", prompt)
+            substeps.append({"kind": "tool", "title": tool_name, "status": "started", "detail": prompt})
+            tool_events.append(
+                {
+                    "tool": tool_name,
+                    "arguments": arguments,
+                    "result": "Awaiting user input.",
+                }
+            )
+            next_state["awaiting_input"] = True
+            next_state["pending_user_prompt"] = prompt
+            next_state["last_progress_message"] = "Graph is waiting for user input."
+            if session is not None:
+                session.context["pending_user_input_mode"] = input_mode
+            next_state["messages"] = messages
+            next_state["tool_results"] = executed_results
+            next_state["tool_events"] = tool_events
+            next_state["substeps"] = substeps
+            next_state["planned_tool_calls"] = []
+            if session is not None:
+                next_state["followups"] = list(session.followups)
+                next_state["artifacts"] = list(session.artifacts)
+                next_state["worker_runs"] = list(session.worker_runs)
+                next_state["worker_sessions"] = dict(session.worker_sessions)
+                next_state["active_worker"] = str(session.active_worker or "")
+                next_state["active_session_mode"] = str(session.active_session_mode or "")
+                next_state["active_worker_profile"] = str(session.active_worker_profile or "")
+                next_state["active_worker_task_id"] = str(session.active_worker_task_id or "")
+                next_state["active_worker_can_interrupt"] = bool(session.active_worker_can_interrupt)
+                next_state["latest_artifact_summary"] = str(session.latest_artifact_summary or "")
+            await sync_session_from_runtime_state(
+                next_state,
+                emit_progress=runtime_context.get("emit_progress"),
+                progress=0.72,
+            )
+            return next_state
+
+        tool = tool_map.get(tool_name)
         if tool is None:
             if emit_substep is not None:
                 await emit_substep("tool", tool_name, "failed", f"Tool '{tool_name}' is not registered.")

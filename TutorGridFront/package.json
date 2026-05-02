@@ -1,5 +1,5 @@
 {
-  "name": "vuetify3-design",
+  "name": "tutorgrid-desktop",
   "version": "0.0.0",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -14,8 +14,8 @@
     "coverage": "vitest run --coverage"
   },
   "build": {
-    "appId": "cn.concreteai.metaagent",
-    "productName": "MetaAgent",
+    "appId": "cn.concreteai.tutorgrid",
+    "productName": "TutorGrid",
     "directories": {
       "output": "release"
     },
@@ -24,7 +24,12 @@
       "dist-electron/**/*"
     ],
     "win": {
+      "icon": "build/icons/app-icon.ico",
       "target": "nsis"
+    },
+    "nsis": {
+      "installerIcon": "build/icons/app-icon.ico",
+      "uninstallerIcon": "build/icons/app-icon.ico"
     }
   },
   "dependencies": {

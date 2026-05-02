@@ -55,6 +55,11 @@ F04 不是重写后端，而是在现有后端上做协议适配。
 - 完成 / 失败 / 产物 -> `orchestrator.task.result`
 - 等待用户输入 -> `orchestrator.task.awaiting_user`
 
+当前已落地的关键行为：
+- `task.resume` 先兼容旧 waiter 恢复路径
+- 对 graph 原生 `interrupt()` 暂停的任务，`task.resume` 会写入 `_resume_payload` 并重新拉起 runtime
+- `task.result` 会带 `worker_runs` 与结构化 `artifacts`
+
 ## 旧协议的定位
 
 仓库里现有的 `orchestrator.session.*` 仍然存在，但在 F04 阶段的定位是：
