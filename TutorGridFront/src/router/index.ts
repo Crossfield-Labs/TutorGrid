@@ -26,6 +26,14 @@ export const routes = [
     component: () => import("@/views/pages/BoardPage.vue"),
   },
   {
+    path: "/settings",
+    meta: {
+      requiresAuth: true,
+      layout: "landing",
+    },
+    component: () => import("@/views/pages/SettingsPage.vue"),
+  },
+  {
     path: "/hyperdoc/:id",
     meta: {
       requiresAuth: true,

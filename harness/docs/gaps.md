@@ -279,17 +279,20 @@ LangChain 负责“节点里怎么和模型、消息、工具交互”。
    - 目标是为 GUI 和恢复能力打底
    - 设计文档：`../docs/persistence.md`
 
-2. 再补 WebSocket 协议的会话列表、历史查询、trace 拉取
-   - 目标是让 GUI 不必直接碰 runtime 内部对象
-   - 设计文档：`../docs/gui-protocol.md`
+2. 先完成 F04 的任务级编排协议适配
+   - 目标是让前端改走 `orchestrator.task.*`
+   - 设计文档：`../../docs/orchestrator-v5-protocol.md`
 
-3. 然后做 TypeScript GUI 第一版
+3. 再看是否还需要继续保留旧 session 调试协议的回归能力
+   - 目标是区分“前端主契约”和“历史调试通道”
+
+4. 然后做 TypeScript GUI 第一版
    - 目标是先把会话列表、时间线、状态侧栏跑起来
 
-4. 再补上下文压缩和恢复
+5. 再补上下文压缩和恢复
    - 目标是让长会话真正可用
 
-5. 最后补 TUI 和端到端协议回归
+6. 最后补 TUI 和端到端协议回归
    - 目标是统一产品入口和开发入口
 
 ## 文档维护要求

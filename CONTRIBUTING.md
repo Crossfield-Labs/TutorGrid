@@ -4,7 +4,7 @@
 
 基本规则：
 - 后端实现统一落在 `backend/`
-- 前端实现统一落在 `frontend/`
+- 前端实现统一落在 `TutorGridFront/`
 - `README.md` 是给人看的根入口
 - `AGENTS.md` 是给 agent 看的根入口
 - 详细架构和长文档放在 `docs/`
@@ -21,14 +21,14 @@
 最小验证基线：
 - `python -m compileall backend tests`
 - `python -m backend.dev.run_runtime "test task" --workspace <workspace>`
-- `python -m backend.main --host 127.0.0.1 --port 3210`
-- 如果改了协议或会话流程，再跑桌面前端和 WebSocket 路径
+- `python -m uvicorn backend.http_main:app --host 127.0.0.1 --port 8000`
+- 如果改了协议或会话流程，再跑桌面前端，并验证 `SSE / REST` 路径
 
 CI 约定：
 - 常规质量检查、文档检查、后端测试、harness smoke、frontend build、release 打包分成独立 workflow
 - `tests/` 已进入 CI，但不再只靠单个 `discover` job；按模块拆成多组 job，便于定位失败归属
-- 改动 `frontend/` 时，至少保证前端构建链路可过
-- 改动 `harness/`、协议或 WebSocket 行为时，至少保证 harness smoke 路径可过
+- 改动 `TutorGridFront/` 时，至少保证前端构建链路可过
+- 改动 `harness/`、协议或前后端联调行为时，至少保证对应 smoke 路径可过
 
 文档分层：
 - 根目录文档：入口、协作方式、短说明

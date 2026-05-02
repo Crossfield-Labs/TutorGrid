@@ -1,9 +1,9 @@
 import { defineStore } from "pinia";
-import { useOrchestratorStore } from "@/stores/orchestratorStore";
 
 const COURSE_STORAGE_KEY = "metaagent.defaultCourseId";
 const DEFAULT_COURSE_NAME = "MetaAgent 默认课程";
 const DEFAULT_COURSE_DESC = "演示用：所有入库文件归档于此";
+const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 
 export interface KnowledgeFile {
   fileId: string;
@@ -14,6 +14,30 @@ export interface KnowledgeFile {
   parseError?: string;
   fileExt?: string;
   createdAt?: string;
+}
+
+function apiUrl(path: string): string {
+  return `${DEFAULT_API_BASE_URL}${path}`;
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(apiUrl(path));
+  if (!res.ok) {
+    throw new Error(`GET ${path} 失败: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function apiPostJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(apiUrl(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`POST ${path} 失败: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
 }
 
 export const useKnowledgeStore = defineStore("knowledge", {
@@ -44,12 +68,10 @@ export const useKnowledgeStore = defineStore("knowledge", {
       this.initializing = true;
       try {
         const cached = localStorage.getItem(COURSE_STORAGE_KEY) || "";
-        const orchestrator = useOrchestratorStore();
 
         if (cached) {
           try {
-            const list = await orchestrator.knowledgeCourseList({ limit: 200 });
-            const items: any[] = list?.items || list?.courses || [];
+            const items = await apiGet<any[]>(`/api/knowledge/courses?limit=200`);
             const found = items.find((c) => c.courseId === cached);
             if (found) {
               this.courseId = cached;
@@ -61,9 +83,9 @@ export const useKnowledgeStore = defineStore("knowledge", {
           }
         }
 
-        const created = await orchestrator.knowledgeCourseCreate({
-          courseName: DEFAULT_COURSE_NAME,
-          courseDescription: DEFAULT_COURSE_DESC,
+        const created = await apiPostJson<any>("/api/knowledge/courses", {
+          name: DEFAULT_COURSE_NAME,
+          description: DEFAULT_COURSE_DESC,
         });
         const cid =
           created?.courseId || created?.id || created?.course?.courseId || "";
@@ -81,12 +103,9 @@ export const useKnowledgeStore = defineStore("knowledge", {
       if (!this.courseId) return;
       this.loading = true;
       try {
-        const orchestrator = useOrchestratorStore();
-        const res = await orchestrator.knowledgeFileList({
-          courseId: this.courseId,
-          limit: 500,
-        });
-        const items: any[] = res?.items || res?.files || [];
+        const items = await apiGet<any[]>(
+          `/api/knowledge/courses/${encodeURIComponent(this.courseId)}/files?limit=500`
+        );
         // preserve previously-known chunkCount across reloads (list_files doesn't return it)
         const prevChunks = new Map<string, number>(
           this.files.map((f) => [f.fileId, f.chunkCount || 0])
@@ -114,12 +133,13 @@ export const useKnowledgeStore = defineStore("knowledge", {
 
     async ingestFile(opts: { absolutePath: string; fileName: string }) {
       const courseId = await this.ensureDefaultCourse();
-      const orchestrator = useOrchestratorStore();
-      const res = await orchestrator.knowledgeFileIngest({
-        courseId,
-        filePath: opts.absolutePath,
-        fileName: opts.fileName,
-      });
+      const res = await apiPostJson<any>(
+        `/api/knowledge/courses/${encodeURIComponent(courseId)}/files/import-local`,
+        {
+          file_path: opts.absolutePath,
+          file_name: opts.fileName,
+        }
+      );
       await this.refreshFiles();
       // patch chunkCount from ingest response (file.list doesn't expose it)
       const fid = res?.fileId || "";
@@ -129,6 +149,15 @@ export const useKnowledgeStore = defineStore("knowledge", {
         if (f) f.chunkCount = chunks;
       }
       return res;
+    },
+
+    async ragQuery(question: string, limit = 5) {
+      const courseId = await this.ensureDefaultCourse();
+      return apiPostJson<any>("/api/knowledge/rag/query", {
+        course_id: courseId,
+        question,
+        limit,
+      });
     },
 
     reset() {

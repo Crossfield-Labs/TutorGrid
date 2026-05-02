@@ -29,7 +29,7 @@
 - `deprecated.md`：当前存在但不建议继续扩展的目录
 
 连续开发建议：
-1. 先读 `../../docs/persistence.md`、`../../docs/gui-protocol.md`、`../../docs/harness.md`
+1. 先读 `../../docs/persistence.md`、`../../docs/orchestrator-v5-protocol.md`、`../../docs/harness.md`
 2. 再读 `gaps.md`，明确当前还没补齐的行为缺口
 3. 再读对应模块文档，定位代码入口
 4. 修改后同步回写 `gaps.md` 的状态，避免下一个接手者重复判断

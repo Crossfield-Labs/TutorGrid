@@ -7,26 +7,26 @@
 当前下一阶段优先级已经调整为：
 - GUI 优先
 - TypeScript 前端
-- WebSocket 协议复用
+- Chat 走 `SSE`，知识库 / 配置 / 画像走 `REST`
 - TUI 后补
-- 当前第一版前端代码骨架位于 `frontend/`
-- 当前技术栈：`Electron + Vite + React + TypeScript + MUI`
+- 当前真实前端代码位于 `TutorGridFront/`
+- 当前技术栈：`Electron + Vite + Vue 3 + TypeScript + Vuetify + Pinia`
 - 当前路线：桌面应用优先
 
 详细前后端协作与协议边界，优先参考：
-- `../../docs/gui-protocol.md`
+- `../../docs/orchestrator-v5-protocol.md`
 - `../../docs/harness.md`
 
 ## 前端实现规范（必须遵守）
 
-前端组件库统一使用 `MUI`（Material UI）。
+前端组件库统一使用 `Vuetify 3`。
 
 约束：
-- 页面结构、输入控件、列表、按钮、表单、标签等，优先使用 `@mui/material` 组件
-- 图标统一使用 `@mui/icons-material`
-- 主题统一通过 MUI `ThemeProvider` 与 `createTheme` 管理
-- 样式优先使用 MUI 的 `sx` / theme token，不再新增一套独立的手写布局样式体系
-- 仅在 MUI 无法覆盖的局部场景下，才允许小范围补充自定义样式
+- 页面结构、输入控件、列表、按钮、表单、标签等，优先使用 `vuetify` 组件
+- 图标优先复用当前项目已接入的 `@mdi/font` / `@iconify/vue`
+- 主题统一通过 Vuetify theme 管理，不再额外并行维护第二套组件体系
+- 状态管理优先复用 `Pinia`
+- 仅在 Vuetify 无法覆盖的局部场景下，才允许小范围补充自定义样式
 
 ## 前端不应该直接依赖什么
 
@@ -36,12 +36,11 @@
 - `session.context` 里的弱结构字段
 
 前端应该依赖：
-- `backend/server/protocol.py` 的稳定事件模型
-- `backend/sessions/state.py` 投影出来的 snapshot 字段
-- 后续会补的历史查询和 trace 拉取接口
+- `backend/server/chat_api.py` 的 Chat SSE 事件格式
+- `backend/server/http_app.py` 的 REST API
 - 当前前端协议封装：
-  - `frontend/src/lib/protocol.ts`
-  - `frontend/src/lib/ws-client.ts`
+  - `TutorGridFront/src/lib/chat-sse.ts`
+  - `TutorGridFront/src/stores/knowledgeStore.ts`
 
 ## GUI 第一版建议页面
 
@@ -56,10 +55,10 @@
 1. 会话列表骨架
 2. 历史时间线拉取与渲染
 3. 状态侧栏与 snapshot 详情
-4. WebSocket 连接壳
+4. Chat SSE 连接壳
 5. 统一输入模型：new / reply / redirect / instruction / explain / interrupt
 6. Electron 桌面壳骨架
-7. MUI 组件化重构（移除主流程对手写 `app.css` 的依赖）
+7. Vuetify 组件化页面骨架与 Pinia 状态接入
 
 当前还没落地：
 1. artifact 预览
@@ -67,9 +66,9 @@
 3. 打包态下的内置后端联调验证
 
 设置页约束：
-- 继续统一使用 MUI 组件实现
-- 布局优先使用 `Paper / Divider / FormControl / Select / Switch / Alert / LinearProgress`
-- 保存、加载、同步状态时，优先使用 Material 的标准反馈组件，不要手搓进度条和状态条
+- 继续统一使用 Vuetify 组件实现
+- 布局优先使用 `VCard / VDivider / VForm / VSelect / VSwitch / VAlert / VProgressLinear`
+- 保存、加载、同步状态时，优先使用 Vuetify 标准反馈组件，不要手搓进度条和状态条
 - 运行时设置现在至少覆盖：连接、模型/API、记忆召回、自动整理策略
 - 记忆区需要提供显式的“立即整理记忆”入口
 - Inspector 需要支持概览、trace、errors、artifacts 四类真实数据页签
@@ -114,6 +113,7 @@ LangChain 也不在前端运行，但会影响前端展示内容。
 - 前端通信协议变化
 - 前端依赖字段变化
 - TypeScript 前端目录规划变化
-- MUI 主题和组件使用策略变化
+- Vuetify 主题和组件使用策略变化
+- Electron 自动拉起本地后端的方式变化
 
 

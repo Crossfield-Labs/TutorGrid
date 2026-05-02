@@ -9,14 +9,14 @@
 - 面向 agent 的模块导航与 harness 入口放在 [harness/](harness/)
 
 当前范围：
-- `backend/server/`：WebSocket 入口与协议处理
+- `backend/server/`：HTTP / SSE / WebSocket 协议入口
 - `backend/sessions/`：会话状态与会话管理
 - `backend/runtime/`：基于 LangGraph 的运行时骨架
 - `backend/db/`、`backend/storage/`、`backend/memory/`：ORM 持久化、会话存储与记忆层
 - `backend/llm/`、`backend/tools/`、`backend/workers/`、`backend/providers/`：执行能力栈
 - `backend/runners/`：把外部请求接入运行时
 - `harness/`：任务定义、统一执行入口、结果产物与基础评测
-- `frontend/`：桌面应用前端（Electron + React + TypeScript）
+- `TutorGridFront/`：桌面应用前端（Electron + Vue 3 + TypeScript + Vuetify）
 - 下一阶段重点：`GUI + 持久化 + 上下文压缩`
 
 快速开始：
@@ -24,21 +24,20 @@
 ```powershell
 python -m pip install -r requirements.txt
 python -m compileall .
-python -m backend.main --host 127.0.0.1 --port 3210
 ```
 
 桌面应用启动方式：
 
 ```powershell
-cd frontend
-npm install
-npm run dev
+cd TutorGridFront
+yarn install
+yarn electron:dev
 ```
 
 当前桌面前端架构：
-- UI：`React + TypeScript`
+- UI：`Vue 3 + TypeScript + Vuetify`
 - 桌面壳：`Electron`
-- 后端：位于 `backend/`，本地通过 `WebSocket` 与桌面前端联调
+- 后端：位于 `backend/`，当前桌面前端通过 `SSE + REST` 联调，并在 Electron 启动时自动拉起本地 `FastAPI` 后端（默认 `http://127.0.0.1:8000`）
 
 配置说明：
 - 用 `config.example.json` 作为本地 `config.json` 模板
@@ -49,6 +48,7 @@ npm run dev
 - 协作方式：[CONTRIBUTING.md](./CONTRIBUTING.md)
 - agent 接手入口：[AGENTS.md](./AGENTS.md)
 - 详细项目文档：[docs/README.md](docs/README.md)
+- V5 编排协议：[docs/orchestrator-v5-protocol.md](docs/orchestrator-v5-protocol.md)
 - Harness 说明：[docs/harness.md](docs/harness.md)
 - harness 模块导航：[harness/docs/README.md](harness/docs/README.md)
 

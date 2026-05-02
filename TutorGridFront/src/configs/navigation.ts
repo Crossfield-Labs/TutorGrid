@@ -19,6 +19,11 @@ export default {
           link: "/board",
           icon: "mdi-draw",
         },
+        {
+          text: "偏好设置",
+          link: "/settings",
+          icon: "mdi-cog-outline",
+        },
       ],
     },
     

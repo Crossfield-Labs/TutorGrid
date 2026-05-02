@@ -3,12 +3,12 @@ name: frontend-build
 on:
   pull_request:
     paths:
-      - "frontend/**"
+      - "TutorGridFront/**"
       - ".github/workflows/frontend-build.yml"
       - ".github/actions/setup-frontend/**"
   push:
     paths:
-      - "frontend/**"
+      - "TutorGridFront/**"
       - ".github/workflows/frontend-build.yml"
       - ".github/actions/setup-frontend/**"
   workflow_dispatch:
@@ -32,6 +32,6 @@ jobs:
           node-version: "20"
 
       - name: Build frontend
-        working-directory: frontend
+        working-directory: TutorGridFront
         run: |
-          npm run build
+          yarn build
