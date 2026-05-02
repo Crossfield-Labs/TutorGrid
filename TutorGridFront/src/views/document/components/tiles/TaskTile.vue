@@ -18,7 +18,7 @@
       />
     </div>
 
-    <div class="d-flex flex-column ga-3 flex-fill">
+    <div class="d-flex flex-column ga-2 flex-fill">
       <template v-if="task">
         <div class="d-flex align-start justify-space-between ga-2">
           <div class="flex-fill min-w-0">
@@ -34,8 +34,9 @@
           </v-chip>
         </div>
 
+        <!-- 执行进度 -->
         <div>
-          <div class="d-flex align-center justify-space-between text-caption mb-2">
+          <div class="d-flex align-center justify-space-between text-caption mb-1">
             <span class="text-medium-emphasis">执行进度</span>
             <span class="font-weight-medium">{{ progressLabel }}</span>
           </div>
@@ -48,10 +49,36 @@
           />
         </div>
 
+        <!-- 步骤列表（带状态图标）—— F09 新增 -->
+        <div v-if="showStepList" class="step-list">
+          <div
+            v-for="step in task.steps"
+            :key="step.phase"
+            class="step-item d-flex align-center ga-2"
+          >
+            <v-icon
+              :icon="stepIcon(step.status)"
+              :color="stepColor(step.status)"
+              size="16"
+              class="flex-shrink-0"
+            />
+            <span class="text-caption flex-fill">{{ step.name }}</span>
+            <v-chip
+              size="x-small"
+              variant="tonal"
+              :color="stepColor(step.status)"
+              class="ml-auto"
+            >
+              {{ stepMiniLabel(step.status) }}
+            </v-chip>
+          </div>
+        </div>
+
+        <!-- 元信息卡片 -->
         <v-row v-if="showMetaList" dense>
           <v-col cols="6">
             <v-card variant="tonal" rounded="lg">
-              <v-card-text class="py-3">
+              <v-card-text class="py-2">
                 <div class="text-caption text-medium-emphasis">当前阶段</div>
                 <div class="text-body-2 font-weight-medium mt-1">{{ currentStepLabel }}</div>
               </v-card-text>
@@ -59,7 +86,7 @@
           </v-col>
           <v-col cols="6">
             <v-card variant="tonal" rounded="lg">
-              <v-card-text class="py-3">
+              <v-card-text class="py-2">
                 <div class="text-caption text-medium-emphasis">任务状态</div>
                 <div class="text-body-2 font-weight-medium mt-1">{{ stepStatusLabel(task.status) }}</div>
               </v-card-text>
@@ -238,6 +265,7 @@ const resumeDialog = ref(false);
 const compactMode = computed(() => props.size === "1x1");
 const largeMode = computed(() => props.size !== "1x1" && props.size !== "1x2");
 const showBodyCopy = computed(() => !compactMode.value);
+const showStepList = computed(() => !!props.task && !compactMode.value && props.task.steps.length > 0);
 const showMetaList = computed(() => largeMode.value);
 const showDetailAlert = computed(() => largeMode.value);
 const showInlineInput = computed(() => largeMode.value);
@@ -282,6 +310,15 @@ function stepColor(status: TaskStepStatus) {
   if (status === "awaiting_user") return "warning";
   if (status === "interrupted") return "warning";
   return "grey";
+}
+
+function stepMiniLabel(status: TaskStepStatus) {
+  if (status === "done") return "✅";
+  if (status === "failed") return "❌";
+  if (status === "running") return "🔄";
+  if (status === "awaiting_user") return "⏳";
+  if (status === "interrupted") return "⏸";
+  return "⏳";
 }
 
 function stepStatusLabel(status: TaskStepStatus) {
@@ -348,9 +385,26 @@ function goToDetails() {
   @include t.tile-padding;
   height: 100%;
   width: 100%;
+  overflow-y: auto;
+}
+
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  .step-item {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.03);
+  }
 }
 
 :global(.v-theme--dark) .task-tile {
   @include t.frosted-tile-dark;
+
+  .step-item {
+    background: rgba(255, 255, 255, 0.04);
+  }
 }
 </style>

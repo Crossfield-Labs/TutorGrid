@@ -144,7 +144,17 @@ export const useWorkspaceStore = defineStore("workspace", {
       if (this.loaded) return;
       const api = getApi();
       if (!api) {
-        console.warn("[workspaceStore] not in Electron, skipping init");
+        console.warn("[workspaceStore] not in Electron, using browser demo tiles");
+        this.root = "演示工作区";
+        this.tiles = [
+          { id: "demo-note-1", column: "TODO", order: 0, title: "📝 开始你的第一个笔记", description: "双击磁贴编辑内容，单击右下角 Chat 使用 AI 对话。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+          { id: "demo-file-1", column: "TODO", order: 1, title: "📄 拖入课件文件", description: "在 Electron 中可导入 PDF/PPT/Word 并自动索引到知识库。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+          { id: "demo-hyper-1", column: "INPROGRESS", order: 0, title: "📖 新建 Hyper 文档示例", description: "在多人协作板中点击 + 按钮 → 开启「创建为 Hyper 文档」→ 新建。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+          { id: "demo-task-1", column: "INPROGRESS", order: 1, title: "🤖 AI 编排任务", description: "进入 Hyper 文档后输入 /task 命令即可触发编排任务。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+          { id: "demo-done-1", column: "DONE", order: 0, title: "✅ Chat SSE 端点已就绪", description: "POST /api/chat/stream 支持 RAG + Tavily 流式对话。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+          { id: "demo-done-2", column: "DONE", order: 1, title: "✅ 编排引擎 V5 已适配", description: "WebSocket /ws/orchestrator 支持 task.create/step/result 事件流。", kind: "note" as const, createdAt: Date.now(), updatedAt: Date.now() },
+        ];
+        this.columns = [...DEFAULT_COLUMNS];
         this.loaded = true;
         return;
       }

@@ -12,6 +12,16 @@
           <div class="text-subtitle-2 ml-3">
             <v-icon icon="mdi-folder-outline" color="white" class="mr-1" />
             工作区: {{ workspaceStore.root || '加载中...' }}
+            <v-chip
+              v-if="kbReady"
+              size="x-small"
+              variant="tonal"
+              color="success"
+              class="ml-2"
+            >
+              <v-icon icon="mdi-database" size="12" class="mr-1" />
+              KB: {{ kbFileCount }} 文件 · {{ kbChunkCount }} 块
+            </v-chip>
           </div>
           <v-spacer></v-spacer>
           <v-btn
@@ -244,15 +254,21 @@
 <script setup lang="ts">
 import draggable from "vuedraggable";
 import BoardCard from "@/components/BoardCard.vue";
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useInspirationStore } from "@/stores/inspirationStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import type { Tile } from "@/stores/workspaceStore";
 
 const snackbarStore = useSnackbarStore();
 const inspirationStore = useInspirationStore();
 const workspaceStore = useWorkspaceStore();
+const knowledgeStore = useKnowledgeStore();
+
+const kbFileCount = computed(() => knowledgeStore.files.length);
+const kbChunkCount = computed(() => knowledgeStore.files.reduce((s, f) => s + (f.chunkCount || 0), 0));
+const kbReady = computed(() => kbFileCount.value > 0);
 
 interface AddState {
   visible: boolean;
@@ -421,6 +437,8 @@ const importFromInspiration = async () => {
 onMounted(async () => {
   await workspaceStore.init();
   workspaceStore.columns.forEach(ensureAddState);
+  // 静默加载知识库数据以显示 KB 状态
+  knowledgeStore.ensureDefaultCourse().then(() => knowledgeStore.refreshFiles()).catch(() => {});
 });
 </script>
 
