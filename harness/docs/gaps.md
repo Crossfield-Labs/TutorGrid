@@ -98,10 +98,11 @@
    当前状态：
    - 已补输入分类 helper
    - 已补 `reply / redirect / comment / instruction / explain / interrupt` 的最小回归
+   - `tools_node -> await_user_node` 已开始切到 `interrupt()/Command(resume=...)`
    当前关注点：
    - 真实多轮任务里的恢复语义
    - follow-up 被消费后的 planner 上下文稳定性
-   - LangGraph 原生 `interrupt()/Command(resume=...)` 还未替掉当前 `await_user` 节点
+   - 旧 waiter 路径还在，尚未完全删掉
 
 ### P2：主能力已在，但还没做完整端到端验证
 
@@ -165,7 +166,7 @@
    - `orchestrator.task.create -> python runner -> task.result` 协议测试
    还需要补：
    - 真实 worker CLI 端到端测试
-   - LangGraph 原生 interrupt/resume 集成测试
+   - LangGraph 原生 interrupt/resume 端到端测试
    - follow-up / interrupt 在真实模型上的系统联调
 
 ### P3：不是缺功能，但可以继续增强

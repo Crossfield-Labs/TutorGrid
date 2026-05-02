@@ -27,6 +27,7 @@ from backend.memory.service import MemoryService
 from backend.profile.service import LearningProfileService as LegacyLearningProfileService
 from backend.rag.service import RagService
 from backend.runners.router import RunnerRouter
+from backend.runtime.runtime import RuntimePaused
 from backend.server.protocol import OrchestratorRequest, build_event
 from backend.sessions.manager import SessionManager
 from backend.sessions.state import OrchestratorSessionState
@@ -666,11 +667,45 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
                 "snapshot": session.build_snapshot(),
             },
         )
-        await _broadcast_task_step(session, summary=message, status="running", phase=_resolve_task_phase(session))
+        if session.awaiting_input:
+            last_broadcast_prompt = str(session.context.get("_last_awaiting_prompt_broadcast") or "")
+            if session.pending_user_prompt and session.pending_user_prompt != last_broadcast_prompt:
+                session.context["_last_awaiting_prompt_broadcast"] = session.pending_user_prompt
+                await _broadcast_event(
+                    session,
+                    event="orchestrator.session.await_user",
+                    payload={
+                        "message": session.pending_user_prompt,
+                        "inputMode": str(session.context.get("pending_user_input_mode") or "text"),
+                        "runner": session.runner,
+                        "snapshot": session.build_snapshot(),
+                    },
+                )
+                await _broadcast_event(
+                    session,
+                    event="orchestrator.task.awaiting_user",
+                    payload={
+                        "task_id": session.task_id,
+                        "session_id": session.session_id,
+                        "doc_id": _get_task_doc_id(session),
+                        "prompt": session.pending_user_prompt,
+                        "resume_method": "orchestrator.task.resume",
+                        "input_mode": str(session.context.get("pending_user_input_mode") or "text"),
+                    },
+                )
+            await _broadcast_task_step(
+                session,
+                summary=session.pending_user_prompt or message,
+                status="awaiting_user",
+                phase="tools",
+            )
+        else:
+            await _broadcast_task_step(session, summary=message, status="running", phase=_resolve_task_phase(session))
         await _emit_projection_updates(session)
 
     async def await_user(message: str, input_mode: str | None = None) -> str:
         session.request_user_input(message, input_mode or "text")
+        session.context["pending_user_input_mode"] = input_mode or "text"
         session_manager.update(session)
         await _broadcast_event(
             session,
@@ -698,6 +733,8 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _emit_projection_updates(session)
         reply = await _await_user(session.session_id, message, input_mode or "text")
         session.resume_with_input(reply)
+        session.context.pop("pending_user_input_mode", None)
+        session.context.pop("_last_awaiting_prompt_broadcast", None)
         session_manager.update(session)
         await emit_progress(f"User replied: {reply}", 0.62)
         await _emit_projection_updates(session)
@@ -809,6 +846,14 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         )
         await _emit_projection_updates(session)
         raise
+    except RuntimePaused as pause:
+        session.phase = "awaiting_user"
+        session.awaiting_input = True
+        session.pending_user_prompt = pause.prompt or session.pending_user_prompt
+        session.context["pending_user_input_mode"] = pause.input_mode or "text"
+        session.mark(status="RUNNING", message=session.pending_user_prompt or "Waiting for user input")
+        session_manager.update(session)
+        await _emit_projection_updates(session)
     except Exception as exc:
         session.error = str(exc)
         session.phase = "finalize"
@@ -1032,7 +1077,19 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 _subscribe(session.session_id, websocket, event_namespace)
                 subscribed_session_ids.add(session.session_id)
                 waiter = session_waiters.get(target_session_id)
-                if waiter is None or waiter.done():
+                reply_text = request.params.input_content.strip() or request.params.text.strip()
+                if waiter is not None and not waiter.done():
+                    waiter.set_result(reply_text)
+                elif session.awaiting_input:
+                    session.context["_resume_payload"] = {
+                        "kind": request.params.input_kind or "reply",
+                        "content": reply_text,
+                        "input_mode": request.params.input_mode or session.input_mode or "text",
+                    }
+                    session.context.pop("_last_awaiting_prompt_broadcast", None)
+                    session_task = asyncio.create_task(_run_session(session.session_id, websocket))
+                    session_tasks[session.session_id] = session_task
+                else:
                     await send_event(
                         websocket,
                         event=event_name("orchestrator.session.failed"),
@@ -1042,8 +1099,6 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                         payload={"message": "Session is not waiting for user input"},
                     )
                     continue
-                reply_text = request.params.input_content.strip() or request.params.text.strip()
-                waiter.set_result(reply_text)
                 await _broadcast_event(
                     session,
                     event="orchestrator.session.followup.accepted",

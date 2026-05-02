@@ -25,7 +25,7 @@ class GraphBuildResult:
     available: bool
 
 
-def build_runtime_graph() -> GraphBuildResult:
+def build_runtime_graph(*, checkpointer: Any | None = None) -> GraphBuildResult:
     if StateGraph is None:
         return GraphBuildResult(graph=None, available=False)
 
@@ -50,6 +50,7 @@ def build_runtime_graph() -> GraphBuildResult:
         "tools",
         route_after_tools,
         {
+            "await_user": "await_user",
             "verify": "verify",
             "finalize": "finalize",
         },
@@ -57,6 +58,9 @@ def build_runtime_graph() -> GraphBuildResult:
     graph.add_edge("await_user", "planning")
     graph.add_edge("verify", "planning")
     graph.add_edge("finalize", END)
-    return GraphBuildResult(graph=graph.compile(), available=True)
+    compile_kwargs: dict[str, Any] = {}
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    return GraphBuildResult(graph=graph.compile(**compile_kwargs), available=True)
 
 

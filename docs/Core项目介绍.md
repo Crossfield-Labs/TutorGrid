@@ -1,11 +1,11 @@
-下面这份可以直接给另一个 AI 看，作为后端 core 接入说明。
+# 后端接入说明：TipTap 工作区、编排会话、知识库/RAG
 
-```markdown
-# MetaAgent Core 后端接入说明：TipTap 工作区、编排会话、知识库/RAG
+> [!warning]
+> 本文档部分消息已过时，应结合实际代码判断
 
 ## 1. 后端定位
 
-当前 `pc_orchestrator_core` 的后端是一个本地 AI 编排核心，不依赖前端实现。它主要提供：
+当前 `./backend` 的后端是一个本地 AI 编排核心，不依赖前端实现。它主要提供：
 
 - LangGraph 编排运行时
 - WebSocket 协议入口

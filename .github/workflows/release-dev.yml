@@ -44,7 +44,7 @@ jobs:
       - name: Set up frontend
         uses: ./.github/actions/setup-frontend
         with:
-          node-version: "20"
+          node-version: "22.12.0"
 
       - name: Install packaging dependency
         run: python -m pip install pyinstaller

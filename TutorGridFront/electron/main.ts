@@ -12,6 +12,8 @@ const BACKEND_PORT = 8000;
 const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 const ORCHESTRATOR_PORT = 3210;
 const REPO_ROOT = path.resolve(__dirname, "../..");
+const APP_ICON_PNG = path.join(REPO_ROOT, "TutorGridFront", "build", "icons", "app-icon.png");
+const APP_ICON_FALLBACK = path.join(REPO_ROOT, "TutorGridFront", "public", "favicon.png");
 
 function buildPythonCandidates(): Array<{ command: string; args: string[] }> {
   const candidates: Array<{ command: string; args: string[] }> = [];
@@ -306,6 +308,8 @@ function createMainWindow() {
     minWidth: 1024,
     minHeight: 700,
     show: false,
+    title: "TutorGrid",
+    icon: fs.existsSync(APP_ICON_PNG) ? APP_ICON_PNG : APP_ICON_FALLBACK,
     titleBarStyle: "hidden",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

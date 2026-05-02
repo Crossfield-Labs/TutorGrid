@@ -52,6 +52,10 @@ F04 的正确做法不是重写后端，而是做定向适配：
 - `backend/runtime/` 已开始改成优先消费 LangGraph stream：
   - 优先走 `astream(stream_mode=["custom", "values"])`
   - `session_sync.py` 会优先用 `get_stream_writer()` 写 `custom` 进度事件
+- `backend/runtime/` 已开始把等待输入收口到 LangGraph 原生暂停：
+  - `tools_node` 会把 `await_user` 工具改写成 graph 内等待输入状态
+  - `await_user_node` 用 `interrupt()` 暂停
+  - `task.resume` 可通过 `Command(resume=...)` 恢复
 - `backend/runners/python_runner.py` 现在会把：
   - `stdout/stderr`
   - workspace artifact diff
@@ -63,8 +67,8 @@ F04 的正确做法不是重写后端，而是做定向适配：
 建议顺序：
 
 1. 在 `backend/runtime/` 继续收口中断恢复：
-   - 用 `interrupt()` 表达等待用户输入
-   - 用 `resume` 恢复执行
+   - 把当前“兼容旧 waiter + graph resume”的双路径再继续压成单一路径
+   - 给原生 `interrupt/resume` 补更完整的集成测试
 
 2. 继续增强 LangGraph stream 的结构化事件：
    - progress
