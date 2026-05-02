@@ -8,6 +8,8 @@ from pathlib import Path
 from backend.config import OrchestratorConfig, load_config
 from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
 from backend.sessions.state import OrchestratorSessionState
+from backend.workers.common import diff_workspace, snapshot_workspace
+from backend.workers.models import WorkerResult
 
 
 class PythonRunner(BaseRunner):
@@ -34,6 +36,7 @@ class PythonRunner(BaseRunner):
         config = load_config()
         workspace_path = self._resolve_workspace(session.workspace, config)
         code = self._extract_python_code(session)
+        before = snapshot_workspace(workspace_path)
 
         if not code:
             raise RuntimeError("Python runner requires code in session.context['python_code'] or a fenced ```python block.")
@@ -89,7 +92,30 @@ class PythonRunner(BaseRunner):
 
         if completed.returncode != 0:
             raise RuntimeError(stderr_text or stdout_text or f"Python runner exited with code {completed.returncode}")
+        after = snapshot_workspace(workspace_path)
+        artifacts = diff_workspace(before, after)
+        if artifacts:
+            artifact_paths = [artifact.path for artifact in artifacts]
+            session.artifacts = sorted(set([*session.artifacts, *artifact_paths]))
+            artifact_summary = f"{len(artifact_paths)} artifact(s): " + ", ".join(artifact_paths[:3])
+            remaining = len(artifact_paths) - 3
+            if remaining > 0:
+                artifact_summary += f", and {remaining} more"
+            session.set_latest_artifact_summary(artifact_summary)
         result_text = stdout_text or "Python runner completed successfully."
+        record = WorkerResult(
+            worker="python_runner",
+            success=True,
+            summary=result_text[:240],
+            output=result_text,
+            artifacts=artifacts,
+            metadata={
+                "workspace": str(workspace_path),
+                "returncode": completed.returncode,
+                "python_command": config.python_command,
+            },
+        ).to_record()
+        session.worker_runs.append(record)
         if self._emit_substep is not None:
             await self._emit_substep("runner", "Python task", "completed", result_text)
         if self._emit_message_event is not None:

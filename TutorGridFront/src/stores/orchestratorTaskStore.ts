@@ -14,6 +14,7 @@ export interface OrchestratorTaskStep {
   name: string;
   status: TaskStepStatus;
   index: number;
+  detail?: string;
 }
 
 export interface OrchestratorTaskItem {
@@ -36,11 +37,37 @@ export interface OrchestratorTaskItem {
 
 function defaultSteps(): OrchestratorTaskStep[] {
   return [
-    { phase: "planning", name: "规划任务", status: "pending", index: 1 },
-    { phase: "tools", name: "执行工具", status: "pending", index: 2 },
-    { phase: "verify", name: "验证结果", status: "pending", index: 3 },
-    { phase: "finalize", name: "整理输出", status: "pending", index: 4 },
+    { phase: "planning", name: "规划任务", status: "pending", index: 1, detail: "" },
+    { phase: "tools", name: "执行工具", status: "pending", index: 2, detail: "" },
+    { phase: "verify", name: "验证结果", status: "pending", index: 3, detail: "" },
+    { phase: "finalize", name: "整理输出", status: "pending", index: 4, detail: "" },
   ];
+}
+
+function mergeSteps(
+  previousSteps: OrchestratorTaskStep[] | undefined,
+  incomingSteps: Array<Record<string, unknown>> | undefined,
+  currentPhase: string,
+  currentDetail: string,
+): OrchestratorTaskStep[] {
+  const baseSteps = previousSteps?.length ? previousSteps.map((step) => ({ ...step })) : defaultSteps();
+  const incomingByPhase = new Map(
+    (Array.isArray(incomingSteps) ? incomingSteps : []).map((step) => [String(step.phase || ""), step]),
+  );
+  return baseSteps.map((step) => {
+    const incoming = incomingByPhase.get(step.phase);
+    const mergedStep: OrchestratorTaskStep = {
+      ...step,
+      name: String(incoming?.name || step.name),
+      status: (incoming?.status as TaskStepStatus) || step.status,
+      index: Number(incoming?.index || step.index),
+      detail: step.detail || "",
+    };
+    if (step.phase === currentPhase && currentDetail.trim()) {
+      mergedStep.detail = currentDetail;
+    }
+    return mergedStep;
+  });
 }
 
 export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
@@ -81,24 +108,23 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           const taskId = String(payload?.task_id || "");
           if (!taskId) return;
           const previous = this.tasksById[taskId];
+          const phase = String(payload?.phase || "planning");
+          const summary = String(payload?.summary || "");
           const task: OrchestratorTaskItem = {
             taskId,
             sessionId: String(payload?.session_id || sessionId),
             docId: String(payload?.doc_id || previous?.docId || ""),
             title: previous?.title || "编排任务",
             status: payload?.status || "pending",
-            phase: payload?.phase || "planning",
-            summary: String(payload?.summary || ""),
+            phase,
+            summary,
             currentStepIndex: Number(payload?.step_index || 1),
             stepTotal: Number(payload?.step_total || 4),
             resultSummary: previous?.resultSummary || "",
             awaitingUser: Boolean(payload?.awaiting_user),
             prompt: previous?.prompt || "",
             artifacts: previous?.artifacts || [],
-            steps:
-              Array.isArray(payload?.steps) && payload.steps.length > 0
-                ? payload.steps
-                : defaultSteps(),
+            steps: mergeSteps(previous?.steps, payload?.steps, phase, summary),
             updatedAt: new Date().toISOString(),
           };
           this._upsertTask(task);
@@ -114,6 +140,7 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             status: "awaiting_user",
             awaitingUser: true,
             prompt: String(payload?.prompt || ""),
+            steps: mergeSteps(existing.steps, existing.steps as Array<Record<string, unknown>>, existing.phase, String(payload?.prompt || "")),
             updatedAt: new Date().toISOString(),
           });
           return;
@@ -123,6 +150,7 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           const taskId = String(payload?.task_id || "");
           if (!taskId) return;
           const previous = this.tasksById[taskId];
+          const resultSummary = String(payload?.content || "");
           this._upsertTask({
             taskId,
             sessionId: String(payload?.session_id || sessionId),
@@ -133,14 +161,22 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             summary: previous?.summary || "",
             currentStepIndex: 4,
             stepTotal: 4,
-            resultSummary: String(payload?.content || ""),
+            resultSummary,
             awaitingUser: false,
             prompt: "",
             artifacts: Array.isArray(payload?.artifacts) ? payload.artifacts : [],
             steps:
               previous?.steps?.length
-                ? previous.steps.map((step) => ({ ...step, status: step.status === "failed" ? step.status : "done" }))
-                : defaultSteps().map((step) => ({ ...step, status: "done" })),
+                ? previous.steps.map((step) => ({
+                    ...step,
+                    status: step.status === "failed" ? step.status : "done",
+                    detail: step.phase === "finalize" && resultSummary.trim() ? resultSummary : step.detail || "",
+                  }))
+                : defaultSteps().map((step) => ({
+                    ...step,
+                    status: "done",
+                    detail: step.phase === "finalize" ? resultSummary : "",
+                  })),
             updatedAt: new Date().toISOString(),
           });
         }

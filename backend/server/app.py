@@ -101,6 +101,18 @@ def _get_task_doc_id(session: OrchestratorSessionState) -> str:
     return str(session.context.get("doc_id") or "")
 
 
+def _merge_request_context(
+    session: OrchestratorSessionState,
+    context: dict[str, Any] | None,
+) -> None:
+    merged = dict(context or {})
+    session.context["task_context"] = merged
+    for key, value in merged.items():
+        if not str(key).strip():
+            continue
+        session.context[str(key)] = value
+
+
 def _normalize_task_status(status: str) -> str:
     normalized = (status or "").strip().upper()
     if normalized == "COMPLETED":
@@ -203,6 +215,54 @@ async def _broadcast_task_step(
             ),
         },
     )
+
+
+def _build_task_artifacts(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for path in session.artifacts:
+        suffix = Path(str(path)).suffix.lower()
+        artifact_type = "file"
+        if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+            artifact_type = "image"
+        elif suffix in {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".txt", ".csv"}:
+            artifact_type = "code"
+        items.append(
+            {
+                "type": artifact_type,
+                "path": path,
+            }
+        )
+    return items
+
+
+def _resolve_task_result_type(session: OrchestratorSessionState) -> str:
+    if any(run.get("worker") == "python_runner" for run in session.worker_runs):
+        return "code_output"
+    if session.artifacts:
+        return "artifact"
+    return "text"
+
+
+def _build_task_result_payload(
+    session: OrchestratorSessionState,
+    *,
+    status: str,
+    content: str,
+    error_code: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "task_id": session.task_id,
+        "session_id": session.session_id,
+        "doc_id": _get_task_doc_id(session),
+        "status": status,
+        "result_type": _resolve_task_result_type(session) if status == "done" else "error",
+        "content": content,
+        "artifacts": _build_task_artifacts(session),
+        "worker_runs": list(session.worker_runs),
+    }
+    if error_code:
+        payload["error_code"] = error_code
+    return payload
 
 
 async def _await_user(session_id: str, message: str, input_mode: str = "text") -> str:
@@ -717,21 +777,7 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.task.result",
-            payload={
-                "task_id": session.task_id,
-                "session_id": session.session_id,
-                "doc_id": _get_task_doc_id(session),
-                "status": "done",
-                "result_type": "text",
-                "content": result,
-                "artifacts": [
-                    {
-                        "type": "file",
-                        "path": path,
-                    }
-                    for path in session.artifacts
-                ],
-            },
+            payload=_build_task_result_payload(session, status="done", content=result),
         )
         _maybe_compact_memory(session, reason="completed")
         profiles = _refresh_learning_profiles(session, reason="completed")
@@ -754,16 +800,12 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.task.result",
-            payload={
-                "task_id": session.task_id,
-                "session_id": session.session_id,
-                "doc_id": _get_task_doc_id(session),
-                "status": "failed",
-                "result_type": "error",
-                "content": session.error,
-                "artifacts": [],
-                "error_code": "cancelled",
-            },
+            payload=_build_task_result_payload(
+                session,
+                status="failed",
+                content=session.error,
+                error_code="cancelled",
+            ),
         )
         await _emit_projection_updates(session)
         raise
@@ -784,16 +826,12 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_event(
             session,
             event="orchestrator.task.result",
-            payload={
-                "task_id": session.task_id,
-                "session_id": session.session_id,
-                "doc_id": _get_task_doc_id(session),
-                "status": "failed",
-                "result_type": "error",
-                "content": session.error,
-                "artifacts": [],
-                "error_code": exc.__class__.__name__,
-            },
+            payload=_build_task_result_payload(
+                session,
+                status="failed",
+                content=session.error,
+                error_code=exc.__class__.__name__,
+            ),
         )
         _maybe_compact_memory(session, reason="failed")
         profiles = _refresh_learning_profiles(session, reason="failed")
@@ -928,7 +966,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                     goal=request.params.goal or task_text,
                 )
                 session.context["doc_id"] = request.params.doc_id
-                session.context["task_context"] = request.params.context
+                _merge_request_context(session, request.params.context)
                 session_manager.update(session)
                 _subscribe(session.session_id, websocket, event_namespace)
                 subscribed_session_ids.add(session.session_id)
@@ -961,6 +999,7 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 )
                 if request.params.command:
                     session.context["command"] = request.params.command
+                _merge_request_context(session, request.params.context)
                 _subscribe(session.session_id, websocket, event_namespace)
                 subscribed_session_ids.add(session.session_id)
                 session_task = asyncio.create_task(_run_session(session.session_id, websocket))

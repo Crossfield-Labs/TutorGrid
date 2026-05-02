@@ -51,8 +51,8 @@
                 </v-expansion-panel-title>
                 <v-expansion-panel-text>
                   <MarkdownContent
-                    v-if="step.index === task.currentStepIndex"
-                    :content="task.summary || task.resultSummary || '暂无详情'"
+                    v-if="step.detail"
+                    :content="step.detail"
                   />
                   <span v-else>该步骤尚无更多详情</span>
                 </v-expansion-panel-text>

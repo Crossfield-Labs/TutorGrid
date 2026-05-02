@@ -68,7 +68,6 @@
             :card="selectedCard"
             :task="activeTask"
             :task-starting="taskStore.starting"
-            @dismiss-agent="activeAgent = null"
             @clear-card="selectedCard = null"
             @start-task="startTask"
             @resume-task="resumeTask"
@@ -111,18 +110,27 @@ const sessionId = ref("");
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-const activeAgent = ref<{
-  title: string;
-  phase: string;
-  worker?: string;
-  progress: number;
-} | null>(null);
 const selectedCard = ref<{
   title?: string;
   icon?: string;
   detail?: string;
 } | null>(null);
 const activeTask = computed(() => taskStore.activeTaskForDoc(tileId.value));
+const activeAgent = computed(() => {
+  if (!activeTask.value) return null;
+  if (!["running", "awaiting_user"].includes(activeTask.value.status)) return null;
+  return {
+    title: activeTask.value.title || "编排任务",
+    phase: activeTask.value.phase,
+    worker: activeTask.value.awaitingUser
+      ? "等待输入"
+      : activeTask.value.steps[activeTask.value.currentStepIndex - 1]?.name || "",
+    progress: Math.min(
+      1,
+      Math.max(0.05, activeTask.value.currentStepIndex / Math.max(1, activeTask.value.stepTotal)),
+    ),
+  };
+});
 
 const goBack = () => router.push("/board");
 

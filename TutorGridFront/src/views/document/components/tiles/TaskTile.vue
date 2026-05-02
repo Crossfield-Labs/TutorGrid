@@ -5,7 +5,7 @@
     rounded="lg"
     :ripple="false"
   >
-    <div class="task-header d-flex align-center">
+    <div class="d-flex align-center mb-2">
       <v-icon color="primary" class="mr-2">mdi-cog-sync-outline</v-icon>
       <span class="text-subtitle-2 font-weight-bold flex-fill">编排任务</span>
       <v-btn
@@ -18,14 +18,14 @@
       />
     </div>
 
-    <div class="task-body d-flex flex-column ga-3 flex-fill">
+    <div class="d-flex flex-column ga-3 flex-fill">
       <template v-if="task">
         <div class="d-flex align-start justify-space-between ga-2">
-          <div class="flex-fill">
-            <div class="text-body-2 font-weight-bold text-truncate-2">
+          <div class="flex-fill min-w-0">
+            <div class="text-body-2 font-weight-bold">
               {{ task.title || "未命名任务" }}
             </div>
-            <div v-if="showBodyCopy" class="text-caption text-medium-emphasis mt-1 text-truncate-3">
+            <div v-if="showBodyCopy" class="text-caption text-medium-emphasis mt-1">
               {{ taskStatusCopy(task.status) }}
             </div>
           </div>
@@ -34,7 +34,7 @@
           </v-chip>
         </div>
 
-        <div class="task-progress">
+        <div>
           <div class="d-flex align-center justify-space-between text-caption mb-2">
             <span class="text-medium-emphasis">执行进度</span>
             <span class="font-weight-medium">{{ progressLabel }}</span>
@@ -48,16 +48,24 @@
           />
         </div>
 
-        <div v-if="showMetaList" class="task-meta-grid">
-          <div class="task-meta-item">
-            <div class="task-meta-label">当前阶段</div>
-            <div class="task-meta-value">{{ currentStepLabel }}</div>
-          </div>
-          <div class="task-meta-item">
-            <div class="task-meta-label">任务状态</div>
-            <div class="task-meta-value">{{ stepStatusLabel(task.status) }}</div>
-          </div>
-        </div>
+        <v-row v-if="showMetaList" dense>
+          <v-col cols="6">
+            <v-card variant="tonal" rounded="lg">
+              <v-card-text class="py-3">
+                <div class="text-caption text-medium-emphasis">当前阶段</div>
+                <div class="text-body-2 font-weight-medium mt-1">{{ currentStepLabel }}</div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+          <v-col cols="6">
+            <v-card variant="tonal" rounded="lg">
+              <v-card-text class="py-3">
+                <div class="text-caption text-medium-emphasis">任务状态</div>
+                <div class="text-body-2 font-weight-medium mt-1">{{ stepStatusLabel(task.status) }}</div>
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
 
         <v-alert
           v-if="showDetailAlert && task.status === 'done' && task.resultSummary"
@@ -138,7 +146,7 @@
         />
         <div
           v-else
-          class="task-empty d-flex flex-column justify-center text-center text-caption text-medium-emphasis flex-fill"
+          class="d-flex flex-column justify-center text-center text-caption text-medium-emphasis flex-fill"
         >
           <v-icon icon="mdi-creation-outline" size="26" class="mb-2" />
           <div>{{ compactMode ? "放大磁贴或进入详情发起任务" : "在这里发起一个新的编排任务" }}</div>
@@ -228,7 +236,6 @@ const resumeText = ref("");
 const startDialog = ref(false);
 const resumeDialog = ref(false);
 const compactMode = computed(() => props.size === "1x1");
-const mediumMode = computed(() => props.size === "1x2");
 const largeMode = computed(() => props.size !== "1x1" && props.size !== "1x2");
 const showBodyCopy = computed(() => !compactMode.value);
 const showMetaList = computed(() => largeMode.value);
@@ -345,73 +352,5 @@ function goToDetails() {
 
 :global(.v-theme--dark) .task-tile {
   @include t.frosted-tile-dark;
-}
-
-.task-header {
-  margin-bottom: 10px;
-}
-
-.task-body {
-  min-height: 0;
-}
-
-.task-progress {
-  margin-top: 2px;
-}
-
-.task-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.task-meta-item {
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.28);
-}
-
-.task-meta-label {
-  font-size: 11px;
-  line-height: 1.4;
-  color: rgba(15, 23, 42, 0.48);
-}
-
-.task-meta-value {
-  margin-top: 4px;
-  font-size: 13px;
-  line-height: 1.45;
-  font-weight: 600;
-  color: rgba(15, 23, 42, 0.82);
-}
-
-.text-truncate-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.text-truncate-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.task-empty {
-  min-height: 72px;
-}
-
-:global(.v-theme--dark) .task-meta-item {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-:global(.v-theme--dark) .task-meta-label {
-  color: rgba(226, 232, 240, 0.56);
-}
-
-:global(.v-theme--dark) .task-meta-value {
-  color: rgba(226, 232, 240, 0.88);
 }
 </style>
