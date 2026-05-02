@@ -78,6 +78,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         tools=tool_definitions,
         memory_context=memory_context,
     )
+    reasoning_content = _extract_reasoning_content(response.raw)
     if response.tool_calls:
         planned_tool_calls = [
             {"id": item.id, "tool": item.name, "arguments": item.arguments}
@@ -147,6 +148,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             messages,
             content=response.content,
             tool_calls=assistant_tool_calls,
+            reasoning_content=reasoning_content,
         )
         next_state["planned_tool_calls"] = filtered_tool_calls
         next_state["tool_events"] = tool_events + (
@@ -313,7 +315,11 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         )
         return next_state
 
-    next_state["messages"] = append_assistant_message(messages, content=response.content)
+    next_state["messages"] = append_assistant_message(
+        messages,
+        content=response.content,
+        reasoning_content=reasoning_content,
+    )
     await _emit_final_answer_stream(
         runtime_context,
         state=next_state,
@@ -471,6 +477,18 @@ def _filter_duplicate_tool_calls(
 def _tool_signature(tool_name: Any, arguments: Any) -> str:
     normalized_arguments = arguments if isinstance(arguments, dict) else {"value": arguments}
     return f"{str(tool_name or '').strip().lower()}::{json.dumps(normalized_arguments, ensure_ascii=False, sort_keys=True)}"
+
+
+def _extract_reasoning_content(raw_response: Any) -> str:
+    if not isinstance(raw_response, dict):
+        return ""
+    choices = raw_response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return ""
+    return str(message.get("reasoning_content") or "")
 
 
 def _should_accept_direct_answer(*, task: str, goal: str, response_text: str) -> bool:

@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from backend.memory.service import MemoryService
 from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
+from backend.runners.router import RunnerRouter
 from backend.server import app as server_app
 from backend.sessions.manager import SessionManager
 from backend.sessions.state import OrchestratorSessionState
@@ -118,6 +119,7 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._temp_dir = workspace_temp_dir("ws-e2e-")
         root = self._temp_dir.__enter__()
+        self._root = root
         self._originals = {
             "session_manager": server_app.session_manager,
             "trace_store": server_app.trace_store,
@@ -433,6 +435,90 @@ class WebSocketE2ETests(unittest.IsolatedAsyncioTestCase):
             snapshot["stopReason"] == "interrupt_requested" or snapshot["status"] == "COMPLETED"
         )
         self.assertTrue(interrupt_control._event.is_set())
+
+    async def test_task_protocol_create_resume_and_result(self) -> None:
+        await self._send_request(
+            "orchestrator.task.create",
+            task_id="task-protocol",
+            node_id="node-doc",
+            params={
+                "runner": "orchestrator",
+                "workspace": ".",
+                "instruction": "wait for reply",
+                "docId": "hyper_001",
+            },
+        )
+
+        created = await self._recv_event("orchestrator.task.create")
+        session_id = str(created["sessionId"])
+        self.assertEqual(created["payload"]["doc_id"], "hyper_001")
+
+        first_step = await self._recv_event("orchestrator.task.step", session_id=session_id)
+        self.assertEqual(first_step["payload"]["phase"], "planning")
+
+        awaiting_user = await self._recv_event("orchestrator.task.awaiting_user", session_id=session_id)
+        self.assertEqual(awaiting_user["payload"]["resume_method"], "orchestrator.task.resume")
+
+        waiting_step = await self._recv_event(
+            "orchestrator.task.step",
+            session_id=session_id,
+            predicate=lambda event: event["payload"]["status"] == "awaiting_user",
+        )
+        self.assertEqual(waiting_step["payload"]["doc_id"], "hyper_001")
+
+        await self._send_request(
+            "orchestrator.task.resume",
+            session_id=session_id,
+            params={
+                "sessionId": session_id,
+                "kind": "reply",
+                "content": "resume payload",
+            },
+        )
+
+        resumed_step = await self._recv_event(
+            "orchestrator.task.step",
+            session_id=session_id,
+            predicate=lambda event: "继续执行" in str(event["payload"].get("summary") or ""),
+        )
+        self.assertEqual(resumed_step["payload"]["status"], "running")
+
+        result = await self._recv_event("orchestrator.task.result", session_id=session_id)
+        self.assertEqual(result["payload"]["status"], "done")
+        self.assertEqual(result["payload"]["content"], "reply=resume payload")
+
+    async def test_task_protocol_python_runner_returns_worker_runs_and_artifacts(self) -> None:
+        server_app.runner_router = RunnerRouter()
+        workspace = Path(self._root) / "python-task-workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        await self._send_request(
+            "orchestrator.task.create",
+            task_id="task-python",
+            node_id="node-python",
+            params={
+                "runner": "python",
+                "workspace": str(workspace),
+                "instruction": "用 Python 生成一个结果文件",
+                "docId": "hyper_python",
+                "context": {
+                    "python_code": "from pathlib import Path\nPath('plot.txt').write_text('artifact ready', encoding='utf-8')\nprint('R2=0.94')"
+                },
+            },
+        )
+
+        created = await self._recv_event("orchestrator.task.create")
+        session_id = str(created["sessionId"])
+        result = await self._recv_event("orchestrator.task.result", session_id=session_id)
+
+        self.assertEqual(result["payload"]["status"], "done")
+        self.assertEqual(result["payload"]["result_type"], "code_output")
+        self.assertIn("R2=0.94", str(result["payload"]["content"]))
+        self.assertTrue(result["payload"]["worker_runs"])
+        self.assertEqual(result["payload"]["worker_runs"][-1]["worker"], "python_runner")
+        artifact_paths = [item["path"] for item in result["payload"]["artifacts"]]
+        self.assertIn("plot.txt", artifact_paths)
+        self.assertTrue(any(item["type"] == "code" for item in result["payload"]["artifacts"]))
 
     async def _send_request(
         self,

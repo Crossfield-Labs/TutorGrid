@@ -136,6 +136,42 @@ class PythonRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(output.strip(), Path(temp_dir).name)
 
+    async def test_python_runner_records_stdout_and_artifacts(self) -> None:
+        with workspace_temp_dir("python-artifacts-") as workspace:
+            session = OrchestratorSessionState(
+                task_id="python-task",
+                node_id="python-node",
+                runner="python",
+                workspace=str(workspace),
+                task="run python code",
+                goal="run python code",
+            )
+            session.context["python_code"] = (
+                "from pathlib import Path\n"
+                "Path('plot.txt').write_text('artifact generated', encoding='utf-8')\n"
+                "print('R2=0.94')\n"
+            )
+
+            runner = PythonRunner()
+
+            async def emit_progress(message: str, progress: float | None = None) -> None:
+                _ = (message, progress)
+
+            async def await_user(message: str, input_mode: str | None = None) -> str:
+                _ = (message, input_mode)
+                return ""
+
+            result = await runner.run(session, emit_progress, await_user)
+
+        self.assertIn("R2=0.94", result)
+        self.assertIn("plot.txt", session.artifacts)
+        self.assertTrue(session.worker_runs)
+        latest_run = session.worker_runs[-1]
+        self.assertEqual(latest_run["worker"], "python_runner")
+        self.assertTrue(latest_run["success"])
+        artifact_paths = [artifact["path"] for artifact in latest_run["artifacts"]]
+        self.assertIn("plot.txt", artifact_paths)
+
 
 if __name__ == "__main__":
     unittest.main()

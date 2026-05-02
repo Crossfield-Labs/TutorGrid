@@ -34,6 +34,7 @@
 - `delegate_task` 触发后 session 是否更新 `activeWorker`、`workerRuns`、`artifacts`
 - server 是否按 snapshot 变化广播 `phase/worker/summary/artifact_summary`
 - `interrupt` 和 `snapshot` 在运行中是否能拿到一致状态
+- LangGraph 原生 `interrupt()/resume` 替换后是否仍能保持现有 task/session 协议稳定
 
 当前 WebSocket 端到端覆盖：
 - `orchestrator.session.start`
@@ -45,6 +46,10 @@
 - `orchestrator.memory.compact`
 - `orchestrator.memory.search`
 - `orchestrator.session.interrupt`
+- `orchestrator.task.create`
+- `orchestrator.task.resume`
+- `orchestrator.task.result`
+- `python runner` 任务的 `worker_runs / artifacts` 回传
 
 当前知识库 / RAG / 画像回归：
 - `tests/test_knowledge_parsers.py`

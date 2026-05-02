@@ -66,6 +66,7 @@ class PlannerConfigPayload(BaseModel):
     model: str = ""
     apiKey: str = ""
     apiBase: str = ""
+    providerOptions: dict[str, Any] = Field(default_factory=dict)
 
 
 class LangSmithConfigPayload(BaseModel):
@@ -102,6 +103,7 @@ async def put_config(payload: RuntimeConfigPayload) -> dict[str, Any]:
         model=payload.planner.model.strip(),
         api_key=payload.planner.apiKey.strip(),
         api_base=payload.planner.apiBase.strip(),
+        provider_options=payload.planner.providerOptions,
     )
     update_langsmith_config(
         enabled=payload.langsmith.enabled,

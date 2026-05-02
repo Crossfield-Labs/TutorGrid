@@ -41,25 +41,40 @@ F04 的正确做法不是重写后端，而是做定向适配：
 - 不改任务书
 - 不改 RAG / 知识库文档
 
+### 3. F04 / F05 已推进到的代码面
+- `backend/server/app.py` 已支持：
+  - `orchestrator.task.create`
+  - `orchestrator.task.resume`
+  - `orchestrator.task.interrupt`
+  - `orchestrator.task.step`
+  - `orchestrator.task.awaiting_user`
+  - `orchestrator.task.result`
+- `backend/runtime/` 已开始改成优先消费 LangGraph stream：
+  - 优先走 `astream(stream_mode=["custom", "values"])`
+  - `session_sync.py` 会优先用 `get_stream_writer()` 写 `custom` 进度事件
+- `backend/runners/python_runner.py` 现在会把：
+  - `stdout/stderr`
+  - workspace artifact diff
+  - `worker_runs`
+  一并回写到 session，再投影到 `task.result`
+
 ## 接下来应该做什么
 
 建议顺序：
 
-1. 在 `backend/server/protocol.py` 增加：
-   - `orchestrator.task.create`
-   - `orchestrator.task.resume`
-   - `orchestrator.task.interrupt`
-
-2. 在 `backend/server/app.py` 增加任务级事件投影：
-   - `orchestrator.task.step`
-   - `orchestrator.task.result`
-   - `orchestrator.task.awaiting_user`
-
-3. 在 `backend/runtime/` 收口中断恢复：
+1. 在 `backend/runtime/` 继续收口中断恢复：
    - 用 `interrupt()` 表达等待用户输入
    - 用 `resume` 恢复执行
 
-4. 最后再让前端文档入口接 `orchestrator.task.create`
+2. 继续增强 LangGraph stream 的结构化事件：
+   - progress
+   - substep
+   - final result
+
+3. 做 F05 的真实 worker / runner 验收：
+   - python runner 编排闭环
+   - delegate fallback 闭环
+   - `task.result` 对前端字段稳定性校验
 
 ## 修改时注意
 

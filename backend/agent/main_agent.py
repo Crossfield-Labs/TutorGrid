@@ -124,6 +124,7 @@ class ChatAgent:
             if not current.tool_calls:
                 return current
             assistant_message: dict[str, Any] = {"role": "assistant", "content": current.content or ""}
+            reasoning_content = _extract_reasoning_content(current.raw)
             assistant_message["tool_calls"] = [
                 {
                     "id": call.id,
@@ -132,6 +133,8 @@ class ChatAgent:
                 }
                 for call in current.tool_calls
             ]
+            if reasoning_content:
+                assistant_message["reasoning_content"] = reasoning_content
             messages.append(assistant_message)
             for call in current.tool_calls:
                 await on_event(
@@ -294,3 +297,15 @@ class ChatAgent:
 
     def _normalize_enabled_tools(self, enabled_tools: list[str] | None) -> set[str]:
         return {item.strip().lower() for item in (enabled_tools or ["rag", "tavily"]) if item.strip()}
+
+
+def _extract_reasoning_content(raw_response: Any) -> str:
+    if not isinstance(raw_response, dict):
+        return ""
+    choices = raw_response.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return ""
+    return str(message.get("reasoning_content") or "")

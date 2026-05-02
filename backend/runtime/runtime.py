@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import Any, Awaitable, Callable
 
 from backend.config import load_config
@@ -98,8 +99,7 @@ class OrchestratorRuntime:
         }
         recursion_limit = max(50, int(self.config.max_iterations) * 6)
         try:
-            result = await self.graph_build.graph.ainvoke(state, config={"recursion_limit": recursion_limit})
-            final_state = RuntimeState(**{**dict(state), **dict(result)})
+            final_state = await self._run_graph_stream(state=state, recursion_limit=recursion_limit)
             self._apply_runtime_state(final_state)
             self.tracer.end_run(
                 run_id,
@@ -122,6 +122,47 @@ class OrchestratorRuntime:
                 tags=["error"],
             )
             raise
+
+    async def _run_graph_stream(self, *, state: RuntimeState, recursion_limit: int) -> RuntimeState:
+        graph = self.graph_build.graph
+        config = {"recursion_limit": recursion_limit}
+        latest_state = RuntimeState(**dict(state))
+
+        if hasattr(graph, "astream"):
+            astream_kwargs: dict[str, Any] = {"stream_mode": ["custom", "values"]}
+            if self._supports_kwarg(graph.astream, "version"):
+                astream_kwargs["version"] = "v2"
+            async for mode, payload in graph.astream(state, config=config, **astream_kwargs):
+                if mode == "values" and isinstance(payload, dict):
+                    latest_state = RuntimeState(**{**dict(latest_state), **payload})
+                    continue
+                if mode == "custom" and isinstance(payload, dict):
+                    await self._handle_custom_stream_event(payload)
+            return latest_state
+
+        ainvoke_kwargs: dict[str, Any] = {}
+        if self._supports_kwarg(graph.ainvoke, "version"):
+            ainvoke_kwargs["version"] = "v2"
+        result = await graph.ainvoke(state, config=config, **ainvoke_kwargs)
+        return RuntimeState(**{**dict(state), **dict(result)})
+
+    async def _handle_custom_stream_event(self, payload: dict[str, Any]) -> None:
+        kind = str(payload.get("kind") or "").strip().lower()
+        if kind == "progress":
+            await self.emit_progress(
+                str(payload.get("message") or ""),
+                float(payload["progress"]) if payload.get("progress") is not None else None,
+            )
+
+    @staticmethod
+    def _supports_kwarg(fn: Any, name: str) -> bool:
+        try:
+            signature = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return False
+        if name in signature.parameters:
+            return True
+        return any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in signature.parameters.values())
 
     def _apply_runtime_state(self, final_state: RuntimeState) -> None:
         self.session.phase = str(final_state.get("phase") or self.session.phase or "completed")

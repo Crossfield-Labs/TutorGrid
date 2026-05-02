@@ -30,6 +30,7 @@ Claude 状态：
 - registry 会根据 `config.enabled_workers` 过滤可用 worker，但只允许 `codex` / `opencode` 生效。
 - `backend/workers/common.py` 负责命令解析、工作区快照、产物 diff、stdout/stderr 流式进度回传。
 - `backend/runners/python_runner.py` 提供受限 Python runner，只能在受限工作目录下运行，带超时、输出截断和环境变量白名单。
+- `python_runner` 现在还会把本次执行生成的 artifact diff 和记到 `session.worker_runs`，并通过 `orchestrator.task.result` 暴露给前端。
 
 修改时注意：
 - session、progress、artifact 和 worker result 结构要保持对前端稳定。

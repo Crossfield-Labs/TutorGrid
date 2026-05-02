@@ -37,9 +37,15 @@ class OrchestratorParams:
     selection_text: str = ""
     execute: bool = False
     text: str = ""
+    instruction: str = ""
+    doc_id: str = ""
+    input_content: str = ""
+    input_kind: str = "reply"
     input_mode: str = "text"
     input_intent: str = "reply"
     target: str = ""
+    session_id: str = ""
+    context: dict[str, Any] = field(default_factory=dict)
     limit: int = 200
     cursor: str = ""
     provider: str = ""
@@ -95,9 +101,9 @@ class OrchestratorRequest:
         return cls(
             type=str(payload.get("type") or ""),
             method=str(payload.get("method") or ""),
-            task_id=payload.get("taskId"),
-            node_id=payload.get("nodeId"),
-            session_id=payload.get("sessionId"),
+            task_id=payload.get("taskId") or payload.get("task_id"),
+            node_id=payload.get("nodeId") or payload.get("node_id"),
+            session_id=payload.get("sessionId") or payload.get("session_id"),
             request_id=payload.get("id"),
             params=OrchestratorParams(
                 runner=str(params.get("runner") or "orchestrator"),
@@ -110,9 +116,15 @@ class OrchestratorRequest:
                 selection_text=str(params.get("selectionText") or ""),
                 execute=bool(params.get("execute", False)),
                 text=str(params.get("text") or ""),
+                instruction=str(params.get("instruction") or ""),
+                doc_id=str(params.get("docId") or params.get("doc_id") or ""),
+                input_content=str(params.get("content") or params.get("inputContent") or ""),
+                input_kind=str(params.get("kind") or params.get("inputKind") or "reply"),
                 input_mode=str(params.get("inputMode") or "text"),
                 input_intent=str(params.get("inputIntent") or "reply"),
                 target=str(params.get("target") or ""),
+                session_id=str(params.get("sessionId") or params.get("session_id") or ""),
+                context=_coerce_dict(params.get("context")),
                 limit=_coerce_int(params.get("limit"), 200),
                 cursor=str(params.get("cursor") or ""),
                 provider=str(params.get("provider") or ""),

@@ -3,6 +3,10 @@ from __future__ import annotations
 from typing import Awaitable, Callable
 
 from backend.runtime.state import RuntimeState
+try:
+    from langgraph.config import get_stream_writer
+except Exception:  # pragma: no cover
+    get_stream_writer = None
 
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
 
@@ -63,8 +67,26 @@ async def sync_session_from_runtime_state(
     if "tool_events" in state:
         session.context["tool_events"] = list(state.get("tool_events") or [])
 
-    if emit_progress is not None and state.get("last_progress_message"):
-        await emit_progress(str(state.get("last_progress_message") or ""), progress)
+    if state.get("last_progress_message"):
+        payload = {
+            "kind": "progress",
+            "message": str(state.get("last_progress_message") or ""),
+            "progress": progress,
+            "phase": str(state.get("phase") or session.phase or ""),
+            "status": str(state.get("status") or session.status or ""),
+            "latest_summary": str(state.get("latest_summary") or session.latest_summary or ""),
+            "awaiting_input": bool(state.get("awaiting_input") or False),
+        }
+        streamed = False
+        if get_stream_writer is not None:
+            try:
+                writer = get_stream_writer()
+                writer(payload)
+                streamed = True
+            except Exception:
+                streamed = False
+        if emit_progress is not None and not streamed:
+            await emit_progress(str(state.get("last_progress_message") or ""), progress)
     return state
 
 

@@ -66,8 +66,12 @@
           <TileGrid
             :agent="activeAgent"
             :card="selectedCard"
-            @dismiss-agent="activeAgent = null"
+            :task="activeTask"
+            :task-starting="taskStore.starting"
             @clear-card="selectedCard = null"
+            @start-task="startTask"
+            @resume-task="resumeTask"
+            @interrupt-task="interruptTask"
           />
         </v-col>
       </v-row>
@@ -85,12 +89,14 @@ import TileGrid from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
+import { useOrchestratorTaskStore } from "@/stores/orchestratorTaskStore";
 
 const route = useRoute();
 const router = useRouter();
 const workspaceStore = useWorkspaceStore();
 const snackbarStore = useSnackbarStore();
 const chatSession = useChatSessionStore();
+const taskStore = useOrchestratorTaskStore();
 
 const tileId = computed(() => route.params.id as string);
 const tile = computed(() => workspaceStore.findTile(tileId.value));
@@ -104,17 +110,27 @@ const sessionId = ref("");
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-const activeAgent = ref<{
-  title: string;
-  phase: string;
-  worker?: string;
-  progress: number;
-} | null>(null);
 const selectedCard = ref<{
   title?: string;
   icon?: string;
   detail?: string;
 } | null>(null);
+const activeTask = computed(() => taskStore.activeTaskForDoc(tileId.value));
+const activeAgent = computed(() => {
+  if (!activeTask.value) return null;
+  if (!["running", "awaiting_user"].includes(activeTask.value.status)) return null;
+  return {
+    title: activeTask.value.title || "编排任务",
+    phase: activeTask.value.phase,
+    worker: activeTask.value.awaitingUser
+      ? "等待输入"
+      : activeTask.value.steps[activeTask.value.currentStepIndex - 1]?.name || "",
+    progress: Math.min(
+      1,
+      Math.max(0.05, activeTask.value.currentStepIndex / Math.max(1, activeTask.value.stepTotal)),
+    ),
+  };
+});
 
 const goBack = () => router.push("/board");
 
@@ -200,6 +216,38 @@ onBeforeUnmount(() => {
 // AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
 const onAiCommand = (_command: string, _payload?: unknown) => {
   // no-op
+};
+
+const startTask = async (instruction: string) => {
+  try {
+    await taskStore.createTask({
+      docId: tileId.value,
+      instruction,
+    });
+    snackbarStore.showSuccessMessage("编排任务已启动");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`启动编排任务失败：${(error as Error).message}`);
+  }
+};
+
+const resumeTask = async (content: string) => {
+  if (!activeTask.value) return;
+  try {
+    await taskStore.resumeTask(activeTask.value.taskId, content);
+    snackbarStore.showSuccessMessage("已提交补充输入");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`继续执行失败：${(error as Error).message}`);
+  }
+};
+
+const interruptTask = async () => {
+  if (!activeTask.value) return;
+  try {
+    await taskStore.interruptTask(activeTask.value.taskId);
+    snackbarStore.showSuccessMessage("已发送中断请求");
+  } catch (error) {
+    snackbarStore.showErrorMessage(`中断任务失败：${(error as Error).message}`);
+  }
 };
 </script>
 

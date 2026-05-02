@@ -1,11 +1,19 @@
 ﻿{
   "planner": {
-    "provider": "openai_compat",
+    "provider": "deepseek",
     "model": "",
     "apiKey": "YOUR_API_KEY",
     "apiBase": "",
     "temperature": 0.2,
-    "maxTokens": 4096
+    "maxTokens": 4096,
+    "providerOptions": {
+      "extra_body": {
+        "thinking": {
+          "type": "enabled"
+        },
+        "reasoning_effort": "high"
+      }
+    }
   },
   "langsmith": {
     "enabled": false,

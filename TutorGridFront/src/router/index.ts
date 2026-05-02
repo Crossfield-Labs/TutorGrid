@@ -42,6 +42,14 @@ export const routes = [
     component: () => import("@/views/document/HyperdocPage.vue"),
   },
   {
+    path: "/tasks/:taskId",
+    meta: {
+      requiresAuth: true,
+      layout: "landing",
+    },
+    component: () => import("@/views/pages/TaskDetailsPage.vue"),
+  },
+  {
     path: "/:pathMatch(.*)*",
     name: "error",
     component: () =>

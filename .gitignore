@@ -49,3 +49,7 @@ TutorGridFront/.claude/settings.local.json
 *~
 .DS_Store
 Thumbs.db
+
+
+/temp/*
+/tmp/*

@@ -50,6 +50,16 @@
             @clear="$emit('clearCard')"
           />
 
+          <TaskTile
+            v-else-if="item.kind === 'task'"
+            :task="task"
+            :starting="taskStarting"
+            :size="sizeLabel(item)"
+            @start="(instruction) => emit('startTask', instruction)"
+            @resume="(content) => emit('resumeTask', content)"
+            @interrupt="emit('interruptTask')"
+          />
+
           <!-- 占位磁贴（F08 替换） -->
           <PlaceholderTile
             v-else
@@ -111,6 +121,7 @@ import { GridLayout, GridItem } from "grid-layout-plus";
 import AgentTile from "./tiles/AgentTile.vue";
 import SelectionTile from "./tiles/SelectionTile.vue";
 import PlaceholderTile from "./tiles/PlaceholderTile.vue";
+import TaskTile from "./tiles/TaskTile.vue";
 
 // ⚙️ 微调点 ① ：列数 / 间隙
 //   COL_NUM   网格列数 (默认 4)
@@ -137,7 +148,7 @@ interface TileLayoutItem {
   y: number;
   w: 1 | 2;
   h: 1 | 2;
-  kind: "agent" | "selection" | "placeholder";
+  kind: "agent" | "selection" | "placeholder" | "task";
   title?: string;
   subtitle?: string;
   icon?: string;
@@ -156,10 +167,14 @@ withDefaults(
   defineProps<{
     agent?: ActiveAgent | null;
     card?: SelectedCard | null;
+    task?: any;
+    taskStarting?: boolean;
   }>(),
   {
     agent: null,
     card: null,
+    task: null,
+    taskStarting: false,
   }
 );
 
@@ -180,9 +195,12 @@ const dynamicRowHeight = computed(() => {
   return Math.max(80, Math.floor(colWidth));
 });
 
-defineEmits<{
+const emit = defineEmits<{
   (e: "dismissAgent"): void;
   (e: "clearCard"): void;
+  (e: "startTask", instruction: string): void;
+  (e: "resumeTask", content: string): void;
+  (e: "interruptTask"): void;
 }>();
 
 // F06 默认布局：演示 1×1 / 1×2 / 2×2 三种尺寸
@@ -250,7 +268,7 @@ const defaultLayout: TileLayoutItem[] = [
     y: 2,
     w: 2,
     h: 2,
-    kind: "placeholder",
+    kind: "task",
     title: "编排任务",
     subtitle: "/task 触发的多步任务进度",
     icon: "mdi-cog-sync-outline",

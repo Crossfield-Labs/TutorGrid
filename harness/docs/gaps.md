@@ -101,6 +101,7 @@
    当前关注点：
    - 真实多轮任务里的恢复语义
    - follow-up 被消费后的 planner 上下文稳定性
+   - LangGraph 原生 `interrupt()/Command(resume=...)` 还未替掉当前 `await_user` 节点
 
 ### P2：主能力已在，但还没做完整端到端验证
 
@@ -135,6 +136,9 @@
    - `claude_cli`
    - `pc_subagent`
    - `/ws/pc-agent` 兼容路径
+   当前新增进展：
+   - `python_runner` 已补产物 diff、`worker_runs` 持久化和协议回传
+   - `task.create -> python runner -> task.result` 已有回归测试
 
 9. WebSocket 协议虽然已经双命名空间兼容，但仍需要专门的协议回归。
    重点文件：
@@ -157,10 +161,12 @@
    - delegate 工具测试
    - server 输入分类测试
    - protocol / runner router / session snapshot 测试
+   - python runner 产物与 `worker_runs` 测试
+   - `orchestrator.task.create -> python runner -> task.result` 协议测试
    还需要补：
-   - websocket 协议集成测试
-   - runner 端到端测试
-   - follow-up / interrupt 集成测试
+   - 真实 worker CLI 端到端测试
+   - LangGraph 原生 interrupt/resume 集成测试
+   - follow-up / interrupt 在真实模型上的系统联调
 
 ### P3：不是缺功能，但可以继续增强
 
