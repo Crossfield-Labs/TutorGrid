@@ -6,7 +6,10 @@ import AuthRoutes from "./auth.routes";
 export const routes = [
   {
     path: "/",
-    redirect: "/board",
+    redirect: () => {
+      const isElectron = !!(window as any).metaAgent;
+      return isElectron ? "/board" : "/landing";
+    },
     meta: {},
   } as any,
   {

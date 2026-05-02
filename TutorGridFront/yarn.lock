@@ -2441,6 +2441,11 @@ grid-layout-plus@^1.1.1:
     "@vexip-ui/utils" "^2.16.1"
     interactjs "^1.10.27"
 
+gsap@^3.15.0:
+  version "3.15.0"
+  resolved "https://registry.npmmirror.com/gsap/-/gsap-3.15.0.tgz#7851baaffc77642f2db3b1749d3634f9b5a19d14"
+  integrity sha512-dMW4CWBTUK1AEEDeZc1g4xpPGIrSf9fJF960qbTZmN/QwZIWY5wgliS6JWl9/25fpTGJrMRtSjGtOmPnfjZB+A==
+
 happy-dom@^9.6.1:
   version "9.20.3"
   resolved "https://registry.yarnpkg.com/happy-dom/-/happy-dom-9.20.3.tgz#4b097e889b33ef553d1c62b25a797ff05f7528e3"

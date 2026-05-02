@@ -1,0 +1,79 @@
+// Landing 设计 token — 复刻 Figma node 0:76 Tea-Landing-Page
+// 调色卡集中放这，后续换主题改这一份就行
+
+:root {
+  // 主色
+  --landing-bg: #ffffff;
+  --landing-text: #000000;
+
+  // 绿系（深→浅）
+  --landing-green-deep: #004a30;
+  --landing-green-deep-2: #084931;
+  --landing-green-light-1: #d7e7ba; // 主胶囊高亮 / Learn More
+  --landing-green-light-2: #c6d2ae; // Hero 装饰圆背景
+  --landing-green-light-3: #d6e5be; // 项目卡 / 大胶囊背景
+
+  // 中性
+  --landing-gray-cell: #efefef;     // Bento 浅灰格
+  --landing-gray-pill: #f0f0f0;     // 导航胶囊
+  --landing-gray-line: #7e7e7e;     // 描边
+  --landing-gray-img: #d9d9d9;      // 图片占位
+  --landing-gray-mute: #717171;     // GREEN 透明字 fallback
+
+  // 圆角
+  --landing-r-pill: 30px;
+  --landing-r-pill-lg: 50px;
+  --landing-r-circle: 70px;
+  --landing-r-img: 40px;
+  --landing-r-oval: 190px;
+
+  // 字号
+  --landing-fs-hero: 40px;
+  --landing-fs-h2: 32px;
+  --landing-fs-card: 24px;
+  --landing-fs-mega: 80px;
+  --landing-fs-base: 14px;
+  --landing-fs-nav: 16px;
+}
+
+// 共用工具类
+.landing-uppercase {
+  text-transform: uppercase;
+}
+
+.landing-pill-highlight {
+  background: var(--landing-green-light-1);
+  border-radius: var(--landing-r-pill-lg);
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.landing-circle-btn {
+  background: #ffffff;
+  border-radius: var(--landing-r-circle);
+  padding: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  border: none;
+
+  &.outlined {
+    border: 2px solid var(--landing-gray-line);
+  }
+
+  img {
+    width: 32px;
+    height: 32px;
+    display: block;
+  }
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+}

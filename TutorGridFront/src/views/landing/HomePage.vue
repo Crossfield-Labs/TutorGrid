@@ -1,396 +1,225 @@
-<template>
-  <v-card theme="dark">
-    <v-container style="max-width: 1400px" grid-list-xs>
-      <v-row>
-        <v-col cols="12" md="4">
-          <h1 class="text-h5 my-5 d-flex align-center text-title">
-            <Icon icon="logos:webix-icon" class="mr-3 my-2" />News
-          </h1>
-          <v-card
-            elevation="0"
-            class="my-5 pa-3"
-            v-for="card in newsCards"
-            :key="card.id"
-            color="secondary"
-          >
-            <v-card-text class="text-content">
-              <v-row align="center" no-gutters>
-                <v-col cols="2" class="text-left">
-                  <Icon :icon="card.icon" class="text-h4" />
-                </v-col>
-                <v-col class="text-left" cols="10">
-                  {{ card.content }}
-                </v-col>
-              </v-row>
-              <v-row align="center" no-gutters>
-                <v-col cols="3" class="text-left">
-                  <span>12:24</span>
-                </v-col>
-                <v-col class="text-h5 text-right" cols="9">
-                  <v-btn variant="text" color="accent">Read➧</v-btn>
-                </v-col>
-              </v-row>
-            </v-card-text>
-          </v-card>
-        </v-col>
-        <v-col cols="12" md="8" class="text-left">
-          <h1 class="text-h5 my-5 d-flex align-center text-title">
-            <Icon icon="logos:archlinux" class="mr-3 my-2" />TimeLine
-          </h1>
-          <!-- Info Card1 -->
-          <v-card elevation="0" color="secondary" class="info-card gradient">
-            <v-card-text class="d-flex align-center text-content">
-              <Icon class="mr-5 text-h4" icon="logos:browserslist" />
-              <span>Write something...</span>
-              <v-spacer></v-spacer>
-              <v-btn
-                variant="text"
-                icon="mdi-account-search"
-                @click="toggleTheme"
-              ></v-btn>
-              <v-btn variant="text" icon="mdi-pin"></v-btn>
-            </v-card-text>
-            <v-card-actions class="r py-5 text-title">
-              <div></div>
-              <v-select
-                variant="outlined"
-                placeholder="who can see"
-                density="compact"
-                hide-details
-                class="mr-2"
-                :items="[
-                  'California',
-                  'Colorado',
-                  'Florida',
-                  'Georgia',
-                  'Texas',
-                  'Wyoming',
-                ]"
-              ></v-select>
-              <v-select
-                variant="outlined"
-                placeholder="channel"
-                density="compact"
-                hide-details
-                :items="[
-                  'California',
-                  'Colorado',
-                  'Florida',
-                  'Georgia',
-                  'Texas',
-                  'Wyoming',
-                ]"
-              ></v-select>
-
-              <v-spacer></v-spacer>
-              <v-btn variant="tonal" icon="mdi-heart" color="accent"></v-btn>
-            </v-card-actions>
-          </v-card>
-
-          <!-- Info Card 2 -->
-          <v-card color="secondary" class="info-card">
-            <div class="card-top r text-content">
-              <Icon class="mr-5 text-h4" icon="logos:capacitorjs-icon" />
-              <div class="flex-fill">
-                Who has the advantage now? Who do you think will win the
-                election?
-              </div>
-              <span>9:31 am</span>
-            </div>
-            <v-card-text class="text-content">
-              <div>
-                <v-radio-group color="accent" v-model="favoriteRadios">
-                  <template v-slot:label>
-                    <div>Your favorite <strong>search engine</strong></div>
-                  </template>
-                  <v-radio value="Google">
-                    <template v-slot:label>
-                      <v-row align="center">
-                        <v-col cols="6" sm="5" md="3">
-                          <span> Of course it's</span>
-                          <strong class="ml-1 text-info">Google</strong></v-col
-                        >
-                        <v-col cols="4" sm="5" md="7">
-                          <v-progress-linear
-                            model-value="79"
-                            color="#E89888"
-                            rounded
-                          ></v-progress-linear
-                        ></v-col>
-                        <v-col cols="2">79%</v-col>
-                      </v-row>
-                    </template>
-                  </v-radio>
-                  <v-radio value="Duckduckgo">
-                    <template v-slot:label>
-                      <v-row align="center">
-                        <v-col cols="6" sm="5" md="3">
-                          <span> Of course it's</span>
-                          <strong class="ml-1 text-info">Meta</strong></v-col
-                        >
-                        <v-col cols="4" sm="5" md="7">
-                          <v-progress-linear
-                            model-value="21"
-                            color="#B931F0"
-                            rounded
-                          ></v-progress-linear
-                        ></v-col>
-                        <v-col cols="2">70%</v-col>
-                      </v-row>
-                      <div></div>
-                    </template>
-                  </v-radio>
-                </v-radio-group>
-                <div class="d-flex justify-space-between align-center">
-                  <span>9850 votes.Final result</span>
-                  <v-btn variant="outlined" color="accent">Vote</v-btn>
-                </div>
-              </div>
-            </v-card-text>
-            <v-card-actions class="r text-content">
-              <v-btn prepend-icon="mdi-heart"> Like(2.7k)</v-btn>
-              <v-btn prepend-icon="mdi-comment">CommentLike(35)</v-btn>
-              <v-btn prepend-icon="mdi-share">ShareLike(99)</v-btn>
-            </v-card-actions>
-          </v-card>
-          <!-- Info Card3 -->
-          <v-card color="secondary" class="info-card">
-            <div class="card-top r text-content">
-              <Icon class="text-h4" icon="logos:engine-yard-icon" />
-              <div class="flex-fill mx-4">
-                <p>
-                  <span class="text-accent">Elon Mask</span> shared a
-                  <span class="text-accent">link</span>
-                </p>
-                <p>
-                  Who has the advantage now? Who do you think will win the
-                  election?
-                </p>
-              </div>
-
-              <span>9:31 am</span>
-            </div>
-            <v-card-text class="">
-              <v-card>
-                <v-img
-                  class="align-end text-white"
-                  height="200"
-                  src="https://cdn.vuetifyjs.com/images/cards/docks.jpg"
-                  cover
-                >
-                  <v-card-title>Top 10 Australian beaches</v-card-title>
-                </v-img>
-                <v-card-subtitle class="pt-4"> Number 10 </v-card-subtitle>
-
-                <v-card-text>
-                  <div>Whitehaven Beach</div>
-
-                  <div>Whitsunday Island, Whitsunday Islands</div>
-                </v-card-text>
-              </v-card>
-
-              <v-card class="d-flex mt-5">
-                <v-img
-                  max-width="200"
-                  aspect-ratio="1"
-                  cover
-                  src="https://cdn.vuetifyjs.com/images/cards/docks.jpg"
-                >
-                </v-img>
-
-                <div class="pa-2 flex-fill">
-                  <v-card-subtitle class="pt-4"> Number 10 </v-card-subtitle>
-                  <v-card-text>
-                    <div>Whitehaven BeachAA</div>
-                    <div>Whitsunday Island, Whitsunday Islands</div>
-                  </v-card-text>
-                  <v-card-actions>
-                    <span>Nov.1.2016</span>
-                    <v-spacer></v-spacer>
-                    <span class="text-accent">BBC.COM</span>
-                  </v-card-actions>
-                </div>
-              </v-card>
-            </v-card-text>
-            <v-card-actions class="r text-content">
-              <v-btn color="#D84B82" prepend-icon="mdi-heart">
-                Like(2.7k)</v-btn
-              >
-              <v-btn prepend-icon="mdi-comment">CommentLike(35)</v-btn>
-              <v-btn prepend-icon="mdi-share">ShareLike(99)</v-btn>
-            </v-card-actions>
-          </v-card>
-          <!-- Info Card4 -->
-          <v-card
-            color="secondary"
-            class="info-card d-flex justify-space-between align-center pa-5 text-content"
-          >
-            <v-avatar size="50" color="red">
-              <v-img
-                src="https://cdn.vuetifyjs.com/images/cards/halcyon.png"
-              ></v-img>
-            </v-avatar>
-            <span class="text-h4 mx-5">67903</span>
-            <div class="flex-fill text-content">
-              people viewed your profile in the past 90 days
-            </div>
-            <v-img
-              class="d-none d-md-block"
-              max-width="50"
-              src="https://cdn.vuetifyjs.com/images/cards/foster.jpg"
-            ></v-img>
-          </v-card>
-          <!-- Card5 -->
-          <v-card
-            class="gradient success info-card d-flex justify-space-between align-center pa-5 text-content"
-            color=""
-          >
-            <v-table>
-              <thead>
-                <tr>
-                  <th class="text-left">Name</th>
-                  <th class="text-left">Calories</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="item in desserts" :key="item.name">
-                  <td>{{ item.name }}</td>
-                  <td>{{ item.calories }}</td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-card>
-        </v-col>
-      </v-row>
-    </v-container>
-  </v-card>
-</template>
-
 <script setup lang="ts">
-import { Icon } from "@iconify/vue";
-import { useTheme } from "vuetify";
+import { onMounted, onUnmounted, ref } from "vue";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { fadeInUp } from "./composables/useLandingAnimations";
+import { FIGMA_ASSETS as A } from "./assets";
 
-const theme = useTheme();
+import LandingNav from "./components/LandingNav.vue";
+import LandingHero from "./components/LandingHero.vue";
+import LandingBento from "./components/LandingBento.vue";
+import LandingMarquee from "./components/LandingMarquee.vue";
+import LandingMission from "./components/LandingMission.vue";
+import LandingProjects from "./components/LandingProjects.vue";
+import LandingBrand from "./components/LandingBrand.vue";
+import LandingInvolve from "./components/LandingInvolve.vue";
+import LandingGallery from "./components/LandingGallery.vue";
 
-const toggleTheme = () => {
-  theme.global.name.value = theme.global.current.value.dark ? "light" : "dark";
-};
-const newsCards = [
-  {
-    id: 1,
-    title: "Alfresco",
-    icon: "logos:alfresco",
-    content: "Secure Content Management Solutions for a Distributed Workforce",
-  },
-  {
-    id: 2,
-    title: "Zulip",
-    icon: "logos:zulip-icon",
-    content: "Chat for distributed teams.",
-  },
-  {
-    id: 3,
-    title: "Authy",
-    icon: "logos:authy",
-    content: "Enable 2FA for your favorite sites",
-  },
-  {
-    id: 4,
-    title: "Appveyor",
-    icon: "logos:appveyor",
-    content: "Build, test, deploy your apps faster, on any platform.",
-  },
-  {
-    id: 5,
-    title: "Ant-design",
-    icon: "logos:ant-design",
-    content:
-      "Help designers/developers building beautiful products more flexible and working with happiness",
-  },
-];
+const sections = ref<HTMLElement[]>([]);
+const projectsWrap = ref<HTMLElement | null>(null);
 
-const favoriteRadios = ref("Duckduckgo");
-
-const desserts = [
-  {
-    name: "Frozen Yogurt",
-    calories: 159,
-  },
-  {
-    name: "Ice cream sandwich",
-    calories: 237,
-  },
-  {
-    name: "Eclair",
-    calories: 262,
-  },
-  {
-    name: "Cupcake",
-    calories: 305,
-  },
-  {
-    name: "Gingerbread",
-    calories: 356,
-  },
-  {
-    name: "Jelly bean",
-    calories: 375,
-  },
-  {
-    name: "Lollipop",
-    calories: 392,
-  },
-  {
-    name: "Honeycomb",
-    calories: 408,
-  },
-  {
-    name: "Donut",
-    calories: 452,
-  },
-  {
-    name: "KitKat",
-    calories: 518,
-  },
-];
-</script>
-
-<style lang="scss" scoped>
-.bg {
-  text-align: left;
-  height: 100vh;
-  // 更新
-  // background-image: linear-gradient(135deg, #1c1e30, #2f3050);
+// 鼠标按住拖拽横向滚动（项目卡那行）
+function setupDragScroll(el: HTMLElement) {
+  let isDown = false;
+  let startX = 0;
+  let scrollLeft = 0;
+  const onDown = (e: MouseEvent) => {
+    isDown = true;
+    startX = e.pageX - el.offsetLeft;
+    scrollLeft = el.scrollLeft;
+  };
+  const onLeave = () => (isDown = false);
+  const onUp = () => (isDown = false);
+  const onMove = (e: MouseEvent) => {
+    if (!isDown) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    el.scrollLeft = scrollLeft - (x - startX) * 1.2;
+  };
+  el.addEventListener("mousedown", onDown);
+  el.addEventListener("mouseleave", onLeave);
+  el.addEventListener("mouseup", onUp);
+  el.addEventListener("mousemove", onMove);
+  return () => {
+    el.removeEventListener("mousedown", onDown);
+    el.removeEventListener("mouseleave", onLeave);
+    el.removeEventListener("mouseup", onUp);
+    el.removeEventListener("mousemove", onMove);
+  };
 }
 
-.info-card {
-  margin-bottom: 2rem;
+let cleanupDrag: (() => void) | null = null;
 
-  .v-card-title {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 2rem;
-    font-size: 1rem;
+onMounted(() => {
+  // 各 section 入场（柔和上移，不打断 marquee/hero 的循环动画）
+  sections.value.forEach((el, i) => {
+    if (el) fadeInUp(el, { y: 24, duration: 0.95, delay: i === 0 ? 0.1 : 0 });
+  });
+  // 项目区拖拽滚动；初始 scrollLeft=0 让第一张卡左边和上方文字 col 对齐
+  if (projectsWrap.value) {
+    cleanupDrag = setupDragScroll(projectsWrap.value);
+  }
+  // 图片加载完后强制重算所有 ScrollTrigger 位置（避免初始算错导致触发延迟）
+  const onLoad = () => ScrollTrigger.refresh();
+  window.addEventListener("load", onLoad);
+  // 字体加载也会改变布局
+  if ((document as any).fonts?.ready) {
+    (document as any).fonts.ready.then(() => ScrollTrigger.refresh());
+  }
+  // 兜底
+  setTimeout(() => ScrollTrigger.refresh(), 500);
+});
+
+onUnmounted(() => {
+  cleanupDrag?.();
+});
+</script>
+
+<template>
+  <div class="landing-page" data-node-id="0:76" data-name="Tea-Landing-Page">
+    <!-- 顶部 Nav -->
+    <div
+      class="landing-page__col"
+      :ref="(el) => { if (el) sections[0] = el as HTMLElement; }"
+    >
+      <LandingNav />
+
+      <!-- Hero -->
+      <LandingHero />
+
+      <!-- Bento -->
+      <LandingBento />
+    </div>
+
+    <!-- ④ 跑马灯（注意：跑马灯本身全宽，不在 1020px col 里）-->
+    <div
+      class="landing-page__full"
+      :ref="(el) => { if (el) sections[1] = el as HTMLElement; }"
+    >
+      <LandingMarquee />
+    </div>
+
+    <!-- ⑤ Mission + ⑥ Projects -->
+    <div
+      class="landing-page__col"
+      :ref="(el) => { if (el) sections[2] = el as HTMLElement; }"
+    >
+      <LandingMission />
+    </div>
+
+    <div
+      class="landing-page__projects-wrap"
+      :ref="(el) => { if (el) { sections[3] = el as HTMLElement; projectsWrap = el as HTMLElement; } }"
+    >
+      <LandingProjects />
+    </div>
+
+    <!-- ⑦ Brand 大字 -->
+    <div :ref="(el) => { if (el) sections[4] = el as HTMLElement; }">
+      <LandingBrand />
+    </div>
+
+    <!-- ⑧ Get Involved -->
+    <div :ref="(el) => { if (el) sections[5] = el as HTMLElement; }">
+      <LandingInvolve />
+    </div>
+
+    <!-- ⑨ Gallery -->
+    <div :ref="(el) => { if (el) sections[6] = el as HTMLElement; }">
+      <LandingGallery />
+    </div>
+
+    <!-- 大背景圆：1.4 倍视口宽，绝对定位贴页面底，横向自然超出视口 -->
+    <div
+      class="landing-page__bg-circle"
+      :style="{ backgroundImage: `url(${A.bgDeco})` }"
+    ></div>
+  </div>
+</template>
+
+<style lang="scss">
+// 引入 landing token（全局，让所有子组件都能用 var(--landing-*)）
+@use "./styles/landing.scss";
+</style>
+
+<style lang="scss" scoped>
+.landing-page {
+  background: var(--landing-bg);
+  width: 100%;
+  min-height: 100vh;
+  // 底部 padding 必须为 0，让 Gallery section 贴页面底，
+  // 大圆下半圆才能"占满最下面屏幕"
+  padding: 40px 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 86px;
+  position: relative;
+  overflow: clip; // 双向 clip：横向藏圆超出，纵向藏圆下半部，且不创建滚动容器
+  font-family: "Inter", sans-serif;
+
+  // 所有内容默认在背景圆上方
+  & > *:not(.landing-page__bg-circle) {
+    position: relative;
+    z-index: 1;
   }
 
-  .card-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 2rem;
-    font-size: 1rem;
+  // 大背景圆：完整圆形，1.4 倍视口宽，超出视口两侧由 overflow:clip 自然消去；
+  // 圆心略低于页面底，让大半个圆浮在 Gallery 区域作背景
+  &__bg-circle {
+    position: absolute;
+    width: 100vw;          // ← ① 圆直径（1.4× 视口）
+    aspect-ratio: 1 / 1;   // 真·正圆
+    left: 50%;
+    bottom: 0;
+    transform: translate(-50%, 66%);  // ← ② 圆心下沉 30% 高度（露出 70% 圆）
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none;
+    z-index: 0;            // 在内容下方
+    opacity: 0.4;          // ← ③ 透明度
   }
 
-  .v-card-text {
-    padding: 2rem;
+  // 主栏：响应式宽度，最大 1280，最小留 4% 视口边距
+  &__col {
+    width: min(1280px, 92vw);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+    position: relative;
+    z-index: 1;
   }
 
-  .v-card-actions {
+  // 全宽容器（marquee 用）
+  &__full {
+    width: 100%;
     display: flex;
-    align-items: center;
-    padding: 1.5rem 1rem;
-    font-size: 1rem;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  // 项目区：横向可滚动，初始第一张卡左边和上方文字 col 对齐
+  &__projects-wrap {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    // padding-left 等于 col 的自然左边距 → 卡 1 左边与 Mission 文字左边对齐
+    // 公式：(视口宽 - col宽) / 2，col宽 = min(1280, 92vw)
+    padding-left: max(4vw, calc((100vw - min(1280px, 92vw)) / 2));
+    padding-right: 4vw;
+    position: relative;
+    z-index: 1;
+    cursor: grab;
+    scrollbar-width: none;
+    &::-webkit-scrollbar {
+      display: none;
+    }
+    &:active {
+      cursor: grabbing;
+    }
   }
 }
 </style>
