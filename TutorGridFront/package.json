@@ -28,6 +28,14 @@
       "icon": "build/icons/app-icon.ico",
       "target": "nsis"
     },
+    "mac": {
+      "icon": "build/icons/app-icon.png",
+      "target": "dmg"
+    },
+    "linux": {
+      "icon": "build/icons/app-icon.png",
+      "target": "AppImage"
+    },
     "nsis": {
       "installerIcon": "build/icons/app-icon.ico",
       "uninstallerIcon": "build/icons/app-icon.ico"
