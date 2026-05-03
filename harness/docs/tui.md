@@ -12,13 +12,12 @@
 
 ## 当前入口
 
-- [main.py](../../tui/main.py)
-- [client.py](../../tui/client.py)
+- 当前仓库中的旧 `tui/` 实现已移除，此文档仅保留模块说明，避免继续把它当作活跃入口。
 
 启动方式：
 
 ```powershell
-python -m tui.main --ws-url ws://127.0.0.1:3210/ws/orchestrator
+# 当前无内置 TUI 启动入口
 ```
 
 ## 支持命令
@@ -34,3 +33,4 @@ python -m tui.main --ws-url ws://127.0.0.1:3210/ws/orchestrator
 - TUI 只消费稳定协议，不直接依赖 `backend/runtime` 内部实现
 - 与 GUI 的协议行为保持一致，避免出现第二套语义
 - 若新增 `orchestrator.session.*` 方法，优先同步 TUI 的最小调用路径
+- 如果后续重新引入 `tui/` 目录，需要同步恢复这里的入口说明与链接
