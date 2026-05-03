@@ -37,7 +37,10 @@ yarn electron:dev
 当前桌面前端架构：
 - UI：`Vue 3 + TypeScript + Vuetify`
 - 桌面壳：`Electron`
-- 后端：位于 `backend/`，当前桌面前端通过 `SSE + REST` 联调，并在 Electron 启动时自动拉起本地 `FastAPI` 后端（默认 `http://127.0.0.1:8000`）
+- 后端：位于 `backend/`
+  - `REST + SSE`：HTTP 服务，默认 `http://127.0.0.1:8000`
+  - `WebSocket`：编排服务，默认 `ws://127.0.0.1:3210/ws/orchestrator`
+  - Electron 启动时会自动拉起这两套本地后端
 
 配置说明：
 - 用 `config.example.json` 作为本地 `config.json` 模板
@@ -48,7 +51,7 @@ yarn electron:dev
 - 协作方式：[CONTRIBUTING.md](./CONTRIBUTING.md)
 - agent 接手入口：[AGENTS.md](./AGENTS.md)
 - 详细项目文档：[docs/README.md](docs/README.md)
-- V5 编排协议：[docs/orchestrator-v5-protocol.md](docs/orchestrator-v5-protocol.md)
+- V5 编排协议：[docs/BackEndA/orchestrator-v5-protocol.md](docs/BackEndA/orchestrator-v5-protocol.md)
 - Harness 说明：[docs/harness.md](docs/harness.md)
 - harness 模块导航：[harness/docs/README.md](harness/docs/README.md)
 

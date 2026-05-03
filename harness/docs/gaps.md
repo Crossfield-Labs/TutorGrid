@@ -65,7 +65,7 @@
    - 更细的 artifact 详情能力
    - GUI 所需的更多稳定字段
 
-### P1：环境相关联调仍需要继续做
+### P1：环境相关联调与后续增强
 
 5. 委派链路的策略已经补齐，并有最小回归测试，但仍需要做真实 CLI/SDK 联调。
    重点文件：
@@ -75,8 +75,9 @@
    当前状态：
    - 已补齐 `select_worker / select_session_mode / select_worker_profile / fallback reroute`
    - 已补最小 `delegate` 回归测试
-   风险：
-   - 真实 CLI/SDK 环境下，失败重路由、session 续接、artifact 汇总是否和旧版一致，还需要系统联调。
+   当前判断：
+   - F05 已按任务书完成。
+   - 这里记录的是环境联调和后续增强，不再视为 F05 功能缺口。
 
 6. `planning -> tools -> planning` 的多轮循环已经恢复，并补了重复工具调用抑制，但还需要继续观察真实模型行为。
    重点文件：
@@ -99,10 +100,9 @@
    - 已补输入分类 helper
    - 已补 `reply / redirect / comment / instruction / explain / interrupt` 的最小回归
    - `tools_node -> await_user_node` 已开始切到 `interrupt()/Command(resume=...)`
-   当前关注点：
-   - 真实多轮任务里的恢复语义
-   - follow-up 被消费后的 planner 上下文稳定性
-   - 旧 waiter 路径还在，尚未完全删掉
+   当前判断：
+   - F04 已按任务书完成。
+   - 这里记录的是稳定化关注点，不再视为 F04 功能缺口。
 
 ### P2：主能力已在，但还没做完整端到端验证
 
@@ -140,6 +140,8 @@
    当前新增进展：
    - `python_runner` 已补产物 diff、`worker_runs` 持久化和协议回传
    - `task.create -> python runner -> task.result` 已有回归测试
+   说明：
+   - 这部分记录的是更广义 runner 兼容路径，不改变 F05 已完成的判断。
 
 9. WebSocket 协议虽然已经双命名空间兼容，但仍需要专门的协议回归。
    重点文件：
@@ -288,7 +290,7 @@ LangChain 负责“节点里怎么和模型、消息、工具交互”。
 
 2. 先完成 F04 的任务级编排协议适配
    - 目标是让前端改走 `orchestrator.task.*`
-   - 设计文档：`../../docs/orchestrator-v5-protocol.md`
+   - 设计文档：`../../docs/BackEndA/orchestrator-v5-protocol.md`
 
 3. 再看是否还需要继续保留旧 session 调试协议的回归能力
    - 目标是区分“前端主契约”和“历史调试通道”
