@@ -51,7 +51,7 @@ jobs:
 
       - name: Build backend executable
         run: |
-          pyinstaller --noconfirm --onefile --name pc-orchestrator-backend main.py
+          pyinstaller --noconfirm --onefile --name pc-orchestrator-backend backend/main.py
 
       - name: Stage backend binary for electron package (unix)
         if: runner.os != 'Windows'
@@ -75,7 +75,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist-release
-          tar -czf dist-release/backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz backend main.py requirements.txt config.example.json
+          tar -czf dist-release/backend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz backend requirements.txt config.example.json
           tar -czf dist-release/frontend-${BUILD_TAG}-${{ runner.os }}-${SHORT_SHA}.tar.gz TutorGridFront/dist TutorGridFront/dist-electron TutorGridFront/electron TutorGridFront/package.json TutorGridFront/yarn.lock
 
       - name: Package source tarballs (windows)
@@ -83,7 +83,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist-release -Force | Out-Null
-          tar -czf dist-release/backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz backend main.py requirements.txt config.example.json
+          tar -czf dist-release/backend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz backend requirements.txt config.example.json
           tar -czf dist-release/frontend-$env:BUILD_TAG-${{ runner.os }}-$env:SHORT_SHA.tar.gz TutorGridFront/dist TutorGridFront/dist-electron TutorGridFront/electron TutorGridFront/package.json TutorGridFront/yarn.lock
 
       - name: Collect binary artifacts (unix)

@@ -230,7 +230,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         next_state["messages"] = append_assistant_message(messages, content=response.content)
         next_state["planned_tool_calls"] = [
             {"id": "bootstrap-list-files", "tool": "list_files", "arguments": {"path": "."}},
-            {"id": "bootstrap-read-main", "tool": "read_file", "arguments": {"path": "main.py"}},
+            {"id": "bootstrap-read-main", "tool": "read_file", "arguments": {"path": "backend/main.py"}},
             {"id": "bootstrap-read-readme", "tool": "read_file", "arguments": {"path": "README.md"}},
         ]
         next_state["tool_events"] = tool_events

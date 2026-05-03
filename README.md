@@ -1,6 +1,4 @@
-# Orchestrator
-
-这里已经是 PC orchestrator 的新根目录。
+# TutorGrid
 
 这个根目录 README 保持简短，只负责说明入口关系：
 - 项目概览、当前范围、启动方式放在这里

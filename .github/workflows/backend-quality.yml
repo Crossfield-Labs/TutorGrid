@@ -35,14 +35,14 @@ jobs:
 
       - name: Compile project source tree
         run: |
-          python -m compileall backend harness docs tests scripts main.py
+          python -m compileall backend harness docs tests scripts
 
       - name: Import smoke check
         run: |
-          python -c "import main, backend.config, backend.server.app, backend.server.protocol, backend.runtime.runtime, backend.runners.router, backend.workers.registry, backend.sessions.manager, harness.runner, harness.evaluator, harness.models"
+          python -c "import backend.main, backend.config, backend.server.app, backend.server.protocol, backend.runtime.runtime, backend.runners.router, backend.workers.registry, backend.sessions.manager, harness.runner, harness.evaluator, harness.models"
 
       - name: CLI smoke check
         run: |
-          python main.py --help
+          python -m backend.main --help
           python -m backend.dev.run_runtime --help
           python -m harness.runner --help

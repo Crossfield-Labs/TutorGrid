@@ -152,7 +152,7 @@ class KnowledgeVectorIndex:
     @staticmethod
     def _trim_scores(scores: dict[str, float], limit: int) -> dict[str, float]:
         ranked = sorted(scores.items(), key=lambda item: float(item[1]), reverse=True)[: max(1, int(limit))]
-        return {chunk_id: float(score) for chunk_id, score in ranked}
+        return {chunk_id: max(0.0, float(score)) for chunk_id, score in ranked}
 
     def _rebuild_with_faiss(self, *, index_dir: Path, chunks: list[dict[str, Any]], dimension: int) -> bool:
         try:

@@ -45,9 +45,9 @@ class PlanningNodeTests(unittest.IsolatedAsyncioTestCase):
             [
                 {"id": "1", "tool": "list_files", "arguments": {"path": "."}},
                 {"id": "2", "tool": "list_files", "arguments": {"path": "."}},
-                {"id": "3", "tool": "read_file", "arguments": {"path": "main.py"}},
+                {"id": "3", "tool": "read_file", "arguments": {"path": "backend/main.py"}},
             ],
-            tool_events=[{"tool": "read_file", "arguments": {"path": "main.py"}, "result": "x"}],
+            tool_events=[{"tool": "read_file", "arguments": {"path": "backend/main.py"}, "result": "x"}],
         )
         self.assertEqual(dropped, 2)
         self.assertEqual(filtered, [{"id": "1", "tool": "list_files", "arguments": {"path": "."}}])
