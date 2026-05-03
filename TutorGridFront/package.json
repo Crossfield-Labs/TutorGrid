@@ -25,20 +25,20 @@
       "dist-electron/**/*"
     ],
     "win": {
-      "icon": "build/icons/app-icon.ico",
+      "icon": "public/favicon.ico",
       "target": "nsis"
     },
     "mac": {
-      "icon": "build/icons/app-icon.png",
+      "icon": "public/favicon.png",
       "target": "dmg"
     },
     "linux": {
-      "icon": "build/icons/app-icon.png",
+      "icon": "public/favicon.png",
       "target": "AppImage"
     },
     "nsis": {
-      "installerIcon": "build/icons/app-icon.ico",
-      "uninstallerIcon": "build/icons/app-icon.ico"
+      "installerIcon": "public/favicon.ico",
+      "uninstallerIcon": "public/favicon.ico"
     }
   },
   "dependencies": {
