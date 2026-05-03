@@ -33,5 +33,5 @@
 - 保持 graph state 和 session state 的分层
 - 优先新增 node / route，不要重新长成一个大函数
 - 新 phase 或新执行假设要同步更新本文件
-- 如果调整 `interrupt/resume` 的状态语义，要同步更新 `server.md` 和 `../../docs/orchestrator-v5-protocol.md`
+- 如果调整 `interrupt/resume` 的状态语义，要同步更新 `server.md` 和 `../../docs/BackEndA/orchestrator-v5-protocol.md`
 

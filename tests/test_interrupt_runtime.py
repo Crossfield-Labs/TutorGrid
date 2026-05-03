@@ -51,6 +51,51 @@ class InterruptRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.context["pending_user_input_mode"], "text")
         self.assertEqual(result["tool_events"][-1]["tool"], "await_user")
 
+    async def test_tools_node_degrades_web_fetch_failure_into_tool_result(self) -> None:
+        class _FailingTool:
+            async def ainvoke(self, _arguments):
+                raise RuntimeError(
+                    "Client error '403 Forbidden' for url 'https://en.wikipedia.org/wiki/Longest_palindromic_substring'"
+                )
+
+        session = OrchestratorSessionState(
+            task_id="task-web-fail",
+            node_id="node-web-fail",
+            runner="orchestrator",
+            workspace=".",
+            task="整理马拉车算法",
+            goal="整理马拉车算法",
+        )
+        state = create_initial_state(
+            session_id=session.session_id,
+            task_id=session.task_id,
+            node_id=session.node_id,
+            workspace=session.workspace,
+            task=session.task,
+            goal=session.goal,
+            max_iterations=8,
+        )
+        state["planned_tool_calls"] = [
+            {
+                "id": "tool-web-1",
+                "tool": "web_fetch",
+                "arguments": {"url": "https://en.wikipedia.org/wiki/Longest_palindromic_substring"},
+            }
+        ]
+        state["context"] = {
+            "session": session,
+            "tool_map": {"web_fetch": _FailingTool()},
+            "emit_progress": None,
+        }
+
+        result = await tools_node(state)
+
+        self.assertEqual(result["planned_tool_calls"], [])
+        self.assertIn("Web fetch failed", result["tool_results"][-1]["result"])
+        self.assertIn("403 Forbidden", result["tool_results"][-1]["result"])
+        self.assertEqual(result["tool_events"][-1]["tool"], "web_fetch")
+        self.assertEqual(result["substeps"][-1]["status"], "failed")
+
     async def test_await_user_node_resumes_via_interrupt_payload(self) -> None:
         session = OrchestratorSessionState(
             task_id="task-resume",

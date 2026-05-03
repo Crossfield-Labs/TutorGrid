@@ -7,7 +7,7 @@
 - F04 的主接口已经切到任务级协议
 
 请改读：
-- [orchestrator-v5-protocol.md](./orchestrator-v5-protocol.md)
+- [BackEndA/orchestrator-v5-protocol.md](./BackEndA/orchestrator-v5-protocol.md)
 
 说明：
 - 本文件只保留为兼容入口，避免旧链接失效

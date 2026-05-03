@@ -172,6 +172,22 @@ class PythonRunnerTests(unittest.IsolatedAsyncioTestCase):
         artifact_paths = [artifact["path"] for artifact in latest_run["artifacts"]]
         self.assertIn("plot.txt", artifact_paths)
 
+    def test_runner_generates_builtin_sklearn_demo_when_task_matches(self) -> None:
+        session = OrchestratorSessionState(
+            task_id="python-demo",
+            node_id="python-demo-node",
+            runner="python",
+            workspace=".",
+            task="帮我跑一个 sklearn 线性回归 demo，并把图保存下来",
+            goal="run sklearn demo",
+        )
+
+        code = PythonRunner._extract_python_code(session)
+
+        self.assertIn("LinearRegression", code)
+        self.assertIn("sklearn_linear_regression.png", code)
+        self.assertIn("matplotlib.use('Agg')", code)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -137,7 +137,51 @@ class PythonRunner(BaseRunner):
             _, _, remainder = task.partition(marker)
             code, _, _ = remainder.partition("```")
             return code.strip()
+        generated_demo = PythonRunner._default_demo_code_for_task(task)
+        if generated_demo:
+            return generated_demo
         return ""
+
+    @staticmethod
+    def _default_demo_code_for_task(task: str) -> str:
+        task_lower = (task or "").lower()
+        linear_regression_signals = ("线性回归", "linear regression", "linear-regression")
+        if "sklearn" not in task_lower and not any(signal in task for signal in linear_regression_signals):
+            return ""
+        if not any(signal in task_lower or signal in task for signal in linear_regression_signals):
+            return ""
+        return (
+            "from pathlib import Path\n"
+            "import matplotlib\n"
+            "matplotlib.use('Agg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "from sklearn.linear_model import LinearRegression\n"
+            "from sklearn.metrics import r2_score\n"
+            "\n"
+            "x_values = [[1], [2], [3], [4], [5], [6], [7], [8]]\n"
+            "y_values = [2.1, 4.3, 6.2, 8.1, 10.4, 12.2, 14.1, 16.0]\n"
+            "model = LinearRegression()\n"
+            "model.fit(x_values, y_values)\n"
+            "predictions = model.predict(x_values)\n"
+            "score = r2_score(y_values, predictions)\n"
+            "\n"
+            "plt.figure(figsize=(6, 4))\n"
+            "plt.scatter([item[0] for item in x_values], y_values, label='samples')\n"
+            "plt.plot([item[0] for item in x_values], predictions, color='tab:orange', label='prediction')\n"
+            "plt.title('sklearn linear regression demo')\n"
+            "plt.xlabel('x')\n"
+            "plt.ylabel('y')\n"
+            "plt.legend()\n"
+            "output_path = Path('sklearn_linear_regression.png')\n"
+            "plt.tight_layout()\n"
+            "plt.savefig(output_path)\n"
+            "plt.close()\n"
+            "\n"
+            "print(f'coef={model.coef_[0]:.4f}')\n"
+            "print(f'intercept={model.intercept_:.4f}')\n"
+            "print(f'R2={score:.4f}')\n"
+            "print(f'artifact={output_path.as_posix()}')\n"
+        )
 
     @staticmethod
     def _resolve_workspace(workspace: str, config: OrchestratorConfig) -> Path:

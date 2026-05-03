@@ -36,8 +36,6 @@ class RuntimeState(TypedDict, total=False):
     error: str
     iteration: int
     max_iterations: int
-    context: dict[str, Any]
-
 
 def create_initial_state(
     *,
@@ -82,6 +80,5 @@ def create_initial_state(
         error="",
         iteration=0,
         max_iterations=max_iterations,
-        context={},
     )
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.llm.messages import append_user_message
+from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
 
@@ -14,7 +15,7 @@ except Exception:  # pragma: no cover
 
 async def await_user_node(state: RuntimeState) -> RuntimeState:
     next_state = RuntimeState(**dict(state))
-    runtime_context = dict(next_state.get("context") or {})
+    runtime_context = resolve_runtime_context(next_state)
     session = runtime_context.get("session")
     prompt = str(next_state.get("pending_user_prompt") or (session.pending_user_prompt if session is not None else "") or "User input is required.")
     input_mode = str((session.context.get("pending_user_input_mode") if session is not None else "") or "text")

@@ -34,6 +34,20 @@
           </v-chip>
         </div>
 
+        <div
+          v-if="task.status === 'done' || task.status === 'failed' || task.status === 'interrupted'"
+          class="d-flex justify-end"
+        >
+          <v-btn
+            color="primary"
+            variant="tonal"
+            size="small"
+            @click="openStartFlow"
+          >
+            新建任务
+          </v-btn>
+        </div>
+
         <div>
           <div class="d-flex align-center justify-space-between text-caption mb-2">
             <span class="text-medium-emphasis">执行进度</span>
@@ -48,7 +62,7 @@
           />
         </div>
 
-        <v-row v-if="showMetaList" dense>
+        <v-row v-if="showMetaList && task.status !== 'done' && task.status !== 'failed' && task.status !== 'interrupted'" dense>
           <v-col cols="6">
             <v-card variant="tonal" rounded="lg">
               <v-card-text class="py-3">
@@ -67,32 +81,56 @@
           </v-col>
         </v-row>
 
-        <v-alert
-          v-if="showDetailAlert && task.status === 'done' && task.resultSummary"
-          type="success"
-          variant="tonal"
-          density="compact"
+        <v-sheet
+          v-if="showDetailAlert && task.status === 'done' && tileSummaryText"
+          color="success"
+          rounded="lg"
+          class="pa-3"
         >
-          <MarkdownContent :content="task.resultSummary" />
-        </v-alert>
+          <div class="d-flex align-start ga-3">
+            <v-icon color="success" icon="mdi-check-circle" />
+            <div class="min-w-0">
+              <div class="text-body-2 font-weight-medium">编排已完成</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ tileSummaryText }}
+              </div>
+            </div>
+          </div>
+        </v-sheet>
 
-        <v-alert
+        <v-sheet
           v-else-if="showDetailAlert && task.status === 'failed'"
-          type="error"
-          variant="tonal"
-          density="compact"
+          color="error"
+          rounded="lg"
+          class="pa-3"
         >
-          <MarkdownContent :content="task.summary || '任务执行失败，请前往详情查看原因。'" />
-        </v-alert>
+          <div class="d-flex align-start ga-3">
+            <v-icon color="error" icon="mdi-alert-circle" />
+            <div class="min-w-0">
+              <div class="text-body-2 font-weight-medium">任务执行失败</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ tileSummaryText || "可前往详情查看失败阶段与错误信息。" }}
+              </div>
+            </div>
+          </div>
+        </v-sheet>
 
-        <v-alert
+        <v-sheet
           v-else-if="showDetailAlert && task.awaitingUser"
-          type="warning"
-          variant="tonal"
-          density="compact"
+          color="warning"
+          rounded="lg"
+          class="pa-3"
         >
-          <MarkdownContent :content="task.prompt || '任务正在等待补充输入。'" />
-        </v-alert>
+          <div class="d-flex align-start ga-3">
+            <v-icon color="warning" icon="mdi-account-clock-outline" />
+            <div class="min-w-0">
+              <div class="text-body-2 font-weight-medium">等待补充输入</div>
+              <div class="text-caption text-medium-emphasis mt-1">
+                {{ tileSummaryText || "当前需要补充输入后才能继续。" }}
+              </div>
+            </div>
+          </div>
+        </v-sheet>
 
         <v-text-field
           v-if="task.awaitingUser && showInlineInput"
@@ -215,7 +253,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import MarkdownContent from "@/components/common/MarkdownContent.vue";
 import type { OrchestratorTaskItem, TaskStepStatus } from "@/stores/orchestratorTaskStore";
 
 const props = defineProps<{
@@ -241,6 +278,16 @@ const showBodyCopy = computed(() => !compactMode.value);
 const showMetaList = computed(() => largeMode.value);
 const showDetailAlert = computed(() => largeMode.value);
 const showInlineInput = computed(() => largeMode.value);
+const tileSummaryText = computed(() => {
+  if (!props.task) return "";
+  const source =
+    props.task.status === "done"
+      ? props.task.resultSummary || props.task.summary
+      : props.task.awaitingUser
+        ? props.task.prompt || props.task.summary
+        : props.task.summary;
+  return summarizeText(source);
+});
 const currentStep = computed(() => {
   if (!props.task) return null;
   return props.task.steps.find((step) => step.index === props.task.currentStepIndex) || props.task.steps[0] || null;
@@ -302,6 +349,20 @@ function taskStatusCopy(status: TaskStepStatus) {
   return "任务已创建，等待进入执行阶段。";
 }
 
+function summarizeText(value: string | null | undefined) {
+  const text = String(value || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/\[[^\]]+\]\([^)]+\)/g, "$1")
+    .replace(/^[#>*\-\s]+/gm, "")
+    .replace(/\|/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  return text.length > 72 ? `${text.slice(0, 72)}...` : text;
+}
+
 function submitResume() {
   const value = resumeText.value.trim();
   if (!value) return;
@@ -319,7 +380,7 @@ function openResumeFlow() {
 }
 
 function openStartFlow() {
-  if (largeMode.value) {
+  if (largeMode.value && !props.task) {
     submitStart();
     return;
   }

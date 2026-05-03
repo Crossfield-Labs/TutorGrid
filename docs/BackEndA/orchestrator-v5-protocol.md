@@ -88,6 +88,11 @@ WS /ws/orchestrator
 - `instruction`：用户在文档内注册的任务文本
 - `context`：可选上下文，仅用于补充任务语义
 
+工作区约定：
+- 如果前端没有显式传 `params.workspace`，后端默认把本次任务工作区创建在 `scratch/tasks/<task_id>/`
+- 任务运行过程中生成的脚本、图片、临时文件、产物索引都应优先落在该任务目录下
+- 只有前端或调用方明确指定 `workspace` 时，才覆盖这一默认目录
+
 成功响应：
 
 ```json
@@ -171,7 +176,11 @@ WS /ws/orchestrator
     "phase": "tools",
     "status": "running",
     "summary": "正在运行 sklearn 线性回归",
-    "awaiting_user": false
+    "awaiting_user": false,
+    "active_worker": "opencode",
+    "active_session_mode": "new",
+    "active_worker_profile": "default",
+    "active_worker_task_id": "worker_task_001"
   }
 }
 ```
@@ -180,6 +189,8 @@ WS /ws/orchestrator
 - `status` 枚举：`pending | running | done | failed | awaiting_user | interrupted`
 - `phase` 与 runtime 内部节点对应，但前端只消费稳定字符串，不依赖内部状态对象
 - `summary` 面向用户展示，不要求暴露内部 trace
+- `active_worker / active_session_mode / active_worker_profile / active_worker_task_id`
+  用于前端详情页展示当前委派到的第三方执行后端
 
 ### 2. `orchestrator.task.result`
 
@@ -211,6 +222,18 @@ WS /ws/orchestrator
         "language": "python",
         "content": "from sklearn.linear_model import LinearRegression"
       }
+    ],
+    "worker_runs": [
+      {
+        "worker": "python_runner",
+        "success": true,
+        "summary": "coef=1.98 ... R2=0.94",
+        "output": "coef=1.98\nintercept=0.13\nR2=0.94\nartifact=sklearn_linear_regression.png",
+        "metadata": {
+          "workspace": "scratch/tasks/task_001",
+          "python_command": "python"
+        }
+      }
     ]
   }
 }
@@ -220,6 +243,8 @@ WS /ws/orchestrator
 - `status` 为 `failed`
 - `content` 应给出面向用户的失败说明
 - 可选补 `error_code`
+- 如经过 `codex / opencode / python_runner` 等第三方执行后端，
+  `worker_runs` 会带回本次执行摘要、输出、artifact 和 fallback 元数据
 
 ### 3. `orchestrator.task.awaiting_user`
 
@@ -258,6 +283,8 @@ WS /ws/orchestrator
 - `summary`
 - `content`
 - `artifacts`
+- `worker_runs`
+- `active_worker`
 
 前端不应该直接依赖：
 - runtime graph 内部 state

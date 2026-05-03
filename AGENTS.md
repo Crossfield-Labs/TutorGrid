@@ -6,7 +6,7 @@
 1. `README.md`：先看项目范围和启动方式
 2. `CONTRIBUTING.md`：再看协作和改动约束
 3. `docs/persistence.md`：先看持久化模型
-4. `docs/orchestrator-v5-protocol.md`：再看 V5 编排协议与任务级事件模型
+4. `docs/BackEndA/orchestrator-v5-protocol.md`：再看 V5 编排协议与任务级事件模型
 5. `docs/harness.md`：如果要做任务驱动执行、评测或回归，先看 harness 结构
 6. `harness/docs/gaps.md`：最后看当前剩余缺口和框架职责边界
 7. `harness/docs/README.md`：按模块导航定位要读的文档

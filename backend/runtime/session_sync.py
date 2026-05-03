@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
+from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.state import RuntimeState
 try:
     from langgraph.config import get_stream_writer
@@ -17,7 +18,7 @@ async def sync_session_from_runtime_state(
     emit_progress: ProgressCallback | None = None,
     progress: float | None = None,
 ) -> RuntimeState:
-    context = dict(state.get("context") or {})
+    context = resolve_runtime_context(state)
     session = context.get("session")
     if session is None:
         return state

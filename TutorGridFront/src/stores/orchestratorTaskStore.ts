@@ -31,6 +31,10 @@ export interface OrchestratorTaskItem {
   awaitingUser: boolean;
   prompt: string;
   artifacts: Array<Record<string, unknown>>;
+  workerRuns: Array<Record<string, unknown>>;
+  activeWorker: string;
+  activeSessionMode: string;
+  activeWorkerProfile: string;
   steps: OrchestratorTaskStep[];
   updatedAt: string;
 }
@@ -124,6 +128,10 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             awaitingUser: Boolean(payload?.awaiting_user),
             prompt: previous?.prompt || "",
             artifacts: previous?.artifacts || [],
+            workerRuns: previous?.workerRuns || [],
+            activeWorker: String(payload?.active_worker || previous?.activeWorker || ""),
+            activeSessionMode: String(payload?.active_session_mode || previous?.activeSessionMode || ""),
+            activeWorkerProfile: String(payload?.active_worker_profile || previous?.activeWorkerProfile || ""),
             steps: mergeSteps(previous?.steps, payload?.steps, phase, summary),
             updatedAt: new Date().toISOString(),
           };
@@ -165,6 +173,10 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             awaitingUser: false,
             prompt: "",
             artifacts: Array.isArray(payload?.artifacts) ? payload.artifacts : [],
+            workerRuns: Array.isArray(payload?.worker_runs) ? payload.worker_runs : previous?.workerRuns || [],
+            activeWorker: String(payload?.active_worker || previous?.activeWorker || ""),
+            activeSessionMode: String(payload?.active_session_mode || previous?.activeSessionMode || ""),
+            activeWorkerProfile: String(payload?.active_worker_profile || previous?.activeWorkerProfile || ""),
             steps:
               previous?.steps?.length
                 ? previous.steps.map((step) => ({
@@ -216,6 +228,10 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             awaitingUser: false,
             prompt: "",
             artifacts: [],
+            workerRuns: [],
+            activeWorker: "",
+            activeSessionMode: "",
+            activeWorkerProfile: "",
             steps: defaultSteps(),
             updatedAt: new Date().toISOString(),
           });

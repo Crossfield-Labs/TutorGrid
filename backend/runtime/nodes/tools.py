@@ -4,13 +4,14 @@ import asyncio
 from typing import Any
 
 from backend.llm.messages import append_tool_message
+from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
 
 
 async def tools_node(state: RuntimeState) -> RuntimeState:
     next_state = RuntimeState(**dict(state))
-    runtime_context = dict(next_state.get("context") or {})
+    runtime_context = resolve_runtime_context(next_state)
     tool_map = dict(runtime_context.get("tool_map") or {})
     emit_substep = runtime_context.get("emit_substep")
     session = runtime_context.get("session")
@@ -84,12 +85,34 @@ async def tools_node(state: RuntimeState) -> RuntimeState:
         if emit_substep is not None:
             await emit_substep("tool", tool_name, "started", f"Executing {tool_name}")
         substeps.append({"kind": "tool", "title": tool_name, "status": "started", "detail": f"Executing {tool_name}"})
-        if hasattr(tool, "ainvoke"):
-            result = await tool.ainvoke(arguments)
-        else:
-            result = tool.invoke(arguments)
-            if asyncio.iscoroutine(result):
-                result = await result
+        try:
+            if hasattr(tool, "ainvoke"):
+                result = await tool.ainvoke(arguments)
+            else:
+                result = tool.invoke(arguments)
+                if asyncio.iscoroutine(result):
+                    result = await result
+        except Exception as exc:
+            result = _graceful_tool_failure(tool_name=tool_name, arguments=arguments, error=exc)
+            executed_results.append(
+                {
+                    "id": str(call.get("id") or ""),
+                    "tool": tool_name,
+                    "arguments": arguments,
+                    "result": result,
+                }
+            )
+            tool_events.append({"tool": tool_name, "arguments": arguments, "result": result})
+            messages = append_tool_message(
+                messages,
+                tool_call_id=str(call.get("id") or tool_name),
+                tool_name=tool_name,
+                result=result,
+            )
+            if emit_substep is not None:
+                await emit_substep("tool", tool_name, "failed", result[:240])
+            substeps.append({"kind": "tool", "title": tool_name, "status": "failed", "detail": result[:240]})
+            continue
         executed_results.append(
             {
                 "id": str(call.get("id") or ""),
@@ -146,5 +169,15 @@ def _phase_for_tool(tool_name: str) -> str:
     if tool_name in {"list_files", "read_file", "web_fetch"}:
         return "inspecting"
     return "planning"
+
+
+def _graceful_tool_failure(*, tool_name: str, arguments: dict[str, Any], error: Exception) -> str:
+    if tool_name == "web_fetch":
+        url = str(arguments.get("url") or "").strip()
+        return (
+            f"Web fetch failed for {url or 'the requested url'}: {error}. "
+            f"Please continue with other sources or summarize based on the evidence already collected."
+        )
+    return f"Tool '{tool_name}' failed: {error}"
 
 

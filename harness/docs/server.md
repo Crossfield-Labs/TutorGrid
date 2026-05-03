@@ -22,7 +22,7 @@ Server 在 F04 阶段的职责是：
 ## 当前主协议
 
 V5 编排主协议见：
-- `../../docs/orchestrator-v5-protocol.md`
+- `../../docs/BackEndA/orchestrator-v5-protocol.md`
 
 当前对前端应优先维护的请求：
 - `orchestrator.task.create`
@@ -59,6 +59,8 @@ F04 不是重写后端，而是在现有后端上做协议适配。
 - `task.resume` 先兼容旧 waiter 恢复路径
 - 对 graph 原生 `interrupt()` 暂停的任务，`task.resume` 会写入 `_resume_payload` 并重新拉起 runtime
 - `task.result` 会带 `worker_runs` 与结构化 `artifacts`
+- `task.create` 在未显式传 `workspace` 时，默认把任务工作区创建为 `scratch/tasks/<taskId>/`
+- 编排任务生成的脚本、图片和临时文件应优先落在该任务目录，而不是仓库根目录
 
 ## 旧协议的定位
 
@@ -75,6 +77,6 @@ F04 不是重写后端，而是在现有后端上做协议适配。
 - 连接、订阅、广播行为放在 `app.py`
 - 新增任务字段时，先定义任务级 frame，再决定内部 session 如何承接
 - 不要让前端直接依赖 runtime graph 内部对象
-- 如果步骤语义变化，先更新 `../../docs/orchestrator-v5-protocol.md`
+- 如果步骤语义变化，先更新 `../../docs/BackEndA/orchestrator-v5-protocol.md`
 - 如果中断 / 恢复语义变化，同步更新 `runtime.md`
 

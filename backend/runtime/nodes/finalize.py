@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
 
 
 async def finalize_node(state: RuntimeState) -> RuntimeState:
     next_state = RuntimeState(**dict(state))
-    runtime_context = dict(next_state.get("context") or {})
+    runtime_context = resolve_runtime_context(next_state)
     if not next_state.get("final_answer"):
         planner = runtime_context.get("planner")
         evidence = list(next_state.get("tool_results") or [])

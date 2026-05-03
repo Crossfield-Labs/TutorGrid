@@ -7,6 +7,7 @@ from backend.config import load_config
 from backend.llm.planner import PlannerRuntime
 from backend.memory.service import MemoryService
 from backend.observability import get_langsmith_tracer
+from backend.runtime.context_registry import register_runtime_context, unregister_runtime_context
 from backend.runtime.graph import build_runtime_graph
 from backend.runtime.state import RuntimeState, create_initial_state
 from backend.sessions.state import OrchestratorSessionState
@@ -99,7 +100,7 @@ class OrchestratorRuntime:
         state["worker_sessions"] = dict(self.session.worker_sessions)
         state["stop_reason"] = str(self.session.stop_reason or "")
         state["messages"] = list(self.session.context.get("planner_messages") or [])
-        state["context"] = {
+        runtime_context = {
             "planner": self.planner,
             "tools": self.tools,
             "tool_map": self.tool_map,
@@ -113,6 +114,7 @@ class OrchestratorRuntime:
             "tracer": self.tracer,
             "langsmith_parent_run_id": run_id,
         }
+        register_runtime_context(self.session.session_id, runtime_context)
         recursion_limit = max(50, int(self.config.max_iterations) * 6)
         try:
             runtime_input: RuntimeState | Any = state
@@ -121,7 +123,6 @@ class OrchestratorRuntime:
                 runtime_input = Command(
                     resume=resume_payload,
                     update={
-                        "context": state["context"],
                         "followups": list(self.session.followups),
                         "worker_sessions": dict(self.session.worker_sessions),
                         "stop_reason": str(self.session.stop_reason or ""),
@@ -154,6 +155,9 @@ class OrchestratorRuntime:
                 tags=["error"],
             )
             raise
+        finally:
+            if not self.session.awaiting_input:
+                unregister_runtime_context(self.session.session_id)
 
     async def _run_graph_stream(self, *, input_value: Any, state: RuntimeState, recursion_limit: int) -> RuntimeState:
         graph = self.graph_build.graph

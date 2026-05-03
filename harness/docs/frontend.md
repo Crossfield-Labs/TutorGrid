@@ -14,7 +14,7 @@
 - 当前路线：桌面应用优先
 
 详细前后端协作与协议边界，优先参考：
-- `../../docs/orchestrator-v5-protocol.md`
+- `../../docs/BackEndA/orchestrator-v5-protocol.md`
 - `../../docs/harness.md`
 
 ## 前端实现规范（必须遵守）

@@ -336,6 +336,23 @@ function createMainWindow() {
     return { action: "deny" };
   });
 
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("[electron] did-fail-load", { errorCode, errorDescription, validatedURL });
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[electron] render-process-gone", details);
+  });
+
+  mainWindow.webContents.on("unresponsive", () => {
+    console.error("[electron] renderer became unresponsive");
+  });
+
+  mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
+    console.log("[renderer console]", { level, message, line, sourceId });
+    event.preventDefault();
+  });
+
   if (isDevelopment) {
     mainWindow.webContents.on("before-input-event", (event, input) => {
       const key = input.key.toLowerCase();
@@ -350,6 +367,7 @@ function createMainWindow() {
   if (isDevelopment && devServerUrl) {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.once("did-finish-load", () => {
+      console.log("[electron] did-finish-load", { url: mainWindow?.webContents.getURL() });
       mainWindow?.webContents.openDevTools({ mode: "detach" });
     });
   } else {

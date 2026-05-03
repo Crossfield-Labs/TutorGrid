@@ -4,10 +4,11 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite --mode dev",
+    "icons:prepare": "node scripts/prepare-icons.cjs",
     "build": "vite build --mode pro",
     "electron:compile": "tsc -p tsconfig.electron.json",
     "electron:dev": "concurrently -k \"yarn dev\" \"yarn electron:compile --watch\" \"wait-on http://localhost:4399/index.html dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:4399 electron dist-electron/main.js\"",
-    "electron:build": "yarn build && yarn electron:compile && electron-builder",
+    "electron:build": "yarn icons:prepare && yarn build && yarn electron:compile && electron-builder",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",

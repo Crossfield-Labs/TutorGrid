@@ -64,6 +64,10 @@ TASK_STEP_LABELS = {
 }
 
 
+def _build_worker_runs(session: OrchestratorSessionState) -> list[dict[str, Any]]:
+    return list(session.worker_runs)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Orchestrator standalone server")
     parser.add_argument("--host", default="0.0.0.0")
@@ -209,6 +213,10 @@ async def _broadcast_task_step(
             "status": task_status,
             "summary": summary,
             "awaiting_user": task_status == "awaiting_user",
+            "active_worker": session.active_worker,
+            "active_session_mode": session.active_session_mode,
+            "active_worker_profile": session.active_worker_profile,
+            "active_worker_task_id": session.active_worker_task_id,
             "steps": _build_task_steps(
                 current_phase=current_phase,
                 task_status=task_status,
@@ -259,7 +267,10 @@ def _build_task_result_payload(
         "result_type": _resolve_task_result_type(session) if status == "done" else "error",
         "content": content,
         "artifacts": _build_task_artifacts(session),
-        "worker_runs": list(session.worker_runs),
+        "worker_runs": _build_worker_runs(session),
+        "active_worker": session.active_worker,
+        "active_session_mode": session.active_session_mode,
+        "active_worker_profile": session.active_worker_profile,
     }
     if error_code:
         payload["error_code"] = error_code
@@ -278,6 +289,33 @@ def _ensure_workspace(raw_workspace: str) -> str:
     workspace_path = Path(workspace_text).expanduser()
     workspace_path.mkdir(parents=True, exist_ok=True)
     return str(workspace_path)
+
+
+def _ensure_task_workspace(raw_workspace: str, task_id: str) -> str:
+    workspace_text = (raw_workspace or "").strip()
+    if not workspace_text or workspace_text == ".":
+        workspace_path = ROOT / "scratch" / "tasks" / (task_id or f"task_{int(time.time() * 1000)}")
+    else:
+        workspace_path = Path(workspace_text).expanduser()
+    workspace_path.mkdir(parents=True, exist_ok=True)
+    return str(workspace_path)
+
+
+def _should_use_python_runner(task_text: str) -> bool:
+    normalized = (task_text or "").strip().lower()
+    if not normalized:
+        return False
+    has_demo_signal = "demo" in normalized or "示例" in task_text or "演示" in task_text
+    has_sklearn_signal = "sklearn" in normalized
+    has_linear_regression_signal = "线性回归" in task_text or "linear regression" in normalized
+    return has_sklearn_signal and has_linear_regression_signal and has_demo_signal
+
+
+def _select_runner_for_task(*, requested_runner: str, task_text: str) -> str:
+    runner = (requested_runner or "orchestrator").strip() or "orchestrator"
+    if runner == "orchestrator" and _should_use_python_runner(task_text):
+        return "python_runner"
+    return runner
 
 
 def _should_trace_event(event: str) -> bool:
@@ -1002,11 +1040,16 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
 
             if request.method == "orchestrator.task.create":
                 task_text = request.params.instruction.strip() or request.params.task.strip() or request.params.goal.strip()
+                task_id = request.task_id or f"task_{int(time.time() * 1000)}"
+                selected_runner = _select_runner_for_task(
+                    requested_runner=request.params.runner,
+                    task_text=task_text,
+                )
                 session = session_manager.create(
-                    task_id=request.task_id or f"task_{int(time.time() * 1000)}",
+                    task_id=task_id,
                     node_id=request.node_id or "doc_task",
-                    runner=request.params.runner,
-                    workspace=_ensure_workspace(request.params.workspace),
+                    runner=selected_runner,
+                    workspace=_ensure_task_workspace(request.params.workspace, task_id),
                     task=task_text,
                     goal=request.params.goal or task_text,
                 )
