@@ -16,16 +16,18 @@ from backend.config import (
 from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
 from backend.rag.service import RagService
-from backend.server.chat_api import router as chat_router
+from backend.server.chat_api import router as chat_router, set_chat_service
 from backend.workspace_meta import WorkspaceMetaService
+from backend.chats import ChatService
 
 
 knowledge_service = KnowledgeBaseService()
 rag_service = RagService(knowledge_service=knowledge_service)
 profile_service = LearningProfileService()
-workspace_meta_service = WorkspaceMetaService(
-    db_path=Path(__file__).resolve().parents[2] / "scratch" / "storage" / "orchestrator.sqlite3"
-)
+DB_PATH = Path(__file__).resolve().parents[2] / "scratch" / "storage" / "orchestrator.sqlite3"
+workspace_meta_service = WorkspaceMetaService(db_path=DB_PATH)
+chat_service = ChatService(db_path=DB_PATH)
+set_chat_service(chat_service)  # 让 chat_api 的 SSE 端点能写库
 
 app = FastAPI(title="TutorGrid Backend B API", version="0.1.0")
 app.add_middleware(
@@ -48,6 +50,21 @@ profile_router = APIRouter(prefix="/api/profile", tags=["profile"])
 config_router = APIRouter(prefix="/api/config", tags=["config"])
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 hyperdoc_router = APIRouter(prefix="/api/hyperdocs", tags=["hyperdocs"])
+chats_router = APIRouter(prefix="/api/chats", tags=["chats"])
+
+
+class CreateChatSessionRequest(BaseModel):
+    title: str = ""
+
+
+class RenameChatSessionRequest(BaseModel):
+    title: str
+
+
+class AppendChatMessageRequest(BaseModel):
+    role: str  # user | ai | system
+    content: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkspaceAppearance(BaseModel):
@@ -303,8 +320,73 @@ async def delete_hyperdoc_meta(hyperdoc_id: str) -> dict[str, Any]:
     return {"status": "ok", "id": hyperdoc_id}
 
 
+# -------- Chat 会话与消息（Step 2） --------
+
+@hyperdoc_router.get("/{hyperdoc_id}/chats")
+async def list_hyperdoc_chats(hyperdoc_id: str) -> list[dict[str, Any]]:
+    return chat_service.list_sessions(hyperdoc_id)
+
+
+@hyperdoc_router.post("/{hyperdoc_id}/chats")
+async def create_hyperdoc_chat(
+    hyperdoc_id: str, payload: CreateChatSessionRequest
+) -> dict[str, Any]:
+    try:
+        return chat_service.create_session(hyperdoc_id=hyperdoc_id, title=payload.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@chats_router.get("/{session_id}")
+async def get_chat_session(session_id: str) -> dict[str, Any]:
+    item = chat_service.get_session(session_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return item
+
+
+@chats_router.put("/{session_id}")
+async def rename_chat_session(
+    session_id: str, payload: RenameChatSessionRequest
+) -> dict[str, Any]:
+    item = chat_service.rename_session(session_id, payload.title)
+    if item is None:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return item
+
+
+@chats_router.delete("/{session_id}")
+async def delete_chat_session(session_id: str) -> dict[str, Any]:
+    deleted = chat_service.delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"status": "ok", "id": session_id}
+
+
+@chats_router.get("/{session_id}/messages")
+async def list_chat_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+    return chat_service.list_messages(session_id, limit=limit)
+
+
+@chats_router.post("/{session_id}/messages")
+async def append_chat_message(
+    session_id: str, payload: AppendChatMessageRequest
+) -> dict[str, Any]:
+    """前端兜底用（一般 SSE 端点会自动写）。"""
+    try:
+        return chat_service.append_message(
+            session_id=session_id,
+            role=payload.role,
+            content=payload.content,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 app.include_router(knowledge_router)
 app.include_router(profile_router)
 app.include_router(config_router)
 app.include_router(workspace_router)
 app.include_router(hyperdoc_router)
+app.include_router(chats_router)

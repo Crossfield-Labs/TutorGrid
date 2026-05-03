@@ -1,18 +1,18 @@
 <!--
 * @Component: ChatAssistant
-* @Description: AI 对话浮窗 (基于旧项目 J.K. Yang 的版本，接入 SSE + messageStore)
+* @Description: AI 对话浮窗（Step 2 持久化版）
 *
-* 设计参考：作者原版 + 我们后端 (POST /api/chat/stream)
-* 保留：浮窗布局 / 用户头像气泡 / AI markdown 卡片 / perfect-scrollbar 固定高度滚动
-* 替换：OpenAI 直连 → 我们的 SSE 后端，自管 messages → 共享 messageStore
+* 数据源：chatSessionListStore + chatMessageStore（替代旧 messageStore）
+* 新功能：顶部 session tabs、新建/切换会话、AI 消息"📌 插入到文档"按钮
 -->
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch, onMounted } from "vue";
 import { useDisplay } from "vuetify";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-import { useMessageStore } from "@/stores/messageStore";
-import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
-import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useChatMessageStore } from "@/stores/chatMessageStore";
+import { useChatSessionListStore } from "@/stores/chatSessionListStore";
+import { useChatSessionStore } from "@/stores/chatSessionStore";
+import { useDocumentEditorBus } from "@/composables/useDocumentEditorBus";
 import { streamChat } from "@/lib/chat-sse";
 import { renderMarkdown, postProcessLinks } from "@/lib/markdown";
 import { scrollToBottom } from "@/utils/common";
@@ -20,9 +20,10 @@ import avatarAssistant from "@/assets/images/avatars/avatar_assistant.jpg";
 import avatarUser from "@/assets/images/avatars/avatar_user.jpg";
 
 const snackbarStore = useSnackbarStore();
-const messageStore = useMessageStore();
+const chatMsgStore = useChatMessageStore();
+const sessionListStore = useChatSessionListStore();
 const chatSession = useChatSessionStore();
-const workspaceStore = useWorkspaceStore();
+const editorBus = useDocumentEditorBus();
 const { xs } = useDisplay();
 
 const userMessage = ref("");
@@ -30,18 +31,67 @@ const isLoading = ref(false);
 const inputRow = ref(1);
 const dialog = ref(false);
 
+const currentDocId = computed(() => chatSession.currentDocId);
 const sessionId = computed(() => chatSession.currentSessionId);
-// 解耦文档/Chat：浮窗只显示 origin === 'chat' 的消息（或 origin 缺失的旧数据，兼容）
-// 文档内 AI 气泡（origin === 'document'）由 TipTap 节点单独渲染，不出现在浮窗
-const messages = computed(() =>
-  messageStore
-    .getSessionMessages(sessionId.value)
-    .filter((m) => m.metadata?.origin !== "document")
+
+const sessions = computed(() =>
+  currentDocId.value ? sessionListStore.sessionsOf(currentDocId.value) : []
 );
+const messages = computed(() => chatMsgStore.messagesOf(sessionId.value));
 
 const renderAi = (text: string) => postProcessLinks(renderMarkdown(text));
 
-const sendMessage = async () => {
+const sessionLabel = computed(() => {
+  if (!currentDocId.value) return "全局会话";
+  const cur = sessions.value.find((s) => s.id === sessionId.value);
+  return cur?.title || "默认会话";
+});
+
+// ---------------- 会话生命周期 ----------------
+
+async function loadSessionsAndDefault() {
+  if (!currentDocId.value) return;
+  const def = await sessionListStore.ensureDefault(currentDocId.value);
+  if (def) {
+    chatSession.setSession(def.id, currentDocId.value);
+    await chatMsgStore.fetchBySession(def.id);
+  }
+}
+
+// 监听 docId 变化（切换 hyperdoc 时）
+watch(currentDocId, async (newId, oldId) => {
+  if (newId && newId !== oldId) await loadSessionsAndDefault();
+});
+
+// 监听 session 切换 → fetch 消息
+watch(sessionId, async (newId) => {
+  if (newId) await chatMsgStore.fetchBySession(newId);
+});
+
+onMounted(async () => {
+  if (currentDocId.value) await loadSessionsAndDefault();
+});
+
+async function selectSession(sid: string) {
+  chatSession.setSession(sid, currentDocId.value);
+  await chatMsgStore.fetchBySession(sid);
+}
+
+async function newSession() {
+  if (!currentDocId.value) {
+    snackbarStore.showWarningMessage("无文档场景下不支持新建会话");
+    return;
+  }
+  const created = await sessionListStore.create(currentDocId.value);
+  if (created) {
+    await selectSession(created.id);
+    snackbarStore.showSuccessMessage(`已新建：${created.title}`);
+  }
+}
+
+// ---------------- 发送消息（SSE） ----------------
+
+async function sendMessage() {
   const text = userMessage.value.trim();
   if (!text) return;
   if (!sessionId.value) {
@@ -49,8 +99,8 @@ const sendMessage = async () => {
     return;
   }
 
-  messageStore.addUserMessage(sessionId.value, text, "chat");
-  const aiMsg = messageStore.startAiMessage(sessionId.value, "chat");
+  chatMsgStore.pushUserMessage(sessionId.value, text);
+  const aiMsg = chatMsgStore.startAiPlaceholder(sessionId.value);
 
   userMessage.value = "";
   isLoading.value = true;
@@ -62,50 +112,42 @@ const sendMessage = async () => {
         message: text,
         course_id: chatSession.courseId || undefined,
         tools: ["rag", "tavily"],
-        context: chatSession.currentDocId
-          ? { doc_id: chatSession.currentDocId }
-          : undefined,
+        context: currentDocId.value ? { doc_id: currentDocId.value } : undefined,
       },
       onEvent: (event) => {
         switch (event.type) {
           case "tool_call":
-            messageStore.addToolUsed(sessionId.value, aiMsg.id, event.tool);
+            chatMsgStore.addToolUsed(sessionId.value, aiMsg.id, event.tool);
             break;
           case "tool_result":
             if (event.citations?.length) {
-              messageStore.addCitations(sessionId.value, aiMsg.id, event.citations);
+              chatMsgStore.addCitations(sessionId.value, aiMsg.id, event.citations);
             }
             if (event.results?.length) {
-              messageStore.addSearchResults(sessionId.value, aiMsg.id, event.results);
+              chatMsgStore.addSearchResults(sessionId.value, aiMsg.id, event.results);
             }
             break;
           case "delta":
-            messageStore.appendDelta(sessionId.value, aiMsg.id, event.content);
+            chatMsgStore.appendDelta(sessionId.value, aiMsg.id, event.content);
             break;
           case "done":
-            messageStore.finishMessage(sessionId.value, aiMsg.id);
+            chatMsgStore.finishAi(sessionId.value, aiMsg.id);
             break;
           case "error":
-            messageStore.failMessage(sessionId.value, aiMsg.id, event.message);
+            chatMsgStore.failAi(sessionId.value, aiMsg.id, event.message);
             snackbarStore.showErrorMessage(`AI 出错：${event.message}`);
             break;
         }
       },
     });
   } catch (e) {
-    messageStore.failMessage(
-      sessionId.value,
-      aiMsg.id,
-      (e as Error).message || "网络错误"
-    );
+    chatMsgStore.failAi(sessionId.value, aiMsg.id, (e as Error).message || "网络错误");
     snackbarStore.showErrorMessage(`Chat SSE 失败：${(e as Error).message}`);
   } finally {
-    if (messageStore.findMessage(sessionId.value, aiMsg.id)?.streaming) {
-      messageStore.finishMessage(sessionId.value, aiMsg.id);
-    }
+    chatMsgStore.finishAi(sessionId.value, aiMsg.id);
     isLoading.value = false;
   }
-};
+}
 
 watch(
   messages,
@@ -129,27 +171,18 @@ const onConfigClick = () => {
   snackbarStore.showInfoMessage("系统配置功能将在 F16 安装向导中实现");
 };
 
-const sessionLabel = computed(() => {
-  if (!chatSession.currentDocId) return "全局会话";
-  return `文档会话 · ${chatSession.currentDocId.slice(0, 8)}`;
-});
-
-const onNewSession = async () => {
-  const newId = makeSessionId();
-  const docId = chatSession.currentDocId;
-  if (docId) {
-    const tile = workspaceStore.findTile(docId);
-    if (tile) {
-      try {
-        await workspaceStore.setTileMetadata(tile.id, { sessionId: newId });
-      } catch (e) {
-        console.error("[chat] 新会话持久化失败", e);
-      }
-    }
+// 跨视图同步 #8：把 AI 消息插入到当前文档（通过 editorBus）
+function insertToDocument(messageContent: string, sourceMessageId: string) {
+  if (!editorBus.hasActiveEditor.value) {
+    snackbarStore.showWarningMessage("当前没有活跃的文档编辑器");
+    return;
   }
-  chatSession.setSession(newId, docId);
-  snackbarStore.showSuccessMessage("已开始新会话");
-};
+  editorBus.insertAiBubble({
+    content: messageContent,
+    sourceChatMessageId: sourceMessageId,
+  });
+  snackbarStore.showSuccessMessage("已插入到文档");
+}
 </script>
 
 <template>
@@ -164,21 +197,46 @@ const onNewSession = async () => {
         v-if="dialog"
         class="dialog-bottom d-flex flex-column"
         :width="xs ? '100%' : '600px'"
-        height="500px"
+        height="600px"
       >
-        <v-card-title>
+        <v-card-title class="pb-1">
           <span class="flex-fill d-inline-flex align-center">
-            <v-avatar size="40" class="mr-2">
+            <v-avatar size="36" class="mr-2">
               <v-img :src="avatarAssistant" alt="AI" />
             </v-avatar>
             <div class="d-flex flex-column">
-              <span>智格生境 · AI 对话</span>
+              <span class="text-body-1">智格生境 · AI 对话</span>
               <span class="text-caption text-medium-emphasis">
                 {{ sessionLabel }}
               </span>
             </div>
           </span>
 
+          <v-spacer />
+          <v-btn icon variant="text" size="small" @click.stop="dialog = false">
+            <v-icon>mdi-close</v-icon>
+          </v-btn>
+        </v-card-title>
+
+        <!-- Session Tabs -->
+        <div v-if="currentDocId" class="px-2 pb-1 d-flex align-center">
+          <v-chip-group
+            :model-value="sessionId"
+            mandatory
+            selected-class="text-primary"
+            @update:model-value="(v: any) => v && selectSession(v)"
+          >
+            <v-chip
+              v-for="s in sessions"
+              :key="s.id"
+              :value="s.id"
+              size="small"
+              variant="outlined"
+              prepend-icon="mdi-chat-outline"
+            >
+              {{ s.title }}
+            </v-chip>
+          </v-chip-group>
           <v-spacer />
           <v-tooltip location="bottom" text="新建会话">
             <template #activator="{ props: tipProps }">
@@ -187,21 +245,16 @@ const onNewSession = async () => {
                 icon="mdi-plus"
                 variant="text"
                 size="small"
-                @click.stop="onNewSession"
+                @click.stop="newSession"
               />
             </template>
           </v-tooltip>
-          <v-btn icon variant="text" @click.stop="dialog = false">
-            <v-icon>mdi-close</v-icon>
-          </v-btn>
-        </v-card-title>
+        </div>
+
         <v-divider />
 
-        <v-card-text class="pa-0">
-          <div
-            v-if="messages.length > 0"
-            class="message-container"
-          >
+        <v-card-text class="pa-0 flex-fill" style="overflow: hidden">
+          <div v-if="messages.length > 0" class="message-container">
             <template v-for="message in messages" :key="message.id">
               <!-- 用户消息 -->
               <div v-if="message.role === 'user'">
@@ -229,7 +282,7 @@ const onNewSession = async () => {
                         />
                         {{
                           message.metadata?.origin === "document"
-                            ? "文档"
+                            ? "文档引用"
                             : "Chat"
                         }}
                         <span v-if="message.metadata?.command" class="ml-2">
@@ -268,9 +321,7 @@ const onNewSession = async () => {
                           class="mr-1"
                         >
                           <v-icon
-                            :icon="
-                              t.includes('rag') ? 'mdi-bookshelf' : 'mdi-web'
-                            "
+                            :icon="t.includes('rag') ? 'mdi-bookshelf' : 'mdi-web'"
                             size="12"
                             class="mr-1"
                           />
@@ -293,8 +344,27 @@ const onNewSession = async () => {
                           width="2"
                           color="primary"
                           class="mr-2"
-                        ></v-progress-circular>
+                        />
                         AI 正在思考…
+                      </div>
+
+                      <!-- 跨视图同步：插入到文档 -->
+                      <div
+                        v-if="
+                          !message.streaming &&
+                          message.content &&
+                          editorBus.hasActiveEditor.value
+                        "
+                        class="d-flex justify-end mt-2"
+                      >
+                        <v-btn
+                          size="x-small"
+                          variant="text"
+                          prepend-icon="mdi-pin-outline"
+                          @click="insertToDocument(message.content, message.id)"
+                        >
+                          插入到文档
+                        </v-btn>
                       </div>
                     </div>
                   </v-card>
@@ -309,9 +379,7 @@ const onNewSession = async () => {
             <div class="text-caption text-disabled mt-1">
               输入问题，AI 会从知识库 / 联网检索为你解答
             </div>
-            <div class="text-caption text-disabled mt-3">
-              {{ sessionLabel }}
-            </div>
+            <div class="text-caption text-disabled mt-3">{{ sessionLabel }}</div>
           </div>
         </v-card-text>
         <v-divider />
@@ -375,6 +443,12 @@ const onNewSession = async () => {
   right: 0px;
 }
 
+.message-container {
+  height: 100%;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
 .user-message {
   display: flex;
   align-content: center;
@@ -389,7 +463,6 @@ const onNewSession = async () => {
   flex-direction: row;
 }
 
-// 还原作者用的"gradient gray"风格用户气泡
 .gradient-gray {
   background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%) !important;
   max-width: 75%;
@@ -397,89 +470,15 @@ const onNewSession = async () => {
 
 .ai-card {
   max-width: 80%;
-  background: rgba(255, 255, 255, 0.95) !important;
-}
-
-.text-pre-wrap {
-  white-space: pre-wrap;
-}
-
-// ★ 关键：固定高度 + 原生滚动条（不依赖 perfect-scrollbar）
-.message-container {
-  height: 300px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 8px 12px;
-  scrollbar-width: thin;          // Firefox
-  scrollbar-color: rgba(0, 0, 0, 0.25) transparent;
-
-  // Chromium/WebKit
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 4px;
-    &:hover {
-      background: rgba(0, 0, 0, 0.35);
-    }
-  }
 }
 
 .no-message-container {
-  height: 100%;
   display: flex;
-  justify-content: center;
-  align-items: center;
   flex-direction: column;
-}
-
-.font-1 {
-  font-size: 13px !important;
-}
-
-.markdown-body :deep(p) {
-  margin: 0 0 0.5em;
-  &:last-child {
-    margin-bottom: 0;
-  }
-}
-.markdown-body :deep(code) {
-  background: rgba(15, 23, 42, 0.08);
-  padding: 2px 5px;
-  border-radius: 4px;
-  font-size: 0.88em;
-  font-family: "Source Code Pro", Consolas, monospace;
-}
-.markdown-body :deep(pre) {
-  background: #1e293b;
-  color: #e2e8f0;
-  padding: 10px 14px;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-size: 12.5px;
-}
-.markdown-body :deep(pre code) {
-  background: none;
-  padding: 0;
-  color: inherit;
-}
-.markdown-body :deep(ul),
-.markdown-body :deep(ol) {
-  margin: 0.4em 0;
-  padding-left: 1.4em;
-}
-.markdown-body :deep(blockquote) {
-  border-left: 3px solid rgba(15, 23, 42, 0.18);
-  padding-left: 10px;
-  color: rgba(15, 23, 42, 0.7);
-  margin: 0.5em 0;
-}
-.markdown-body :deep(a) {
-  color: rgb(var(--v-theme-primary));
-  text-decoration: underline;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
 }
 </style>

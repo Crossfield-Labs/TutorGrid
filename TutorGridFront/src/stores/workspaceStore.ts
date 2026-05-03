@@ -379,6 +379,30 @@ export const useWorkspaceStore = defineStore("workspace", {
       this.tiles.unshift(tile);
       this.reorderColumn(column);
       this.scheduleSave();
+
+      // Step 2 #10：同步注册到 hyperdocs_meta 表，让 sidebar 能看到
+      try {
+        const { useProjectStore } = await import("@/stores/projectStore");
+        const projectStore = useProjectStore();
+        const projectId = projectStore.currentId;
+        if (projectId) {
+          const res = await fetch(
+            `http://127.0.0.1:8000/api/workspaces/${projectId}/hyperdocs`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ title, fileRelPath: relPath }),
+            }
+          );
+          if (res.ok) {
+            // 刷新 sidebar 折叠列表
+            await projectStore.fetchHyperdocs(projectId);
+          }
+        }
+      } catch (e) {
+        console.warn("[workspaceStore] hyperdoc meta 注册失败（非致命）", e);
+      }
+
       return tile;
     },
 

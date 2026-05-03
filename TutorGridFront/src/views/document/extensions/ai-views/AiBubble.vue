@@ -37,6 +37,23 @@
             <span class="dot-anim">…</span>
           </span>
           <v-spacer />
+          <!-- Step 2 跨视图同步：把这个 AI 段落放到 Chat 浮窗里继续讨论 -->
+          <v-tooltip
+            v-if="!aiMessage?.streaming && aiMessage?.content"
+            location="top"
+            text="在 Chat 中讨论"
+          >
+            <template #activator="{ props: tipProps }">
+              <v-btn
+                v-bind="tipProps"
+                size="x-small"
+                icon="mdi-comment-outline"
+                variant="text"
+                density="comfortable"
+                @click="onDiscussInChat"
+              />
+            </template>
+          </v-tooltip>
           <v-tooltip v-if="!aiMessage?.streaming" location="top" text="删除气泡">
             <template #activator="{ props: tipProps }">
               <v-btn
@@ -109,6 +126,9 @@
 import { computed } from "vue";
 import { NodeViewWrapper, nodeViewProps } from "@tiptap/vue-3";
 import { useMessageStore } from "@/stores/messageStore";
+import { useChatMessageStore } from "@/stores/chatMessageStore";
+import { useChatSessionStore } from "@/stores/chatSessionStore";
+import { useSnackbarStore } from "@/stores/snackbarStore";
 import { renderMarkdown, postProcessLinks } from "@/lib/markdown";
 import avatarAssistant from "@/assets/images/avatars/avatar_assistant.jpg";
 import avatarUser from "@/assets/images/avatars/avatar_user.jpg";
@@ -116,6 +136,9 @@ import avatarUser from "@/assets/images/avatars/avatar_user.jpg";
 const props = defineProps(nodeViewProps);
 
 const messageStore = useMessageStore();
+const chatMsgStore = useChatMessageStore();
+const chatSession = useChatSessionStore();
+const snackbarStore = useSnackbarStore();
 
 const sessionId = computed(() => (props.node.attrs.sessionId as string) || "");
 const userMessageId = computed(
@@ -172,6 +195,24 @@ const onRemove = () => {
   if (typeof props.deleteNode === "function") {
     props.deleteNode();
   }
+};
+
+// Step 2 跨视图同步：把当前 AI 段落作为引用消息插入到当前 Chat 浮窗 session
+const onDiscussInChat = () => {
+  const text = aiMessage.value?.content || "";
+  if (!text) return;
+  const targetSessionId = chatSession.currentSessionId;
+  if (!targetSessionId) {
+    snackbarStore.showWarningMessage("当前没有活跃的 Chat 会话");
+    return;
+  }
+  const excerpt = text.length > 200 ? text.slice(0, 200) + "…" : text;
+  chatMsgStore.pushQuoteFromDocument(
+    targetSessionId,
+    `> 文档段落（AI 共做产出）\n${excerpt}\n\n请帮我继续讨论这一段。`,
+    aiMessageId.value || "doc-bubble"
+  );
+  snackbarStore.showSuccessMessage("已加入当前会话，去 Chat 浮窗继续");
 };
 </script>
 

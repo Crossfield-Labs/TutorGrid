@@ -1,13 +1,18 @@
 /**
- * 统一消息 Store (F10)
+ * 文档内 AI 气泡 Store (F07 遗留 / Step 2 后角色收窄)
  *
- * 文档区 AiBubbleNode 和右下角 ChatAssistant 浮窗共享同一份消息时间线。
- * 一个 Hyper 文档对应一个 sessionId（持久化在 tile.metadata 里）。
+ * ⚠️ Step 2 之后的角色：
+ *   - 仅服务"文档内 AiBubbleNode"（F07，TipTap 节点 + DocumentEditor.vue slash 命令）
+ *   - 不再被右下角 ChatAssistant 浮窗使用（浮窗已迁移到 chatMessageStore.ts）
  *
- * 数据流：
- *   - DocumentEditor 触发 slash 命令 → addUserMessage + startAiMessage + 走 SSE → appendDelta
- *   - ChatAssistant 在浮窗里发消息 → 同上
- *   - 两边的视图都从 getSessionMessages(sessionId) 读取，实时同步
+ * 跟 chatMessageStore.ts 的区别：
+ *   - messageStore       = 浏览器内存，用于文档气泡的 SSE 实时打字效果（不持久化）
+ *   - chatMessageStore   = 浮窗 chat 的视图层，背后是后端 SQLite 持久化（chat_messages 表）
+ *
+ * 文档气泡为啥不持久化到库？
+ *   - 文档气泡本身是 TipTap 文档结构的一部分（嵌入 .hyper.json）
+ *   - F07 设计是"内容随文档保存"，气泡 messageId 在 .hyper.json 里
+ *   - 如果以后要持久化最终 AI 文本到 .hyper.json，可以在 finishMessage 时序列化进 node attrs
  */
 
 import { defineStore } from "pinia";

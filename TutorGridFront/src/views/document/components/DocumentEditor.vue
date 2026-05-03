@@ -70,6 +70,7 @@ import { useMessageStore } from "@/stores/messageStore";
 import { useChatSessionStore } from "@/stores/chatSessionStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { streamChat } from "@/lib/chat-sse";
+import { useDocumentEditorBus } from "@/composables/useDocumentEditorBus";
 
 interface Props {
   modelValue: string;
@@ -89,6 +90,8 @@ const props = withDefaults(defineProps<Props>(), {
 const messageStore = useMessageStore();
 const chatSession = useChatSessionStore();
 const snackbarStore = useSnackbarStore();
+// Step 2 跨视图：注册自己到 EditorBus，让浮窗 Chat 能"插入到文档"
+const editorBus = useDocumentEditorBus();
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
@@ -524,7 +527,17 @@ const onSlashSelect = (item: SlashItem) => {
   }
 };
 
+// Step 2 跨视图同步：editor 就绪时注册到 EditorBus，让浮窗能反向调
+watch(
+  () => editor.value,
+  (ed) => {
+    if (ed && props.tileId) editorBus.register(ed, props.tileId);
+  },
+  { immediate: true }
+);
+
 onBeforeUnmount(() => {
+  editorBus.unregister(editor.value || undefined);
   editor.value?.destroy();
 });
 
