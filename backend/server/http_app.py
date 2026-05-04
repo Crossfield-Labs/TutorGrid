@@ -231,6 +231,14 @@ async def rag_query(payload: RagQueryRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@knowledge_router.post("/courses/{course_id}/reindex")
+async def reindex_course(course_id: str, batch_size: int = 64) -> dict[str, Any]:
+    try:
+        return knowledge_service.reembed_course(course_id=course_id, batch_size=batch_size)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @profile_router.get("")
 async def get_profile(user_id: str = "default", course_id: str = "", limit: int = 100) -> dict[str, Any]:
     return profile_service.get_profile_summary(user_id=user_id, course_id=course_id, limit=limit)

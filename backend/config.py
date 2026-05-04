@@ -51,12 +51,22 @@ class SearchConfig:
 
 
 @dataclass(slots=True)
+class EmbeddingConfig:
+    provider: str = "openai_compat"
+    model: str = ""
+    api_key: str = ""
+    api_base: str = ""
+    batch_size: int = 10
+
+
+@dataclass(slots=True)
 class OrchestratorConfig:
     planner: PlannerConfig
     memory: MemoryConfig
     push: PushConfig
     langsmith: LangSmithConfig
     search: SearchConfig = field(default_factory=SearchConfig)
+    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
     max_iterations: int = 8
     shell_timeout_seconds: int = 90
     python_command: str = sys.executable or "python"
@@ -229,6 +239,24 @@ def update_search_config(*, tavily_api_key: str) -> None:
     write_config_data(data)
 
 
+def update_embedding_config(
+    *,
+    provider: str,
+    model: str,
+    api_key: str,
+    api_base: str,
+) -> None:
+    data = read_config_data()
+    embedding = data.get("embedding")
+    embedding_data = embedding if isinstance(embedding, dict) else {}
+    embedding_data["provider"] = provider
+    embedding_data["model"] = model
+    embedding_data["apiKey"] = api_key
+    embedding_data["apiBase"] = api_base
+    data["embedding"] = embedding_data
+    write_config_data(data)
+
+
 def get_runtime_config_view() -> dict[str, object]:
     config = load_config()
     return {
@@ -262,6 +290,12 @@ def get_runtime_config_view() -> dict[str, object]:
         },
         "search": {
             "tavilyApiKey": config.search.tavily_api_key,
+        },
+        "embedding": {
+            "provider": config.embedding.provider,
+            "model": config.embedding.model,
+            "apiKey": config.embedding.api_key,
+            "apiBase": config.embedding.api_base,
         },
     }
 
@@ -382,12 +416,39 @@ def load_config() -> OrchestratorConfig:
             os.environ.get("TAVILY_API_KEY", os.environ.get("ORCHESTRATOR_TAVILY_API_KEY", search_dict.get("tavilyApiKey") or ""))
         ),
     )
+    embedding_data = data.get("embedding") if isinstance(data, dict) else {}
+    embedding_dict = embedding_data if isinstance(embedding_data, dict) else {}
+    embedding = EmbeddingConfig(
+        provider=os.environ.get(
+            "ORCHESTRATOR_EMBEDDING_PROVIDER",
+            str(embedding_dict.get("provider") or "openai_compat"),
+        ),
+        model=os.environ.get(
+            "ORCHESTRATOR_EMBEDDING_MODEL",
+            str(embedding_dict.get("model") or ""),
+        ),
+        api_key=os.environ.get(
+            "ORCHESTRATOR_EMBEDDING_API_KEY",
+            str(embedding_dict.get("apiKey") or ""),
+        ),
+        api_base=os.environ.get(
+            "ORCHESTRATOR_EMBEDDING_API_BASE",
+            str(embedding_dict.get("apiBase") or ""),
+        ),
+        batch_size=int(
+            os.environ.get(
+                "ORCHESTRATOR_EMBEDDING_BATCH_SIZE",
+                embedding_dict.get("batchSize") or 10,
+            )
+        ),
+    )
     return OrchestratorConfig(
         planner=planner,
         memory=memory,
         push=push,
         langsmith=langsmith,
         search=search,
+        embedding=embedding,
         max_iterations=int(os.environ.get("ORCHESTRATOR_MAX_ITERATIONS", data.get("maxIterations") or 8)),
         shell_timeout_seconds=int(os.environ.get("ORCHESTRATOR_SHELL_TIMEOUT", data.get("shellTimeoutSeconds") or 90)),
         python_command=os.environ.get(

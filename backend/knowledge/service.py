@@ -543,10 +543,18 @@ class KnowledgeBaseService:
 
     def _build_default_embedder(self) -> TextEmbedder:
         config = load_config()
-        embedding_provider = os.environ.get("ORCHESTRATOR_EMBEDDING_PROVIDER", "openai_compat").strip().lower()
-        embedding_model = os.environ.get("ORCHESTRATOR_EMBEDDING_MODEL", "text-embedding-3-large").strip()
-        api_key = os.environ.get("ORCHESTRATOR_EMBEDDING_API_KEY", config.planner.api_key).strip()
-        api_base = os.environ.get("ORCHESTRATOR_EMBEDDING_API_BASE", config.planner.api_base).strip()
+        # 优先 config.embedding；env var 可覆盖；都为空时回退 planner（向后兼容）
+        embedding_cfg = getattr(config, "embedding", None)
+        cfg_provider = (embedding_cfg.provider if embedding_cfg else "") or "openai_compat"
+        cfg_model = (embedding_cfg.model if embedding_cfg else "") or "text-embedding-3-large"
+        cfg_key = (embedding_cfg.api_key if embedding_cfg else "") or config.planner.api_key
+        cfg_base = (embedding_cfg.api_base if embedding_cfg else "") or config.planner.api_base
+        cfg_batch = embedding_cfg.batch_size if embedding_cfg else 10
+        embedding_provider = os.environ.get("ORCHESTRATOR_EMBEDDING_PROVIDER", cfg_provider).strip().lower()
+        embedding_model = os.environ.get("ORCHESTRATOR_EMBEDDING_MODEL", cfg_model).strip()
+        api_key = os.environ.get("ORCHESTRATOR_EMBEDDING_API_KEY", cfg_key).strip()
+        api_base = os.environ.get("ORCHESTRATOR_EMBEDDING_API_BASE", cfg_base).strip()
+        batch_size = max(1, int(cfg_batch or 10))
         self.embedding_provider_name = embedding_provider or "openai_compat"
         self.embedding_model_name = embedding_model or "text-embedding-3-large"
         if embedding_provider in {"hash", "local_hash"}:
@@ -562,6 +570,7 @@ class KnowledgeBaseService:
                 api_key=api_key,
                 api_base=api_base,
                 model=embedding_model or "text-embedding-3-large",
+                batch_size=batch_size,
             )
         self.embedding_provider_name = "hash"
         self.embedding_model_name = ""
