@@ -252,13 +252,14 @@ watch(content, () => {
 
 const exportPdf = async () => {
   try {
-    const result = await window.metaAgent?.workspace.exportPdf({
-      title: title.value || "hyperdoc",
-    });
-    if (!result) {
+    const exportPdfApi = window.metaAgent?.workspace.exportPdf;
+    if (typeof exportPdfApi !== "function") {
       window.print();
       return;
     }
+    const result = await exportPdfApi({
+      title: title.value || "hyperdoc",
+    });
     if (!result.canceled && result.filePath) {
       snackbarStore.showSuccessMessage(`PDF 已导出：${result.filePath}`);
     }
@@ -396,7 +397,12 @@ const generateStudyCards = async () => {
 
 const openFile = async (filePath: string) => {
   try {
-    await window.metaAgent?.workspace.openPath(filePath);
+    const openPathApi = window.metaAgent?.workspace.openPath;
+    if (typeof openPathApi !== "function") {
+      snackbarStore.showErrorMessage("当前窗口需要重启后才能打开文件");
+      return;
+    }
+    await openPathApi(filePath);
   } catch (error) {
     snackbarStore.showErrorMessage(`打开文件失败：${(error as Error).message}`);
   }
