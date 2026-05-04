@@ -74,6 +74,7 @@
           :title="tile.title || '文件'"
           :subtitle="tile.subtitle"
           :file-path="tile.filePath"
+          @open="(filePath) => emit('openFile', filePath)"
         />
 
         <!-- CitationTile (F09) -->
@@ -91,6 +92,7 @@
         <QuizTile
           v-else-if="tile.kind === 'quiz'"
           :quiz="tile.quizData"
+          @submit="(quiz, selected, correct) => emit('submitQuiz', quiz, selected, correct)"
         />
 
         <!-- FlashcardTile (F14) -->
@@ -221,8 +223,8 @@ export interface GridTile {
   fixed?: boolean;
   filePath?: string;
   citations?: Citation[];
-  quizData?: any;
-  flashcards?: any[];
+  quizData?: QuizData | null;
+  flashcards?: FlashcardData[];
 }
 
 // ─── Props & Emits ───────────────────────────────────
@@ -234,6 +236,8 @@ const props = withDefaults(
     taskStarting?: boolean;
     autoCitations?: ChatCitation[];
     autoArtifacts?: Array<Record<string, unknown>>;
+    autoQuiz?: QuizData | null;
+    autoFlashcards?: FlashcardData[];
     initialGridCols?: number;
     initialTiles?: GridTile[];
   }>(),
@@ -244,6 +248,8 @@ const props = withDefaults(
     taskStarting: false,
     autoCitations: () => [],
     autoArtifacts: () => [],
+    autoQuiz: null,
+    autoFlashcards: () => [],
     initialGridCols: 3,
     initialTiles: () => [],
   }
@@ -255,9 +261,23 @@ const emit = defineEmits<{
   (e: "startTask", instruction: string): void;
   (e: "resumeTask", content: string): void;
   (e: "interruptTask"): void;
+  (e: "openFile", filePath: string): void;
+  (e: "submitQuiz", quiz: QuizData, selected: number, correct: boolean): void;
   (e: "update:tiles", tiles: GridTile[]): void;
   (e: "update:gridCols", cols: number): void;
 }>();
+
+export interface QuizData {
+  question: string;
+  options: string[];
+  answer: number;
+  explanation?: string;
+}
+
+export interface FlashcardData {
+  front: string;
+  back: string;
+}
 
 // ─── Default layout ──────────────────────────────────
 function makeDefaultTiles(): GridTile[] {
@@ -270,17 +290,14 @@ function makeDefaultTiles(): GridTile[] {
       rowSpan: 2,
       fixed: true,
     },
-    // 1×2 竖磁贴：RAG 引用（F09 CitationTile 展示示例数据）
+    // 1×2 竖磁贴：RAG 引用（由最近 AI 答复的 citations 驱动）
     {
       id: "place-3",
       kind: "citation",
       colSpan: 1,
       rowSpan: 2,
       title: "知识库引用",
-      citations: [
-        { source: "数据挖掘PPT_第3章", page: 42, chunk: "线性回归的核心思想是通过最小化均方误差（MSE）来拟合一条直线…", score: 0.92 },
-        { source: "机器学习_周志华", page: 53, chunk: "线性模型试图学得一个通过属性的线性组合来进行预测的函数…", score: 0.85 },
-      ],
+      citations: [],
       fixed: false,
     },
     // 1×1：活跃 Agent 状态
@@ -297,36 +314,27 @@ function makeDefaultTiles(): GridTile[] {
       kind: "file",
       colSpan: 1,
       rowSpan: 1,
-      title: "数据挖掘导论.pdf",
-      subtitle: "2.3 MB",
+      title: "任务产物",
+      subtitle: "等待 AI 任务生成文件",
       icon: "mdi-file-pdf-box",
       iconColor: "red",
     },
-    // 1×1：测验（F14 QuizTile 展示示例）
+    // 1×1：测验（由 AI 生成）
     {
       id: "place-6",
       kind: "quiz",
       colSpan: 1,
       rowSpan: 1,
       title: "快问快答",
-      quizData: {
-        question: "线性回归常用的损失函数是？",
-        options: ["交叉熵", "均方误差 MSE", "Hinge Loss", "KL 散度"],
-        answer: 1,
-        explanation: "线性回归通常使用均方误差（MSE）作为损失函数，衡量预测值与真实值之差的平方和。",
-      },
     },
-    // 1×1：闪卡（F14 FlashcardTile 展示示例）
+    // 1×1：闪卡（由 AI 生成）
     {
       id: "place-2",
       kind: "flashcard",
       colSpan: 1,
       rowSpan: 1,
       title: "知识点闪卡",
-      flashcards: [
-        { front: "什么是过拟合？", back: "模型在训练集上表现很好，但在测试集上表现差，泛化能力弱。" },
-        { front: "L1 与 L2 正则化的区别？", back: "L1 产生稀疏解（特征选择），L2 使权重趋近于零但不为零。" },
-      ],
+      flashcards: [],
     },
     // 1×1：仪表板状态（F15 DashboardTile）
     {
@@ -434,6 +442,8 @@ const SIZE_OPTIONS = [
 
 const AUTO_CITATION_TILE_ID = "auto-citation";
 const AUTO_ARTIFACT_PREFIX = "auto-artifact-";
+const AUTO_QUIZ_TILE_ID = "auto-quiz";
+const AUTO_FLASHCARD_TILE_ID = "auto-flashcard";
 
 function simpleHash(value: string) {
   let hash = 0;
@@ -550,6 +560,36 @@ function syncAutoArtifacts(rawArtifacts: Array<Record<string, unknown>>) {
   });
 }
 
+function syncAutoQuiz(quiz: QuizData | null | undefined) {
+  if (!quiz) return;
+  upsertGeneratedTile(
+    {
+      id: AUTO_QUIZ_TILE_ID,
+      kind: "quiz",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "AI 测验",
+      quizData: quiz,
+    },
+    "quiz"
+  );
+}
+
+function syncAutoFlashcards(cards: FlashcardData[]) {
+  if (!cards.length) return;
+  upsertGeneratedTile(
+    {
+      id: AUTO_FLASHCARD_TILE_ID,
+      kind: "flashcard",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "AI 闪卡",
+      flashcards: cards,
+    },
+    "flashcard"
+  );
+}
+
 watch(
   () => props.autoCitations,
   (val) => {
@@ -562,6 +602,22 @@ watch(
   () => props.autoArtifacts,
   (val) => {
     syncAutoArtifacts(val ?? []);
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => props.autoQuiz,
+  (val) => {
+    syncAutoQuiz(val);
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => props.autoFlashcards,
+  (val) => {
+    syncAutoFlashcards(val ?? []);
   },
   { deep: true, immediate: true }
 );
@@ -687,12 +743,7 @@ function createTile(kind: AddTileKind): GridTile {
       colSpan: 1,
       rowSpan: 1,
       title: "测验题",
-      quizData: {
-        question: "线性回归常用的损失函数是？",
-        options: ["交叉熵", "均方误差 MSE", "Hinge Loss", "KL 散度"],
-        answer: 1,
-        explanation: "线性回归通常使用均方误差（MSE）作为损失函数。",
-      },
+      quizData: props.autoQuiz ?? null,
     };
   }
   if (kind === "flashcard") {
@@ -702,12 +753,7 @@ function createTile(kind: AddTileKind): GridTile {
       colSpan: 1,
       rowSpan: 1,
       title: "闪卡",
-      flashcards: [
-        {
-          front: "什么是过拟合？",
-          back: "模型在训练集表现好，但测试集表现差，泛化能力弱。",
-        },
-      ],
+      flashcards: props.autoFlashcards,
     };
   }
   if (kind === "dashboard") {

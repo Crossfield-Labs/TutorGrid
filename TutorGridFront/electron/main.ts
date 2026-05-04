@@ -406,6 +406,22 @@ function resolveSafe(relPath: string): string {
   return full;
 }
 
+function resolveOpenablePath(rawPath: string): string {
+  const candidate = String(rawPath || "").trim();
+  if (!candidate) throw new Error("File path is required");
+  const workspaceResolved = path.resolve(workspaceRoot);
+  const repoResolved = path.resolve(REPO_ROOT);
+  const full = path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : fs.existsSync(path.resolve(workspaceRoot, candidate))
+      ? path.resolve(workspaceRoot, candidate)
+      : path.resolve(REPO_ROOT, candidate);
+  if (!full.startsWith(workspaceResolved) && !full.startsWith(repoResolved)) {
+    throw new Error("Path escapes allowed roots");
+  }
+  return full;
+}
+
 function sanitizeName(name: string): string {
   return name.replace(/[\\/:*?"<>|]/g, "_").replace(/^\.+/, "") || "untitled";
 }
@@ -569,6 +585,33 @@ function registerIpcHandlers() {
   ipcMain.handle("workspace:openExternal", async (_, relPath: string) => {
     const fullPath = resolveSafe(relPath);
     await shell.openPath(fullPath);
+  });
+
+  ipcMain.handle("workspace:openPath", async (_, filePath: string) => {
+    const fullPath = resolveOpenablePath(filePath);
+    const error = await shell.openPath(fullPath);
+    if (error) throw new Error(error);
+  });
+
+  ipcMain.handle("workspace:exportPdf", async (_, payload: { title: string }) => {
+    if (!mainWindow) throw new Error("主窗口未就绪");
+    await ensureDirs();
+    const safeTitle = sanitizeName(payload.title || "hyperdoc");
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "导出 PDF",
+      defaultPath: path.join(workspaceRoot, `${safeTitle}.pdf`),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+    const data = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: true,
+      margins: { marginType: "printableArea" },
+    });
+    await fs.promises.writeFile(result.filePath, data);
+    return { canceled: false, filePath: result.filePath };
   });
 
   // -------- 工作区资源（背景图等）：保存到 <targetRoot>/.assets/ ----------

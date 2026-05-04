@@ -29,6 +29,13 @@ const api = {
       ipcRenderer.invoke("workspace:deleteFile", relPath),
     openExternal: (relPath: string) =>
       ipcRenderer.invoke("workspace:openExternal", relPath),
+    openPath: (filePath: string) =>
+      ipcRenderer.invoke("workspace:openPath", filePath),
+    exportPdf: (payload: { title: string }) =>
+      ipcRenderer.invoke("workspace:exportPdf", payload) as Promise<{
+        canceled: boolean;
+        filePath?: string;
+      }>,
     // 工作区资源（如背景图）：复制到 <targetRoot>/.assets/，返回相对路径
     saveAssetTo: (payload: {
       targetRoot: string;

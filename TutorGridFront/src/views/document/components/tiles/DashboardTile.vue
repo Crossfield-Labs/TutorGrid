@@ -53,7 +53,8 @@
         />
         <div class="d-flex justify-space-between mt-1">
           <span class="text-caption text-grey-darken-1">
-            已掌握 {{ masteredCount }}/{{ masteryTotal }} 个知识点
+            <template v-if="masteryLoadError">暂无真实进度</template>
+            <template v-else>已掌握 {{ masteredCount }}/{{ masteryTotal }} 个知识点</template>
           </span>
         </div>
       </div>
@@ -78,10 +79,11 @@ const kbLabel = computed(() => (kbReady.value ? "就绪" : "待入库"));
 const kbIcon = computed(() => (kbReady.value ? "mdi-check-circle" : "mdi-alert-circle-outline"));
 const kbColor = computed(() => (kbReady.value ? "success" : "warning"));
 
-// ── 学习进度（mock + API） ──
-const masteryTotal = ref(12);
+// ── 学习进度（API） ──
+const masteryTotal = ref(0);
 const masteredCount = ref(0);
 const loadingMastery = ref(false);
+const masteryLoadError = ref("");
 
 const masteryPercent = computed(() => {
   if (masteryTotal.value === 0) return 0;
@@ -98,23 +100,26 @@ const masteryColor = computed(() => {
 async function loadMastery() {
   if (loadingMastery.value) return;
   loadingMastery.value = true;
+  masteryLoadError.value = "";
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/profile/mastery?limit=200");
-    if (res.ok) {
-      const data = await res.json();
-      const items = Array.isArray(data) ? data : data.items || [];
-      if (items.length > 0) {
-        masteryTotal.value = items.length;
-        masteredCount.value = items.filter((item: any) => {
-          const m = typeof item.mastery === "number" ? item.mastery : parseFloat(item.mastery);
-          return m >= 0.6;
-        }).length;
-      }
+    const courseParam = knowledgeStore.courseId
+      ? `&course_id=${encodeURIComponent(knowledgeStore.courseId)}`
+      : "";
+    const res = await fetch(`http://127.0.0.1:8000/api/profile/mastery?limit=200${courseParam}`);
+    if (!res.ok) {
+      throw new Error(`${res.status} ${res.statusText}`);
     }
-  } catch {
-    // API 不可用时使用 mock 进度
-    masteryTotal.value = 8;
-    masteredCount.value = 4;
+    const data = await res.json();
+    const items = Array.isArray(data) ? data : data.items || [];
+    masteryTotal.value = items.length;
+    masteredCount.value = items.filter((item: any) => {
+      const m = typeof item.mastery === "number" ? item.mastery : parseFloat(item.mastery);
+      return m >= 0.6;
+    }).length;
+  } catch (error) {
+    masteryTotal.value = 0;
+    masteredCount.value = 0;
+    masteryLoadError.value = (error as Error).message;
   } finally {
     loadingMastery.value = false;
   }

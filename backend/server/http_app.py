@@ -17,6 +17,7 @@ from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
 from backend.rag.service import RagService
 from backend.server.chat_api import router as chat_router, set_chat_service
+from backend.study_cards.service import StudyCardGenerationError, StudyCardService
 from backend.workspace_meta import WorkspaceMetaService
 from backend.chats import ChatService
 
@@ -24,6 +25,7 @@ from backend.chats import ChatService
 knowledge_service = KnowledgeBaseService()
 rag_service = RagService(knowledge_service=knowledge_service)
 profile_service = LearningProfileService()
+study_card_service = StudyCardService()
 DB_PATH = Path(__file__).resolve().parents[2] / "scratch" / "storage" / "orchestrator.sqlite3"
 workspace_meta_service = WorkspaceMetaService(db_path=DB_PATH)
 chat_service = ChatService(db_path=DB_PATH)
@@ -47,6 +49,7 @@ app.include_router(chat_router)
 
 knowledge_router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 profile_router = APIRouter(prefix="/api/profile", tags=["profile"])
+study_router = APIRouter(prefix="/api/study", tags=["study"])
 config_router = APIRouter(prefix="/api/config", tags=["config"])
 workspace_router = APIRouter(prefix="/api/workspaces", tags=["workspaces"])
 hyperdoc_router = APIRouter(prefix="/api/hyperdocs", tags=["hyperdocs"])
@@ -105,6 +108,22 @@ class RagQueryRequest(BaseModel):
     course_id: str
     question: str
     limit: int = Field(default=5, ge=1, le=20)
+
+
+class StudyCardsRequest(BaseModel):
+    sourceText: str
+    courseId: str = ""
+    docId: str = ""
+    language: str = "zh-CN"
+
+
+class MasteryUpdateRequest(BaseModel):
+    courseId: str
+    knowledgePoint: str
+    mastery: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    evidence: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlannerConfigPayload(BaseModel):
@@ -247,6 +266,35 @@ async def get_profile(user_id: str = "default", course_id: str = "", limit: int 
 @profile_router.get("/mastery")
 async def get_mastery(user_id: str = "default", course_id: str = "", limit: int = 200) -> dict[str, Any]:
     return profile_service.list_l4_mastery(user_id=user_id, course_id=course_id, limit=limit)
+
+
+@profile_router.post("/mastery")
+async def update_mastery(payload: MasteryUpdateRequest, user_id: str = "default") -> dict[str, Any]:
+    try:
+        return profile_service.upsert_l4_mastery(
+            user_id=user_id,
+            course_id=payload.courseId,
+            knowledge_point=payload.knowledgePoint,
+            mastery=payload.mastery,
+            confidence=payload.confidence,
+            evidence=payload.evidence,
+            metadata=payload.metadata,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@study_router.post("/cards")
+async def generate_study_cards(payload: StudyCardsRequest) -> dict[str, Any]:
+    try:
+        return await study_card_service.generate(
+            source_text=payload.sourceText,
+            course_id=payload.courseId,
+            doc_id=payload.docId,
+            language=payload.language,
+        )
+    except StudyCardGenerationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @workspace_router.get("")
@@ -394,6 +442,7 @@ async def append_chat_message(
 
 app.include_router(knowledge_router)
 app.include_router(profile_router)
+app.include_router(study_router)
 app.include_router(config_router)
 app.include_router(workspace_router)
 app.include_router(hyperdoc_router)

@@ -11,6 +11,11 @@
 - RAG / 知识库 REST
 - 学习画像 REST
 
+但 `backend/server/http_app.py` 也承载当前桌面前端需要的真实 REST 闭环：
+- `POST /api/study/cards`：调用 planner provider，根据文档 / 引用 / AI 答复生成测验与闪卡 JSON；解析失败或 provider 失败时返回错误，不提供静态兜底内容
+- `GET /api/profile/mastery`：Dashboard 读取真实掌握度列表
+- `POST /api/profile/mastery`：测验提交后写回 L4 掌握度，用于驱动 Dashboard 进度
+
 ## 当前职责
 
 Server 在 F04 阶段的职责是：

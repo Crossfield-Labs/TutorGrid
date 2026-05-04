@@ -71,12 +71,16 @@
             :task-starting="taskStore.starting"
             :auto-citations="autoCitations"
             :auto-artifacts="autoArtifacts"
+            :auto-quiz="autoQuiz"
+            :auto-flashcards="autoFlashcards"
             :initial-grid-cols="tileGridCols"
             :initial-tiles="tileGridTiles"
             @clear-card="selectedCard = null"
             @start-task="startTask"
             @resume-task="resumeTask"
             @interrupt-task="interruptTask"
+            @open-file="openFile"
+            @submit-quiz="submitQuiz"
             @update:tiles="onTileGridUpdate"
             @update:grid-cols="onGridColsUpdate"
           />
@@ -93,7 +97,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { Editor } from "@tiptap/vue-3";
 import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
-import type { GridTile } from "./components/TileGrid.vue";
+import type { FlashcardData, GridTile, QuizData } from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
@@ -120,8 +124,13 @@ const loading = ref(true);
 const saveStatus = ref<"idle" | "saving" | "saved" | "error">("idle");
 const editorReady = ref(false);
 const sessionId = ref("");
+const autoQuiz = ref<QuizData | null>(null);
+const autoFlashcards = ref<FlashcardData[]>([]);
+const studyCardsLoading = ref(false);
+const studyCardsError = ref("");
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let studyCardsTimer: ReturnType<typeof setTimeout> | null = null;
 
 const selectedCard = ref<{
   title?: string;
@@ -183,6 +192,32 @@ const autoCitations = computed<ChatCitation[]>(() => {
   return citations.slice(-6);
 });
 
+const recentAiMessages = computed(() => {
+  const currentSession = sessionId.value;
+  if (!currentSession) return [];
+  return [
+    ...messageStore.getSessionMessages(currentSession),
+    ...chatMessageStore.messagesOf(currentSession),
+  ]
+    .filter((message) => message.role === "ai" && message.content?.trim())
+    .slice(-4);
+});
+
+const latestStudySource = computed(() => {
+  const citationText = autoCitations.value
+    .map((citation) => [citation.source, citation.chunk].filter(Boolean).join("\n"))
+    .join("\n\n");
+  const aiText = recentAiMessages.value.map((message) => message.content).join("\n\n");
+  const docText = content.value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  return [citationText, aiText, docText].filter(Boolean).join("\n\n").trim().slice(0, 8000);
+});
+
+const latestStudySourceKey = computed(() => {
+  const source = latestStudySource.value;
+  if (source.length < 80) return "";
+  return `${sessionId.value}:${source.length}:${source.slice(0, 80)}:${source.slice(-80)}`;
+});
+
 const goBack = () => router.push("/board");
 
 const saveTitle = async () => {
@@ -216,8 +251,29 @@ watch(content, () => {
 });
 
 const exportPdf = async () => {
-  snackbarStore.showInfoMessage("PDF 导出功能将在 Phase 4 接入");
+  try {
+    const result = await window.metaAgent?.workspace.exportPdf({
+      title: title.value || "hyperdoc",
+    });
+    if (!result) {
+      window.print();
+      return;
+    }
+    if (!result.canceled && result.filePath) {
+      snackbarStore.showSuccessMessage(`PDF 已导出：${result.filePath}`);
+    }
+  } catch (error) {
+    snackbarStore.showErrorMessage(`PDF 导出失败：${(error as Error).message}`);
+  }
 };
+
+watch(latestStudySourceKey, (key) => {
+  if (!key) return;
+  if (studyCardsTimer) clearTimeout(studyCardsTimer);
+  studyCardsTimer = setTimeout(() => {
+    void generateStudyCards();
+  }, 900);
+});
 
 watch(tile, (t) => {
   if (t) title.value = t.title;
@@ -275,6 +331,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
+  if (studyCardsTimer) clearTimeout(studyCardsTimer);
   // 离开文档时把全局 session 重置，让 Toolbox 回到 GLOBAL session
   chatSession.resetToGlobal();
 });
@@ -302,6 +359,71 @@ const onGridColsUpdate = async (cols: number) => {
 };
 
 // AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
+const generateStudyCards = async () => {
+  if (studyCardsLoading.value) return;
+  const sourceText = latestStudySource.value;
+  if (sourceText.length < 80) return;
+  studyCardsLoading.value = true;
+  studyCardsError.value = "";
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/study/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceText,
+        courseId: tile.value?.metadata?.courseId || "",
+        docId: tileId.value,
+        language: "zh-CN",
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `${response.status} ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      quiz?: QuizData | null;
+      flashcards?: FlashcardData[];
+    };
+    autoQuiz.value = data.quiz ?? null;
+    autoFlashcards.value = Array.isArray(data.flashcards) ? data.flashcards : [];
+  } catch (error) {
+    studyCardsError.value = (error as Error).message;
+    console.warn("study card generation failed", error);
+  } finally {
+    studyCardsLoading.value = false;
+  }
+};
+
+const openFile = async (filePath: string) => {
+  try {
+    await window.metaAgent?.workspace.openPath(filePath);
+  } catch (error) {
+    snackbarStore.showErrorMessage(`打开文件失败：${(error as Error).message}`);
+  }
+};
+
+const submitQuiz = async (quiz: QuizData, _selected: number, correct: boolean) => {
+  try {
+    await fetch("http://127.0.0.1:8000/api/profile/mastery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseId: tile.value?.metadata?.courseId || "default",
+        knowledgePoint: quiz.question,
+        mastery: correct ? 0.8 : 0.35,
+        confidence: 0.7,
+        evidence: [quiz.explanation || quiz.question],
+        metadata: {
+          docId: tileId.value,
+          source: "hyperdoc-quiz",
+        },
+      }),
+    });
+  } catch (error) {
+    console.warn("mastery update failed", error);
+  }
+};
+
 const onAiCommand = (_command: string, _payload?: unknown) => {
   // no-op
 };
