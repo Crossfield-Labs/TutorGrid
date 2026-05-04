@@ -105,6 +105,6 @@ defineEmits<{
 }
 
 .agent-empty {
-  min-height: 80px;
+  min-height: 0;
 }
 </style>

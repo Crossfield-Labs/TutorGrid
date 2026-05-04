@@ -59,9 +59,14 @@
 5. 统一输入模型：new / reply / redirect / instruction / explain / interrupt
 6. Electron 桌面壳骨架
 7. Vuetify 组件化页面骨架与 Pinia 状态接入
+8. Hyperdoc 右侧 `TileGrid` 已接入真实 AI 投影：
+   - Chat SSE / 文档内 AI 的 `citations` 会自动替换 RAG 引用磁贴
+   - Tavily / 搜索类 `searchResults` 会转换为引用磁贴条目
+   - `orchestrator.task.result.artifacts` 会自动替换或追加文件磁贴
+   - 手动“添加磁贴”仍保留，用于临时添加任务、引用、文件、测验、闪卡、概览和 Agent 状态磁贴
 
 当前还没落地：
-1. artifact 预览
+1. artifact 详情预览
 2. 更细的 trace/错误筛选能力
 3. 打包态下的内置后端联调验证
 

@@ -4,7 +4,7 @@ export function filterSlashItems(
   items: SlashItem[],
   query: string
 ): SlashItem[] {
-  const q = query.trim().toLowerCase();
+  const q = query.trim().toLowerCase().split(/\s+/)[0] || "";
   if (!q) return items;
   return items.filter((it) => {
     if (it.command.toLowerCase().includes(q)) return true;

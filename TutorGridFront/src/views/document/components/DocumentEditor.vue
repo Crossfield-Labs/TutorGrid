@@ -97,6 +97,7 @@ const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
   (e: "ready", editor: Editor): void;
   (e: "aiCommand", command: string, payload?: { selectionText: string }): void;
+  (e: "taskCommand", instruction: string): void;
 }>();
 
 const slashState = reactive({
@@ -455,7 +456,7 @@ const updateSlashFromEditor = () => {
   }
   const parentStart = $pos.start();
   const textBefore = ed.state.doc.textBetween(parentStart, cursor, "\n");
-  const match = /(?:^|\s)(\/)([一-龥\w-]*)$/.exec(textBefore);
+  const match = /(?:^|\s)(\/)([^\n]*)$/.exec(textBefore);
   if (!match) {
     if (slashState.open) closeSlash();
     return;
@@ -484,6 +485,7 @@ const onSlashSelect = (item: SlashItem) => {
   if (!ed) return;
   const slashFrom = slashState.slashFrom;
   const cursorTo = ed.state.selection.from;
+  const rawSlashQuery = slashState.query.trim();
   closeSlash();
   if (slashFrom < 0) return;
   // 1. 删除 "/xxx" 占位文字
@@ -519,9 +521,19 @@ const onSlashSelect = (item: SlashItem) => {
       ed.chain().focus().setHorizontalRule().run();
       break;
     case "ask-ai":
-      // 在光标处发起一次 AI 对话，prompt 用 recent paragraphs 当上下文
       void runAiCommand("ask", "");
       break;
+    case "task": {
+      // F12: 提取 /task 后面的指令文本
+      const taskInstruction = rawSlashQuery.replace(/^task\b\s*/i, "").trim();
+      emit("taskCommand", taskInstruction);
+      snackbarStore.showSuccessMessage(
+        taskInstruction
+          ? `编排任务已提交：${taskInstruction.slice(0, 30)}…`
+          : "编排任务已提交"
+      );
+      break;
+    }
     default:
       console.warn("[slash] 未知命令:", item.command);
   }
