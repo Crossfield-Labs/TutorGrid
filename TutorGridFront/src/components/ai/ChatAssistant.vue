@@ -1,13 +1,10 @@
 <!--
-  F11: Chat 独立面板
-  - 右下角浮动按钮 → 展开为右侧抽屉
-  - 消费统一 messageStore
-  - Chat SSE 流式响应
-  - renderIn 含 'chat' 的消息在此渲染
+  ChatAssistant: right drawer version for feat/frontend-b-improvements.
+  It keeps this branch's drawer UI while using the persistent chat stores.
 -->
 <template>
-  <!-- 浮动触发按钮 -->
   <v-btn
+    v-if="!hideActivator"
     class="chat-fab"
     :class="{ 'fab-active': drawer }"
     size="50"
@@ -17,22 +14,20 @@
     @click="drawer = !drawer"
   >
     <v-icon size="28">
-      {{ drawer ? 'mdi-close' : 'mdi-chat-outline' }}
+      {{ drawer ? "mdi-close" : "mdi-chat-outline" }}
     </v-icon>
     <v-tooltip activator="parent" location="left" text="智格生境 · AI 对话" />
   </v-btn>
 
-  <!-- 右侧抽屉 -->
   <v-navigation-drawer
     v-model="drawer"
     location="right"
     temporary
-    width="420"
+    :width="xs ? 360 : 420"
     class="chat-drawer"
     :touchless="false"
   >
     <div class="chat-drawer-inner d-flex flex-column fill-height">
-      <!-- 标题栏 -->
       <div class="chat-header pa-3">
         <div class="d-flex align-center">
           <v-avatar size="36" class="mr-2">
@@ -40,9 +35,7 @@
           </v-avatar>
           <div class="d-flex flex-column flex-fill">
             <span class="text-body-2 font-weight-bold">智格生境 · AI 对话</span>
-            <span class="text-caption text-medium-emphasis">
-              {{ sessionLabel }}
-            </span>
+            <span class="text-caption text-medium-emphasis">{{ sessionLabel }}</span>
           </div>
           <v-tooltip location="bottom" text="新建会话">
             <template #activator="{ props: tipProps }">
@@ -51,19 +44,37 @@
                 icon="mdi-plus"
                 variant="text"
                 size="small"
-                @click.stop="onNewSession"
+                @click.stop="newSession"
               />
             </template>
           </v-tooltip>
         </div>
+
+        <div v-if="currentDocId" class="mt-2 d-flex align-center">
+          <v-chip-group
+            :model-value="sessionId"
+            mandatory
+            selected-class="text-primary"
+            @update:model-value="(value: any) => value && selectSession(value)"
+          >
+            <v-chip
+              v-for="session in sessions"
+              :key="session.id"
+              :value="session.id"
+              size="x-small"
+              variant="outlined"
+              prepend-icon="mdi-chat-outline"
+            >
+              {{ session.title }}
+            </v-chip>
+          </v-chip-group>
+        </div>
       </div>
       <v-divider />
 
-      <!-- 消息列表 -->
       <div class="chat-messages flex-fill">
         <div v-if="messages.length" ref="msgContainer" class="message-list pa-2">
           <template v-for="message in messages" :key="message.id">
-            <!-- 用户消息 -->
             <div v-if="message.role === 'user'" class="msg-row user-row mb-2">
               <v-card class="msg-bubble user-bubble" theme="dark">
                 <v-card-text class="pa-2">
@@ -71,9 +82,15 @@
                     v-if="message.metadata?.origin === 'document' || message.metadata?.command"
                     class="text-caption opacity-70 mb-1 d-flex align-center"
                   >
-                    <v-icon size="11" :icon="message.metadata?.origin === 'document' ? 'mdi-file-document-outline' : 'mdi-comment-outline'" class="mr-1" />
-                    {{ message.metadata?.origin === 'document' ? '文档' : 'Chat' }}
-                    <span v-if="message.metadata?.command" class="ml-1">· {{ message.metadata.command }}</span>
+                    <v-icon
+                      size="11"
+                      :icon="message.metadata?.origin === 'document' ? 'mdi-file-document-outline' : 'mdi-comment-outline'"
+                      class="mr-1"
+                    />
+                    {{ message.metadata?.origin === "document" ? "文档引用" : "Chat" }}
+                    <span v-if="message.metadata?.command" class="ml-1">
+                      · {{ message.metadata.command }}
+                    </span>
                   </div>
                   <b>{{ message.content }}</b>
                 </v-card-text>
@@ -83,25 +100,27 @@
               </v-avatar>
             </div>
 
-            <!-- AI 消息 -->
             <div v-else class="msg-row ai-row mb-2">
               <v-avatar size="28" class="mr-1">
                 <v-img :src="avatarAssistant" alt="AI" />
               </v-avatar>
               <v-card class="msg-bubble ai-bubble flex-fill">
                 <v-card-text class="pa-2">
-                  <!-- 工具调用标签 -->
                   <div v-if="message.metadata?.toolsUsed?.length" class="mb-1">
                     <v-chip
-                      v-for="t in message.metadata.toolsUsed"
-                      :key="t"
+                      v-for="tool in message.metadata.toolsUsed"
+                      :key="tool"
                       size="x-small"
                       variant="tonal"
-                      :color="t.includes('rag') ? 'success' : 'info'"
+                      :color="tool.includes('rag') ? 'success' : 'info'"
                       class="mr-1 mb-1"
                     >
-                      <v-icon :icon="t.includes('rag') ? 'mdi-bookshelf' : 'mdi-web'" size="11" class="mr-1" />
-                      {{ t }}
+                      <v-icon
+                        :icon="tool.includes('rag') ? 'mdi-bookshelf' : 'mdi-web'"
+                        size="11"
+                        class="mr-1"
+                      />
+                      {{ tool }}
                     </v-chip>
                   </div>
 
@@ -109,7 +128,21 @@
 
                   <div v-else-if="message.streaming" class="d-flex align-center text-medium-emphasis">
                     <v-progress-circular indeterminate size="14" width="2" color="primary" class="mr-2" />
-                    AI 正在思考…
+                    AI 正在思考...
+                  </div>
+
+                  <div
+                    v-if="!message.streaming && message.content && editorBus.hasActiveEditor.value"
+                    class="d-flex justify-end mt-2"
+                  >
+                    <v-btn
+                      size="x-small"
+                      variant="text"
+                      prepend-icon="mdi-pin-outline"
+                      @click="insertToDocument(message.content, message.id)"
+                    >
+                      插入到文档
+                    </v-btn>
                   </div>
                 </v-card-text>
               </v-card>
@@ -117,21 +150,17 @@
           </template>
         </div>
 
-        <!-- 空状态 -->
         <div v-else class="empty-state d-flex flex-column align-center justify-center fill-height text-grey">
           <v-icon icon="mdi-message-text-outline" size="48" class="mb-3" />
           <div class="text-h6 text-medium-emphasis">开始对话</div>
           <div class="text-caption text-disabled mt-1 text-center px-4">
             输入问题，AI 会从知识库 / 联网检索为你解答
           </div>
-          <div class="text-caption text-disabled mt-3">
-            {{ sessionLabel }}
-          </div>
+          <div class="text-caption text-disabled mt-3">{{ sessionLabel }}</div>
         </div>
       </div>
       <v-divider />
 
-      <!-- 输入区 -->
       <div class="chat-input pa-2">
         <div class="d-flex align-end ga-2">
           <v-textarea
@@ -164,39 +193,83 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useDisplay } from "vuetify";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-import { useMessageStore } from "@/stores/messageStore";
-import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
-import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { useChatMessageStore } from "@/stores/chatMessageStore";
+import { useChatSessionListStore } from "@/stores/chatSessionListStore";
+import { useChatSessionStore } from "@/stores/chatSessionStore";
+import { useDocumentEditorBus } from "@/composables/useDocumentEditorBus";
 import { streamChat } from "@/lib/chat-sse";
 import { renderMarkdown, postProcessLinks } from "@/lib/markdown";
 import { scrollToBottom } from "@/utils/common";
 import avatarAssistant from "@/assets/images/avatars/avatar_assistant.jpg";
 import avatarUser from "@/assets/images/avatars/avatar_user.jpg";
 
+const props = withDefaults(
+  defineProps<{
+    hideActivator?: boolean;
+    openSignal?: number;
+  }>(),
+  {
+    hideActivator: false,
+    openSignal: 0,
+  }
+);
+
 const snackbarStore = useSnackbarStore();
-const messageStore = useMessageStore();
+const chatMsgStore = useChatMessageStore();
+const sessionListStore = useChatSessionListStore();
 const chatSession = useChatSessionStore();
-const workspaceStore = useWorkspaceStore();
+const editorBus = useDocumentEditorBus();
+const { xs } = useDisplay();
 
-// ── drawer ──
 const drawer = ref(false);
-
-// 暴露打开/关闭方法供外部调用
-defineExpose({ open: () => (drawer.value = true), close: () => (drawer.value = false), toggle: () => (drawer.value = !drawer.value) });
-
-// ── 消息 ──
 const userMessage = ref("");
 const isLoading = ref(false);
 const msgContainer = ref<HTMLElement | null>(null);
 
+const currentDocId = computed(() => chatSession.currentDocId);
 const sessionId = computed(() => chatSession.currentSessionId);
-const messages = computed(() => messageStore.getSessionMessages(sessionId.value));
+const sessions = computed(() => currentDocId.value ? sessionListStore.sessionsOf(currentDocId.value) : []);
+const messages = computed(() => chatMsgStore.messagesOf(sessionId.value));
 
 const renderAi = (text: string) => postProcessLinks(renderMarkdown(text));
 
-const sendMessage = async () => {
+const sessionLabel = computed(() => {
+  if (!currentDocId.value) return "全局会话";
+  return sessions.value.find((session) => session.id === sessionId.value)?.title || "默认会话";
+});
+
+async function loadSessionsAndDefault() {
+  if (!currentDocId.value) {
+    return;
+  }
+  const defaultSession = await sessionListStore.ensureDefault(currentDocId.value);
+  if (defaultSession) {
+    chatSession.setSession(defaultSession.id, currentDocId.value);
+    await chatMsgStore.fetchBySession(defaultSession.id);
+  }
+}
+
+async function selectSession(nextSessionId: string) {
+  chatSession.setSession(nextSessionId, currentDocId.value);
+  await chatMsgStore.fetchBySession(nextSessionId);
+}
+
+async function newSession() {
+  if (!currentDocId.value) {
+    snackbarStore.showWarningMessage("无文档场景下不支持新建会话");
+    return;
+  }
+  const created = await sessionListStore.create(currentDocId.value);
+  if (created) {
+    await selectSession(created.id);
+    snackbarStore.showSuccessMessage(`已新建：${created.title}`);
+  }
+}
+
+async function sendMessage() {
   const text = userMessage.value.trim();
   if (!text) return;
   if (!sessionId.value) {
@@ -204,8 +277,8 @@ const sendMessage = async () => {
     return;
   }
 
-  messageStore.addUserMessage(sessionId.value, text, "chat");
-  const aiMsg = messageStore.startAiMessage(sessionId.value, "chat");
+  chatMsgStore.pushUserMessage(sessionId.value, text);
+  const aiMsg = chatMsgStore.startAiPlaceholder(sessionId.value);
 
   userMessage.value = "";
   isLoading.value = true;
@@ -217,46 +290,81 @@ const sendMessage = async () => {
         message: text,
         course_id: chatSession.courseId || undefined,
         tools: ["rag", "tavily"],
-        context: chatSession.currentDocId ? { doc_id: chatSession.currentDocId } : undefined,
+        context: currentDocId.value ? { doc_id: currentDocId.value } : undefined,
       },
       onEvent: (event) => {
         switch (event.type) {
           case "tool_call":
-            messageStore.addToolUsed(sessionId.value, aiMsg.id, event.tool);
+            chatMsgStore.addToolUsed(sessionId.value, aiMsg.id, event.tool);
             break;
           case "tool_result":
             if (event.citations?.length) {
-              messageStore.addCitations(sessionId.value, aiMsg.id, event.citations);
+              chatMsgStore.addCitations(sessionId.value, aiMsg.id, event.citations);
             }
             if (event.results?.length) {
-              messageStore.addSearchResults(sessionId.value, aiMsg.id, event.results);
+              chatMsgStore.addSearchResults(sessionId.value, aiMsg.id, event.results);
             }
             break;
           case "delta":
-            messageStore.appendDelta(sessionId.value, aiMsg.id, event.content);
+            chatMsgStore.appendDelta(sessionId.value, aiMsg.id, event.content);
             break;
           case "done":
-            messageStore.finishMessage(sessionId.value, aiMsg.id);
+            chatMsgStore.finishAi(sessionId.value, aiMsg.id);
             break;
           case "error":
-            messageStore.failMessage(sessionId.value, aiMsg.id, event.message);
+            chatMsgStore.failAi(sessionId.value, aiMsg.id, event.message);
             snackbarStore.showErrorMessage(`AI 出错：${event.message}`);
             break;
         }
       },
     });
-  } catch (e) {
-    messageStore.failMessage(sessionId.value, aiMsg.id, (e as Error).message || "网络错误");
-    snackbarStore.showErrorMessage(`Chat SSE 失败：${(e as Error).message}`);
+  } catch (error) {
+    chatMsgStore.failAi(sessionId.value, aiMsg.id, (error as Error).message || "网络错误");
+    snackbarStore.showErrorMessage(`Chat SSE 失败：${(error as Error).message}`);
   } finally {
-    if (messageStore.findMessage(sessionId.value, aiMsg.id)?.streaming) {
-      messageStore.finishMessage(sessionId.value, aiMsg.id);
-    }
+    chatMsgStore.finishAi(sessionId.value, aiMsg.id);
     isLoading.value = false;
+  }
+}
+
+const handleKeydown = (e: KeyboardEvent) => {
+  if (e.key === "Enter" && (e.altKey || e.shiftKey)) {
+    e.preventDefault();
+    userMessage.value += "\n";
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    void sendMessage();
   }
 };
 
-// 新消息自动滚动
+function insertToDocument(messageContent: string, sourceMessageId: string) {
+  if (!editorBus.hasActiveEditor.value) {
+    snackbarStore.showWarningMessage("当前没有活跃的文档编辑器");
+    return;
+  }
+  editorBus.insertAiBubble({ content: messageContent, sourceChatMessageId: sourceMessageId });
+  snackbarStore.showSuccessMessage("已插入到文档");
+}
+
+function openDrawer() {
+  drawer.value = true;
+}
+
+watch(
+  () => props.openSignal,
+  (value, oldValue) => {
+    if (value !== oldValue && value > 0) openDrawer();
+  }
+);
+
+watch(currentDocId, async (newId, oldId) => {
+  if (newId !== oldId) await loadSessionsAndDefault();
+});
+
+watch(sessionId, async (newId) => {
+  if (newId) await chatMsgStore.fetchBySession(newId);
+});
+
 watch(
   messages,
   () => {
@@ -265,41 +373,19 @@ watch(
   { deep: true }
 );
 
-const handleKeydown = (e: KeyboardEvent) => {
-  if (e.key === "Enter" && (e.altKey || e.shiftKey)) {
-    e.preventDefault();
-    userMessage.value += "\n";
-  } else if (e.key === "Enter") {
-    e.preventDefault();
-    sendMessage();
-  }
-};
-
-const sessionLabel = computed(() => {
-  if (!chatSession.currentDocId) return "全局会话";
-  return `文档会话 · ${chatSession.currentDocId.slice(0, 8)}`;
+onMounted(async () => {
+  window.addEventListener("tutorgrid:open-chat", openDrawer);
+  await loadSessionsAndDefault();
 });
 
-const onNewSession = async () => {
-  const newId = makeSessionId();
-  const docId = chatSession.currentDocId;
-  if (docId) {
-    const tile = workspaceStore.findTile(docId);
-    if (tile) {
-      try {
-        await workspaceStore.setTileMetadata(tile.id, { sessionId: newId });
-      } catch (e) {
-        console.error("[chat] 新会话持久化失败", e);
-      }
-    }
-  }
-  chatSession.setSession(newId, docId);
-  snackbarStore.showSuccessMessage("已开始新会话");
-};
+onBeforeUnmount(() => {
+  window.removeEventListener("tutorgrid:open-chat", openDrawer);
+});
+
+defineExpose({ open: openDrawer, close: () => (drawer.value = false), toggle: () => (drawer.value = !drawer.value) });
 </script>
 
 <style scoped lang="scss">
-// 浮动触发按钮
 .chat-fab {
   z-index: 998;
   position: fixed;
@@ -308,11 +394,10 @@ const onNewSession = async () => {
   transition: all 0.3s ease;
 
   &.fab-active {
-    right: 430px; // 抽屉宽度 + 10px 间距
+    right: 430px;
   }
 }
 
-// 抽屉
 .chat-drawer {
   :deep(.v-navigation-drawer__content) {
     display: flex;
@@ -330,21 +415,24 @@ const onNewSession = async () => {
   flex-shrink: 0;
 }
 
-// 消息区
 .chat-messages {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 
-  &::-webkit-scrollbar { width: 6px; }
-  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   &::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.2);
     border-radius: 3px;
-    &:hover { background: rgba(0, 0, 0, 0.35); }
   }
 }
 
@@ -352,7 +440,6 @@ const onNewSession = async () => {
   min-height: 300px;
 }
 
-// 消息行
 .msg-row {
   display: flex;
   align-items: flex-start;
@@ -378,26 +465,27 @@ const onNewSession = async () => {
   background: rgba(255, 255, 255, 0.95) !important;
 }
 
-// 输入区
 .chat-input {
   flex-shrink: 0;
 }
 
-// 响应式：窄屏全宽
 @media (max-width: 480px) {
   .chat-drawer {
     width: 100% !important;
   }
+
   .chat-fab.fab-active {
     right: 10px;
   }
 }
 
-// Markdown 渲染
 .markdown-body :deep(p) {
   margin: 0 0 0.5em;
   font-size: 13px;
-  &:last-child { margin-bottom: 0; }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
 }
 
 .markdown-body :deep(code) {

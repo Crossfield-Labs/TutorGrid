@@ -69,13 +69,18 @@
             :card="selectedCard"
             :task="activeTask"
             :task-starting="taskStore.starting"
+            :auto-citations="autoCitations"
+            :auto-artifacts="autoArtifacts"
+            :auto-quiz="autoQuiz"
+            :auto-flashcards="autoFlashcards"
             :initial-grid-cols="tileGridCols"
             :initial-tiles="tileGridTiles"
             @clear-card="selectedCard = null"
             @start-task="startTask"
             @resume-task="resumeTask"
             @interrupt-task="interruptTask"
-            @add-tile="onAddTile"
+            @open-file="openFile"
+            @submit-quiz="submitQuiz"
             @update:tiles="onTileGridUpdate"
             @update:grid-cols="onGridColsUpdate"
           />
@@ -92,11 +97,14 @@ import { useRoute, useRouter } from "vue-router";
 import type { Editor } from "@tiptap/vue-3";
 import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
-import type { GridTile } from "./components/TileGrid.vue";
+import type { FlashcardData, GridTile, QuizData } from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
 import { useOrchestratorTaskStore } from "@/stores/orchestratorTaskStore";
+import { useMessageStore } from "@/stores/messageStore";
+import { useChatMessageStore } from "@/stores/chatMessageStore";
+import type { ChatCitation } from "@/lib/chat-sse";
 
 const route = useRoute();
 const router = useRouter();
@@ -104,6 +112,8 @@ const workspaceStore = useWorkspaceStore();
 const snackbarStore = useSnackbarStore();
 const chatSession = useChatSessionStore();
 const taskStore = useOrchestratorTaskStore();
+const messageStore = useMessageStore();
+const chatMessageStore = useChatMessageStore();
 
 const tileId = computed(() => route.params.id as string);
 const tile = computed(() => workspaceStore.findTile(tileId.value));
@@ -114,8 +124,13 @@ const loading = ref(true);
 const saveStatus = ref<"idle" | "saving" | "saved" | "error">("idle");
 const editorReady = ref(false);
 const sessionId = ref("");
+const autoQuiz = ref<QuizData | null>(null);
+const autoFlashcards = ref<FlashcardData[]>([]);
+const studyCardsLoading = ref(false);
+const studyCardsError = ref("");
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let studyCardsTimer: ReturnType<typeof setTimeout> | null = null;
 
 const selectedCard = ref<{
   title?: string;
@@ -123,6 +138,7 @@ const selectedCard = ref<{
   detail?: string;
 } | null>(null);
 const activeTask = computed(() => taskStore.activeTaskForDoc(tileId.value));
+const autoArtifacts = computed(() => activeTask.value?.artifacts ?? []);
 const activeAgent = computed(() => {
   if (!activeTask.value) return null;
   if (!["running", "awaiting_user"].includes(activeTask.value.status)) return null;
@@ -137,6 +153,76 @@ const activeAgent = computed(() => {
       Math.max(0.05, activeTask.value.currentStepIndex / Math.max(1, activeTask.value.stepTotal)),
     ),
   };
+});
+
+const citationKey = (citation: ChatCitation) =>
+  `${citation.source || citation.fileName || citation.fileId || ""}|${citation.page || ""}|${citation.chunk || citation.content || ""}`;
+
+const autoCitations = computed<ChatCitation[]>(() => {
+  const sessionIds = Array.from(
+    new Set([sessionId.value, chatSession.currentSessionId].filter(Boolean))
+  );
+  if (!sessionIds.length) return [];
+  const recentMessages = sessionIds
+    .flatMap((currentSession) => [
+      ...messageStore.getSessionMessages(currentSession),
+      ...chatMessageStore.messagesOf(currentSession),
+    ])
+    .slice(-12);
+  const seen = new Set<string>();
+  const citations: ChatCitation[] = [];
+
+  for (const message of recentMessages) {
+    const metadata = message.metadata;
+    for (const citation of metadata?.citations ?? []) {
+      const key = citationKey(citation);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      citations.push(citation);
+    }
+    for (const result of metadata?.searchResults ?? []) {
+      const citation: ChatCitation = {
+        source: result.title || result.url || "联网检索结果",
+        chunk: result.content || result.url || "",
+        score: result.score,
+      };
+      const key = citationKey(citation);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      citations.push(citation);
+    }
+  }
+
+  return citations.slice(-6);
+});
+
+const recentAiMessages = computed(() => {
+  const sessionIds = Array.from(
+    new Set([sessionId.value, chatSession.currentSessionId].filter(Boolean))
+  );
+  if (!sessionIds.length) return [];
+  return sessionIds
+    .flatMap((currentSession) => [
+      ...messageStore.getSessionMessages(currentSession),
+      ...chatMessageStore.messagesOf(currentSession),
+    ])
+    .filter((message) => message.role === "ai" && message.content?.trim())
+    .slice(-4);
+});
+
+const latestStudySource = computed(() => {
+  const citationText = autoCitations.value
+    .map((citation) => [citation.source, citation.chunk].filter(Boolean).join("\n"))
+    .join("\n\n");
+  const aiText = recentAiMessages.value.map((message) => message.content).join("\n\n");
+  const docText = content.value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  return [citationText, aiText, docText].filter(Boolean).join("\n\n").trim().slice(0, 8000);
+});
+
+const latestStudySourceKey = computed(() => {
+  const source = latestStudySource.value;
+  if (source.length < 80) return "";
+  return `${sessionId.value}:${source.length}:${source.slice(0, 80)}:${source.slice(-80)}`;
 });
 
 const goBack = () => router.push("/board");
@@ -172,8 +258,30 @@ watch(content, () => {
 });
 
 const exportPdf = async () => {
-  snackbarStore.showInfoMessage("PDF 导出功能将在 Phase 4 接入");
+  try {
+    const exportPdfApi = window.metaAgent?.workspace.exportPdf;
+    if (typeof exportPdfApi !== "function") {
+      window.print();
+      return;
+    }
+    const result = await exportPdfApi({
+      title: title.value || "hyperdoc",
+    });
+    if (!result.canceled && result.filePath) {
+      snackbarStore.showSuccessMessage(`PDF 已导出：${result.filePath}`);
+    }
+  } catch (error) {
+    snackbarStore.showErrorMessage(`PDF 导出失败：${(error as Error).message}`);
+  }
 };
+
+watch(latestStudySourceKey, (key) => {
+  if (!key) return;
+  if (studyCardsTimer) clearTimeout(studyCardsTimer);
+  studyCardsTimer = setTimeout(() => {
+    void generateStudyCards();
+  }, 900);
+});
 
 watch(tile, (t) => {
   if (t) title.value = t.title;
@@ -231,6 +339,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (saveTimer) clearTimeout(saveTimer);
+  if (studyCardsTimer) clearTimeout(studyCardsTimer);
   // 离开文档时把全局 session 重置，让 Toolbox 回到 GLOBAL session
   chatSession.resetToGlobal();
 });
@@ -257,33 +366,77 @@ const onGridColsUpdate = async (cols: number) => {
   });
 };
 
-const onAddTile = (slotId: string) => {
-  const newTile: GridTile = {
-    id: `tile-${Date.now()}`,
-    kind: "placeholder",
-    colSpan: 1,
-    rowSpan: 1,
-    title: "新磁贴",
-    subtitle: "右键调整类型",
-    icon: "mdi-plus-box",
-    iconColor: "primary",
-  };
-  // 替换空格子为新磁贴
-  const idx = tileGridTiles.value.findIndex((t) => t.id === slotId);
-  if (idx >= 0) {
-    tileGridTiles.value.splice(idx, 1, newTile);
-    // 末尾补回一个空格子
-    tileGridTiles.value.push({
-      id: `add-${Date.now()}`,
-      kind: "empty",
-      colSpan: 1,
-      rowSpan: 1,
-      fixed: true,
+// AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
+const generateStudyCards = async () => {
+  if (studyCardsLoading.value) return;
+  const sourceText = latestStudySource.value;
+  if (sourceText.length < 80) return;
+  studyCardsLoading.value = true;
+  studyCardsError.value = "";
+  try {
+    const response = await fetch("http://127.0.0.1:8000/api/study/cards", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sourceText,
+        courseId: tile.value?.metadata?.courseId || "",
+        docId: tileId.value,
+        language: "zh-CN",
+      }),
     });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `${response.status} ${response.statusText}`);
+    }
+    const data = (await response.json()) as {
+      quiz?: QuizData | null;
+      flashcards?: FlashcardData[];
+    };
+    autoQuiz.value = data.quiz ?? null;
+    autoFlashcards.value = Array.isArray(data.flashcards) ? data.flashcards : [];
+  } catch (error) {
+    studyCardsError.value = (error as Error).message;
+    console.warn("study card generation failed", error);
+  } finally {
+    studyCardsLoading.value = false;
   }
 };
 
-// AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
+const openFile = async (filePath: string) => {
+  try {
+    const openPathApi = window.metaAgent?.workspace.openPath;
+    if (typeof openPathApi !== "function") {
+      snackbarStore.showErrorMessage("当前窗口需要重启后才能打开文件");
+      return;
+    }
+    await openPathApi(filePath);
+  } catch (error) {
+    snackbarStore.showErrorMessage(`打开文件失败：${(error as Error).message}`);
+  }
+};
+
+const submitQuiz = async (quiz: QuizData, _selected: number, correct: boolean) => {
+  try {
+    await fetch("http://127.0.0.1:8000/api/profile/mastery", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseId: tile.value?.metadata?.courseId || "default",
+        knowledgePoint: quiz.question,
+        mastery: correct ? 0.8 : 0.35,
+        confidence: 0.7,
+        evidence: [quiz.explanation || quiz.question],
+        metadata: {
+          docId: tileId.value,
+          source: "hyperdoc-quiz",
+        },
+      }),
+    });
+  } catch (error) {
+    console.warn("mastery update failed", error);
+  }
+};
+
 const onAiCommand = (_command: string, _payload?: unknown) => {
   // no-op
 };

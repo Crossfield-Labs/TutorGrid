@@ -14,6 +14,7 @@
         {{ layoutLabel }}
       </span>
       <v-btn-toggle
+        class="layout-toggle"
         :model-value="gridCols"
         mandatory
         density="compact"
@@ -21,17 +22,15 @@
         divided
         @update:model-value="onToggleCols"
       >
-        <v-btn :value="2" size="x-small" icon="mdi-grid">2×2</v-btn>
-        <v-btn :value="3" size="x-small" icon="mdi-grid-large">3×3</v-btn>
+        <v-btn :value="2" size="x-small" min-width="52">2 列</v-btn>
+        <v-btn :value="3" size="x-small" min-width="52">3 列</v-btn>
       </v-btn-toggle>
     </div>
 
     <!-- CSS Grid 容器 -->
     <div
       class="tile-grid-css"
-      :style="{
-        gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-      }"
+      :style="gridStyle"
     >
       <div
         v-for="tile in tiles"
@@ -75,6 +74,7 @@
           :title="tile.title || '文件'"
           :subtitle="tile.subtitle"
           :file-path="tile.filePath"
+          @open="(filePath) => emit('openFile', filePath)"
         />
 
         <!-- CitationTile (F09) -->
@@ -92,6 +92,7 @@
         <QuizTile
           v-else-if="tile.kind === 'quiz'"
           :quiz="tile.quizData"
+          @submit="(quiz, selected, correct) => emit('submitQuiz', quiz, selected, correct)"
         />
 
         <!-- FlashcardTile (F14) -->
@@ -111,12 +112,32 @@
         />
 
         <!-- 空格子："+" 添加按钮 -->
-        <div v-else class="empty-slot" @click="emit('addTile', tile.id)">
+        <div v-else class="empty-slot" @click="(e) => onAddSlotClick(e, tile)">
           <v-icon icon="mdi-plus-circle-outline" size="28" color="grey-lighten-1" />
           <span class="text-caption text-grey">添加磁贴</span>
         </div>
       </div>
     </div>
+
+    <!-- 添加磁贴菜单 -->
+    <v-menu
+      v-model="addMenuOpen"
+      :target="addMenuTarget"
+      :close-on-content-click="true"
+      location="start"
+    >
+      <v-list density="compact" min-width="220" rounded="lg">
+        <v-list-subheader class="text-caption">添加磁贴</v-list-subheader>
+        <v-list-item
+          v-for="option in ADD_TILE_OPTIONS"
+          :key="option.kind"
+          :prepend-icon="option.icon"
+          :title="option.label"
+          :subtitle="option.description"
+          @click="addTile(option.kind)"
+        />
+      </v-list>
+    </v-menu>
 
     <!-- 右键菜单 -->
     <v-menu
@@ -167,6 +188,7 @@ import CitationTile from "./tiles/CitationTile.vue";
 import DashboardTile from "./tiles/DashboardTile.vue";
 import QuizTile from "./tiles/QuizTile.vue";
 import FlashcardTile from "./tiles/FlashcardTile.vue";
+import type { ChatCitation } from "@/lib/chat-sse";
 
 // ─── Types ───────────────────────────────────────────
 export interface ActiveAgent {
@@ -201,8 +223,8 @@ export interface GridTile {
   fixed?: boolean;
   filePath?: string;
   citations?: Citation[];
-  quizData?: any;
-  flashcards?: any[];
+  quizData?: QuizData | null;
+  flashcards?: FlashcardData[];
 }
 
 // ─── Props & Emits ───────────────────────────────────
@@ -212,6 +234,10 @@ const props = withDefaults(
     card?: SelectedCard | null;
     task?: any;
     taskStarting?: boolean;
+    autoCitations?: ChatCitation[];
+    autoArtifacts?: Array<Record<string, unknown>>;
+    autoQuiz?: QuizData | null;
+    autoFlashcards?: FlashcardData[];
     initialGridCols?: number;
     initialTiles?: GridTile[];
   }>(),
@@ -220,6 +246,10 @@ const props = withDefaults(
     card: null,
     task: null,
     taskStarting: false,
+    autoCitations: () => [],
+    autoArtifacts: () => [],
+    autoQuiz: null,
+    autoFlashcards: () => [],
     initialGridCols: 3,
     initialTiles: () => [],
   }
@@ -231,76 +261,87 @@ const emit = defineEmits<{
   (e: "startTask", instruction: string): void;
   (e: "resumeTask", content: string): void;
   (e: "interruptTask"): void;
-  (e: "addTile", slotId: string): void;
+  (e: "openFile", filePath: string): void;
+  (e: "submitQuiz", quiz: QuizData, selected: number, correct: boolean): void;
   (e: "update:tiles", tiles: GridTile[]): void;
   (e: "update:gridCols", cols: number): void;
 }>();
 
+export interface QuizData {
+  question: string;
+  options: string[];
+  answer: number;
+  explanation?: string;
+}
+
+export interface FlashcardData {
+  front: string;
+  back: string;
+}
+
 // ─── Default layout ──────────────────────────────────
 function makeDefaultTiles(): GridTile[] {
   return [
-    // 2×2 大磁贴：编排任务 / Agent
+    // 2×2 大磁贴：编排任务（F12 主入口）
     {
-      id: "agent",
-      kind: "agent",
+      id: "task",
+      kind: "task",
       colSpan: 2,
       rowSpan: 2,
       fixed: true,
     },
-    // 1×1 小磁贴：笔记摘要
-    {
-      id: "place-1",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "笔记摘要",
-      subtitle: "AI 自动总结",
-      icon: "mdi-text-box-outline",
-      iconColor: "indigo",
-    },
-    // 1×1 小磁贴：灵感
-    {
-      id: "place-2",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "灵感",
-      subtitle: "随手记一笔",
-      icon: "mdi-lightbulb-on-outline",
-      iconColor: "amber",
-    },
-    // 1×2 竖磁贴：RAG 引用
+    // 1×2 竖磁贴：RAG 引用（由最近 AI 答复的 citations 驱动）
     {
       id: "place-3",
       kind: "citation",
       colSpan: 1,
       rowSpan: 2,
-      title: "RAG 引用",
-      subtitle: "知识库检索结果",
-      icon: "mdi-bookshelf",
-      iconColor: "success",
+      title: "知识库引用",
+      citations: [],
+      fixed: false,
     },
-    // 1×1：文件
+    // 1×1：活跃 Agent 状态
+    {
+      id: "agent",
+      kind: "agent",
+      colSpan: 1,
+      rowSpan: 1,
+      fixed: true,
+    },
+    // 1×1 小磁贴：文件预览（F09 FileTile）
     {
       id: "place-4",
       kind: "file",
       colSpan: 1,
       rowSpan: 1,
-      title: "课件文件",
-      subtitle: "拖入查看",
+      title: "任务产物",
+      subtitle: "等待 AI 任务生成文件",
       icon: "mdi-file-pdf-box",
       iconColor: "red",
     },
-    // 1×1：联网搜索
+    // 1×1：测验（由 AI 生成）
     {
-      id: "place-5",
-      kind: "placeholder",
+      id: "place-6",
+      kind: "quiz",
       colSpan: 1,
       rowSpan: 1,
-      title: "联网搜索",
-      subtitle: "Tavily 结果",
-      icon: "mdi-web",
-      iconColor: "blue",
+      title: "快问快答",
+    },
+    // 1×1：闪卡（由 AI 生成）
+    {
+      id: "place-2",
+      kind: "flashcard",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "知识点闪卡",
+      flashcards: [],
+    },
+    // 1×1：仪表板状态（F15 DashboardTile）
+    {
+      id: "place-5",
+      kind: "dashboard",
+      colSpan: 1,
+      rowSpan: 1,
     },
     // Selection 卡片（1×1 固定）
     {
@@ -309,17 +350,6 @@ function makeDefaultTiles(): GridTile[] {
       colSpan: 1,
       rowSpan: 1,
       fixed: true,
-    },
-    // 1×1：测验
-    {
-      id: "place-6",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "测验",
-      subtitle: "AI 出题",
-      icon: "mdi-help-circle-outline",
-      iconColor: "pink",
     },
     // 末尾空格子："+" 添加
     {
@@ -335,8 +365,12 @@ function makeDefaultTiles(): GridTile[] {
 // ─── Layout toggle ──────────────────────────────────
 const gridCols = ref(props.initialGridCols);
 const layoutLabel = computed(() =>
-  gridCols.value === 2 ? "2×2 布局" : "3×3 布局"
+  gridCols.value === 2 ? "2 列磁贴" : "3 列磁贴"
 );
+const gridStyle = computed(() => ({
+  gridTemplateColumns: `repeat(${gridCols.value}, minmax(0, 1fr))`,
+  gridAutoRows: gridCols.value === 2 ? "minmax(184px, 1fr)" : "minmax(156px, 1fr)",
+}));
 
 function onToggleCols(n: number) {
   if (n === gridCols.value) return;
@@ -346,15 +380,35 @@ function onToggleCols(n: number) {
 
 // ─── Tiles state ────────────────────────────────────
 const tiles = ref<GridTile[]>(
-  props.initialTiles.length > 0 ? [...props.initialTiles] : makeDefaultTiles()
+  normalizeTiles(props.initialTiles.length > 0 ? [...props.initialTiles] : makeDefaultTiles())
 );
+
+function normalizeTiles(input: GridTile[]): GridTile[] {
+  const next = input.map((tile) => ({ ...tile }));
+  const hasTaskTile = next.some((tile) => tile.kind === "task");
+  if (!hasTaskTile) {
+    const oldLargeAgent = next.find((tile) => tile.kind === "agent" && tile.colSpan === 2 && tile.rowSpan === 2);
+    if (oldLargeAgent) {
+      oldLargeAgent.colSpan = 1;
+      oldLargeAgent.rowSpan = 1;
+    }
+    next.unshift({
+      id: "task",
+      kind: "task",
+      colSpan: 2,
+      rowSpan: 2,
+      fixed: true,
+    });
+  }
+  return next;
+}
 
 // 合入 props.initialTiles 变化
 watch(
   () => props.initialTiles,
   (val) => {
     if (val && val.length > 0) {
-      tiles.value = [...val];
+      tiles.value = normalizeTiles([...val]);
     }
   },
   { deep: true }
@@ -378,7 +432,7 @@ watch(
 
 // ─── Helpers ────────────────────────────────────────
 const sizeLabel = (tile: { colSpan: number; rowSpan: number }) =>
-  `${tile.colSpan}×${tile.rowSpan}` as "1x1" | "1x2" | "2x2";
+  `${tile.colSpan}x${tile.rowSpan}` as "1x1" | "1x2" | "2x2";
 
 const SIZE_OPTIONS = [
   { key: "1x1", label: "小 · 1×1", icon: "mdi-square-outline", colSpan: 1, rowSpan: 1 },
@@ -386,10 +440,242 @@ const SIZE_OPTIONS = [
   { key: "2x2", label: "大 · 2×2", icon: "mdi-crop-square", colSpan: 2, rowSpan: 2 },
 ] as const;
 
+const AUTO_CITATION_TILE_ID = "auto-citation";
+const AUTO_ARTIFACT_PREFIX = "auto-artifact-";
+const AUTO_QUIZ_TILE_ID = "auto-quiz";
+const AUTO_FLASHCARD_TILE_ID = "auto-flashcard";
+
+function simpleHash(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+function citationFromAi(citation: ChatCitation): Citation | null {
+  const chunk = String(citation.chunk || citation.content || "").trim();
+  const source = String(citation.source || citation.fileName || citation.fileId || "AI 引用").trim();
+  if (!chunk && !source) return null;
+  const rawScore = Number(citation.score ?? 0);
+  const rawPage = Number(citation.page);
+  return {
+    source,
+    page: Number.isFinite(rawPage) && rawPage > 0 ? rawPage : undefined,
+    chunk: chunk || "AI 返回了引用来源，但未提供片段正文。",
+    score: Number.isFinite(rawScore) && rawScore > 0 ? rawScore : 0.75,
+  };
+}
+
+function upsertGeneratedTile(tile: GridTile, replaceKind?: GridTile["kind"]) {
+  const existingIndex = tiles.value.findIndex((item) => item.id === tile.id);
+  if (existingIndex >= 0) {
+    tiles.value[existingIndex] = { ...tiles.value[existingIndex], ...tile };
+    return;
+  }
+
+  const replaceIndex = replaceKind
+    ? tiles.value.findIndex((item) => item.kind === replaceKind && !item.fixed)
+    : -1;
+  if (replaceIndex >= 0) {
+    tiles.value[replaceIndex] = tile;
+    return;
+  }
+
+  const emptyIndex = tiles.value.findIndex((item) => item.kind === "empty");
+  if (emptyIndex >= 0) {
+    tiles.value.splice(emptyIndex, 0, tile);
+  } else {
+    tiles.value.push(tile);
+  }
+  ensureEmptySlot();
+}
+
+function syncAutoCitations(rawCitations: ChatCitation[]) {
+  const citations = rawCitations
+    .map(citationFromAi)
+    .filter((citation): citation is Citation => !!citation)
+    .slice(-6);
+  if (!citations.length) return;
+
+  upsertGeneratedTile(
+    {
+      id: AUTO_CITATION_TILE_ID,
+      kind: "citation",
+      colSpan: 1,
+      rowSpan: 2,
+      title: "RAG 引用",
+      citations,
+    },
+    "citation"
+  );
+}
+
+function artifactText(artifact: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = artifact[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  }
+  return "";
+}
+
+function fileNameFromPath(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function tileFromArtifact(artifact: Record<string, unknown>, index: number): GridTile | null {
+  const path = artifactText(artifact, ["path", "file_path", "relPath", "rel_path", "url"]);
+  const title = artifactText(artifact, ["title", "name", "filename", "fileName"]) || fileNameFromPath(path);
+  if (!title) return null;
+  const type = artifactText(artifact, ["type", "kind", "mime", "mimeType"]);
+  const summary = artifactText(artifact, ["summary", "description", "content"]);
+  const subtitle = [type, summary || path].filter(Boolean).join(" · ");
+  const idBase = path || title || String(index);
+
+  return {
+    id: `${AUTO_ARTIFACT_PREFIX}${simpleHash(idBase)}`,
+    kind: "file",
+    colSpan: 1,
+    rowSpan: 1,
+    title,
+    subtitle: subtitle || "任务产物",
+    filePath: path || undefined,
+  };
+}
+
+function syncAutoArtifacts(rawArtifacts: Array<Record<string, unknown>>) {
+  const artifactTiles = rawArtifacts
+    .map(tileFromArtifact)
+    .filter((tile): tile is GridTile => !!tile)
+    .slice(-3);
+  if (!artifactTiles.length) return;
+
+  const nextIds = new Set(artifactTiles.map((tile) => tile.id));
+  tiles.value = tiles.value.filter(
+    (tile) => !tile.id.startsWith(AUTO_ARTIFACT_PREFIX) || nextIds.has(tile.id)
+  );
+  artifactTiles.forEach((tile, index) => {
+    upsertGeneratedTile(tile, index === 0 ? "file" : undefined);
+  });
+}
+
+function syncAutoQuiz(quiz: QuizData | null | undefined) {
+  if (!quiz) return;
+  upsertGeneratedTile(
+    {
+      id: AUTO_QUIZ_TILE_ID,
+      kind: "quiz",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "AI 测验",
+      quizData: quiz,
+    },
+    "quiz"
+  );
+}
+
+function syncAutoFlashcards(cards: FlashcardData[]) {
+  if (!cards.length) return;
+  upsertGeneratedTile(
+    {
+      id: AUTO_FLASHCARD_TILE_ID,
+      kind: "flashcard",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "AI 闪卡",
+      flashcards: cards,
+    },
+    "flashcard"
+  );
+}
+
+watch(
+  () => props.autoCitations,
+  (val) => {
+    syncAutoCitations(val ?? []);
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => props.autoArtifacts,
+  (val) => {
+    syncAutoArtifacts(val ?? []);
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => props.autoQuiz,
+  (val) => {
+    syncAutoQuiz(val);
+  },
+  { deep: true, immediate: true }
+);
+
+watch(
+  () => props.autoFlashcards,
+  (val) => {
+    syncAutoFlashcards(val ?? []);
+  },
+  { deep: true, immediate: true }
+);
+
 // ─── Context menu ───────────────────────────────────
 const menuOpen = ref(false);
 const menuTarget = ref<[number, number]>([0, 0]);
 const menuTargetItem = ref<GridTile | null>(null);
+const addMenuOpen = ref(false);
+const addMenuTarget = ref<[number, number]>([0, 0]);
+const addTargetId = ref("");
+
+const ADD_TILE_OPTIONS = [
+  {
+    kind: "task",
+    label: "编排任务",
+    description: "注册多步执行任务",
+    icon: "mdi-cog-sync-outline",
+  },
+  {
+    kind: "citation",
+    label: "RAG 引用",
+    description: "展示课程资料引用",
+    icon: "mdi-bookshelf",
+  },
+  {
+    kind: "file",
+    label: "文件预览",
+    description: "展示课程文件或产物",
+    icon: "mdi-file-outline",
+  },
+  {
+    kind: "quiz",
+    label: "测验题",
+    description: "选择题与批改反馈",
+    icon: "mdi-help-circle-outline",
+  },
+  {
+    kind: "flashcard",
+    label: "闪卡",
+    description: "知识点正反面记忆卡",
+    icon: "mdi-card-bulleted-outline",
+  },
+  {
+    kind: "dashboard",
+    label: "工作区概览",
+    description: "知识库和学习进度",
+    icon: "mdi-view-dashboard-outline",
+  },
+  {
+    kind: "agent",
+    label: "活跃 Agent",
+    description: "显示当前执行状态",
+    icon: "mdi-flash-outline",
+  },
+] as const;
+
+type AddTileKind = (typeof ADD_TILE_OPTIONS)[number]["kind"];
 
 const onContextMenu = (e: MouseEvent, tile: GridTile) => {
   if (tile.kind === "empty") return; // 空格子无右键菜单
@@ -399,6 +685,110 @@ const onContextMenu = (e: MouseEvent, tile: GridTile) => {
   requestAnimationFrame(() => {
     menuOpen.value = true;
   });
+};
+
+const onAddSlotClick = (e: MouseEvent, tile: GridTile) => {
+  addTargetId.value = tile.id;
+  addMenuOpen.value = false;
+  addMenuTarget.value = [e.clientX, e.clientY];
+  requestAnimationFrame(() => {
+    addMenuOpen.value = true;
+  });
+};
+
+function createTile(kind: AddTileKind): GridTile {
+  const id = `${kind}-${Date.now()}`;
+  if (kind === "task") {
+    return {
+      id,
+      kind: "task",
+      colSpan: 2,
+      rowSpan: 2,
+      title: "编排任务",
+    };
+  }
+  if (kind === "citation") {
+    return {
+      id,
+      kind: "citation",
+      colSpan: 1,
+      rowSpan: 2,
+      title: "RAG 引用",
+      citations: [],
+    };
+  }
+  if (kind === "file") {
+    return {
+      id,
+      kind: "file",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "任务产物",
+      subtitle: "等待 AI 任务生成文件",
+      icon: "mdi-file-pdf-box",
+      iconColor: "red",
+    };
+  }
+  if (kind === "quiz") {
+    return {
+      id,
+      kind: "quiz",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "测验题",
+      quizData: props.autoQuiz ?? null,
+    };
+  }
+  if (kind === "flashcard") {
+    return {
+      id,
+      kind: "flashcard",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "闪卡",
+      flashcards: props.autoFlashcards,
+    };
+  }
+  if (kind === "dashboard") {
+    return {
+      id,
+      kind: "dashboard",
+      colSpan: 1,
+      rowSpan: 1,
+      title: "工作区概览",
+    };
+  }
+  return {
+    id,
+    kind: "agent",
+    colSpan: 1,
+    rowSpan: 1,
+    title: "活跃 Agent",
+  };
+}
+
+function ensureEmptySlot() {
+  if (tiles.value.some((tile) => tile.kind === "empty")) return;
+  tiles.value.push({
+    id: `add-${Date.now()}`,
+    kind: "empty",
+    colSpan: 1,
+    rowSpan: 1,
+    fixed: true,
+  });
+}
+
+const addTile = (kind: AddTileKind) => {
+  const targetId = addTargetId.value;
+  const idx = tiles.value.findIndex((tile) => tile.id === targetId);
+  const nextTile = createTile(kind);
+  if (idx >= 0) {
+    tiles.value.splice(idx, 1, nextTile);
+  } else {
+    tiles.value.push(nextTile);
+  }
+  ensureEmptySlot();
+  addMenuOpen.value = false;
 };
 
 const isCurrentSize = (size: { colSpan: number; rowSpan: number }) => {
@@ -419,6 +809,7 @@ const onDelete = () => {
   const t = menuTargetItem.value;
   if (!t || t.fixed) return;
   tiles.value = tiles.value.filter((x) => x.id !== t.id);
+  ensureEmptySlot();
   menuOpen.value = false;
 };
 </script>
@@ -435,6 +826,11 @@ const onDelete = () => {
 .tile-grid-toolbar {
   flex-shrink: 0;
   padding: 2px 2px 6px;
+  min-height: 34px;
+}
+
+.layout-toggle {
+  flex-shrink: 0;
 }
 
 .tile-grid-css {
@@ -444,15 +840,17 @@ const onDelete = () => {
   align-content: start;
   overflow-y: auto;
   padding: 0 2px 16px;
+  min-height: 0;
 }
 
 .tile-cell {
-  min-height: 110px;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 
   &.tile-empty {
-    min-height: 90px;
+    min-height: 0;
     border: 2px dashed rgba(128, 128, 128, 0.35);
     border-radius: 10px;
     transition:

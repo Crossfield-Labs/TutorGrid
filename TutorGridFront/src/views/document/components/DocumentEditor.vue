@@ -70,6 +70,7 @@ import { useMessageStore } from "@/stores/messageStore";
 import { useChatSessionStore } from "@/stores/chatSessionStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { streamChat } from "@/lib/chat-sse";
+import { useDocumentEditorBus } from "@/composables/useDocumentEditorBus";
 
 interface Props {
   modelValue: string;
@@ -89,6 +90,8 @@ const props = withDefaults(defineProps<Props>(), {
 const messageStore = useMessageStore();
 const chatSession = useChatSessionStore();
 const snackbarStore = useSnackbarStore();
+// Step 2 跨视图：注册自己到 EditorBus，让浮窗 Chat 能"插入到文档"
+const editorBus = useDocumentEditorBus();
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
@@ -453,7 +456,7 @@ const updateSlashFromEditor = () => {
   }
   const parentStart = $pos.start();
   const textBefore = ed.state.doc.textBetween(parentStart, cursor, "\n");
-  const match = /(?:^|\s)(\/)([一-龥\w-]*)$/.exec(textBefore);
+  const match = /(?:^|\s)(\/)([^\n]*)$/.exec(textBefore);
   if (!match) {
     if (slashState.open) closeSlash();
     return;
@@ -482,6 +485,7 @@ const onSlashSelect = (item: SlashItem) => {
   if (!ed) return;
   const slashFrom = slashState.slashFrom;
   const cursorTo = ed.state.selection.from;
+  const rawSlashQuery = slashState.query.trim();
   closeSlash();
   if (slashFrom < 0) return;
   // 1. 删除 "/xxx" 占位文字
@@ -521,7 +525,7 @@ const onSlashSelect = (item: SlashItem) => {
       break;
     case "task": {
       // F12: 提取 /task 后面的指令文本
-      const taskInstruction = slashState.query.trim() || "";
+      const taskInstruction = rawSlashQuery.replace(/^task\b\s*/i, "").trim();
       emit("taskCommand", taskInstruction);
       snackbarStore.showSuccessMessage(
         taskInstruction
@@ -535,7 +539,17 @@ const onSlashSelect = (item: SlashItem) => {
   }
 };
 
+// Step 2 跨视图同步：editor 就绪时注册到 EditorBus，让浮窗能反向调
+watch(
+  () => editor.value,
+  (ed) => {
+    if (ed && props.tileId) editorBus.register(ed, props.tileId);
+  },
+  { immediate: true }
+);
+
 onBeforeUnmount(() => {
+  editorBus.unregister(editor.value || undefined);
   editor.value?.destroy();
 });
 

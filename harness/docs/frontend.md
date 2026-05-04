@@ -14,7 +14,7 @@
 - 当前路线：桌面应用优先
 
 详细前后端协作与协议边界，优先参考：
-- `../../docs/orchestrator-v5-protocol.md`
+- `../../docs/BackEndA/orchestrator-v5-protocol.md`
 - `../../docs/harness.md`
 
 ## 前端实现规范（必须遵守）
@@ -59,9 +59,18 @@
 5. 统一输入模型：new / reply / redirect / instruction / explain / interrupt
 6. Electron 桌面壳骨架
 7. Vuetify 组件化页面骨架与 Pinia 状态接入
+8. Hyperdoc 右侧 `TileGrid` 已接入真实 AI 投影：
+   - Chat SSE / 文档内 AI 的 `citations` 会自动替换 RAG 引用磁贴
+   - Tavily / 搜索类 `searchResults` 会转换为引用磁贴条目
+   - `orchestrator.task.result.artifacts` 会自动替换或追加文件磁贴
+   - 测验 / 闪卡磁贴调用 `POST /api/study/cards`，由当前文档、最近 AI 答复与引用片段生成真实学习卡片；生成失败时只显示空态，不使用静态演示题
+   - 文件磁贴通过 Electron `workspace.openPath` 打开本地文件，路径限制在工作区和仓库根内
+   - `导出 PDF` 通过 Electron `webContents.printToPDF` 写入用户选择的 PDF 文件
+   - Dashboard 学习进度只读取 `GET /api/profile/mastery`，测验提交后通过 `POST /api/profile/mastery` 写回掌握度；后端不可用时显示空态，不再 mock 进度
+   - 手动“添加磁贴”仍保留，用于临时添加任务、引用、文件、测验、闪卡、概览和 Agent 状态磁贴
 
 当前还没落地：
-1. artifact 预览
+1. artifact 详情预览
 2. 更细的 trace/错误筛选能力
 3. 打包态下的内置后端联调验证
 

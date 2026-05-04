@@ -16,15 +16,18 @@
                 sm="6"
               >
                 <v-sheet
-                  class="pa-4 h-100 rounded border dash-tile"
-                  :class="{ clickable: item.to || item.action }"
-                  @click="onTileClick(item)"
+                  class="pa-4 h-100 rounded border workspace-entry"
+                  role="button"
+                  tabindex="0"
+                  @click="openWorkspaceTile(item)"
+                  @keydown.enter.prevent="openWorkspaceTile(item)"
+                  @keydown.space.prevent="openWorkspaceTile(item)"
                 >
                   <div class="d-flex align-center mb-3">
                     <v-icon :color="item.color" class="mr-2">{{ item.icon }}</v-icon>
                     <span class="font-weight-bold">{{ item.title }}</span>
                     <v-icon
-                      v-if="item.to"
+                      v-if="item.route"
                       icon="mdi-arrow-top-right"
                       size="16"
                       class="ml-auto text-grey-lighten-1"
@@ -79,40 +82,50 @@ const router = useRouter();
 const workspaceTiles = [
   {
     title: "磁贴工作区",
-    description: "看板式工作区：管理课程资料、便签、任务和 AI 主动推送。",
+    description: "承载课程资料、便签、任务和 AI 主动推送。",
     icon: "mdi-grid-large",
     color: "primary",
-    to: "/board",
+    route: "/board",
   },
   {
     title: "课程知识库",
-    description: "在工作区中导入 PPT、PDF、Word 和图片，RAG 自动索引。",
+    description: "为 PPT、PDF、Word 和图片导入预留入口，RAG 自动索引。",
     icon: "mdi-book-open-page-variant-outline",
     color: "success",
-    to: "/board",
+    route: "/board",
   },
   {
     title: "Chat 面板",
-    description: "右下角 AI 对话，SSE 流式回答 + RAG + Tavily 联网搜索。",
+    description: "打开右侧 AI 抽屉，支持 SSE 流式对话、RAG 引用和联网检索。",
     icon: "mdi-message-text-outline",
     color: "info",
     action: "chat",
   },
   {
     title: "TipTap 文档",
-    description: "在工作区中创建 Hyper 文档，进入 TipTap 编辑器。",
+    description: "在工作区创建 Hyper 文档，进入 TipTap 编辑器沉淀笔记和学习产物。",
     icon: "mdi-file-document-edit-outline",
     color: "warning",
-    to: "/board",
+    route: "/board",
   },
 ];
 
-function onTileClick(item: (typeof workspaceTiles)[number]) {
-  if (item.to) {
-    router.push(item.to);
-  } else if (item.action === "chat") {
+function openWorkspaceTile(item: { route?: string; action?: string }) {
+  if (item.action === "chat") {
     const fab = document.querySelector(".chat-fab") as HTMLElement | null;
-    if (fab) fab.click();
+    if (fab) {
+      fab.click();
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("tutorgrid:open-chat", {
+        detail: { source: "dashboard" },
+      })
+    );
+    return;
+  }
+  if (item.route) {
+    void router.push(item.route);
   }
 }
 
@@ -125,13 +138,20 @@ const desktopTasks = [
 ];
 </script>
 
-<style scoped>
-.dash-tile.clickable {
+<style scoped lang="scss">
+.workspace-entry {
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 }
-.dash-tile.clickable:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+
+.workspace-entry:hover,
+.workspace-entry:focus-visible {
+  border-color: rgb(var(--v-theme-primary)) !important;
+  box-shadow: 0 8px 24px rgba(31, 42, 68, 0.12);
+  outline: none;
+  transform: translateY(-1px);
 }
 </style>

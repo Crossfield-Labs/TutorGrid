@@ -310,7 +310,8 @@ function createMainWindow() {
     show: false,
     title: "TutorGrid",
     icon: fs.existsSync(APP_ICON_PNG) ? APP_ICON_PNG : APP_ICON_FALLBACK,
-    titleBarStyle: "hidden",
+    frame: false,             // 去掉 Windows 系统级 1-2px 客户区边框（拖拽 region 在 MainAppbar.vue 里已实现）
+    titleBarStyle: "hidden",  // 保留：让 macOS 有交通灯按钮
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -335,6 +336,23 @@ function createMainWindow() {
     return { action: "deny" };
   });
 
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    console.error("[electron] did-fail-load", { errorCode, errorDescription, validatedURL });
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    console.error("[electron] render-process-gone", details);
+  });
+
+  mainWindow.webContents.on("unresponsive", () => {
+    console.error("[electron] renderer became unresponsive");
+  });
+
+  mainWindow.webContents.on("console-message", (event, level, message, line, sourceId) => {
+    console.log("[renderer console]", { level, message, line, sourceId });
+    event.preventDefault();
+  });
+
   if (isDevelopment) {
     mainWindow.webContents.on("before-input-event", (event, input) => {
       const key = input.key.toLowerCase();
@@ -349,6 +367,7 @@ function createMainWindow() {
   if (isDevelopment && devServerUrl) {
     mainWindow.loadURL(devServerUrl);
     mainWindow.webContents.once("did-finish-load", () => {
+      console.log("[electron] did-finish-load", { url: mainWindow?.webContents.getURL() });
       mainWindow?.webContents.openDevTools({ mode: "detach" });
     });
   } else {
@@ -383,6 +402,22 @@ function resolveSafe(relPath: string): string {
   const full = path.resolve(workspaceRoot, relPath);
   if (!full.startsWith(path.resolve(workspaceRoot))) {
     throw new Error("Path escapes workspace root");
+  }
+  return full;
+}
+
+function resolveOpenablePath(rawPath: string): string {
+  const candidate = String(rawPath || "").trim();
+  if (!candidate) throw new Error("File path is required");
+  const workspaceResolved = path.resolve(workspaceRoot);
+  const repoResolved = path.resolve(REPO_ROOT);
+  const full = path.isAbsolute(candidate)
+    ? path.resolve(candidate)
+    : fs.existsSync(path.resolve(workspaceRoot, candidate))
+      ? path.resolve(workspaceRoot, candidate)
+      : path.resolve(REPO_ROOT, candidate);
+  if (!full.startsWith(workspaceResolved) && !full.startsWith(repoResolved)) {
+    throw new Error("Path escapes allowed roots");
   }
   return full;
 }
@@ -551,6 +586,84 @@ function registerIpcHandlers() {
     const fullPath = resolveSafe(relPath);
     await shell.openPath(fullPath);
   });
+
+  ipcMain.handle("workspace:openPath", async (_, filePath: string) => {
+    const fullPath = resolveOpenablePath(filePath);
+    const error = await shell.openPath(fullPath);
+    if (error) throw new Error(error);
+  });
+
+  ipcMain.handle("workspace:exportPdf", async (_, payload: { title: string }) => {
+    if (!mainWindow) throw new Error("主窗口未就绪");
+    await ensureDirs();
+    const safeTitle = sanitizeName(payload.title || "hyperdoc");
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: "导出 PDF",
+      defaultPath: path.join(workspaceRoot, `${safeTitle}.pdf`),
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (result.canceled || !result.filePath) {
+      return { canceled: true };
+    }
+    const data = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: true,
+      margins: { marginType: "printableArea" },
+    });
+    await fs.promises.writeFile(result.filePath, data);
+    return { canceled: false, filePath: result.filePath };
+  });
+
+  // -------- 工作区资源（背景图等）：保存到 <targetRoot>/.assets/ ----------
+  // 不依赖当前 workspaceRoot，因为创建工作区时新 root 还没切过来
+  ipcMain.handle(
+    "workspace:saveAssetTo",
+    async (
+      _,
+      payload: { targetRoot: string; buffer: Uint8Array; originalName: string }
+    ): Promise<{ relPath: string }> => {
+      const { targetRoot, buffer, originalName } = payload;
+      if (!targetRoot || !fs.existsSync(targetRoot)) {
+        throw new Error(`目标目录不存在: ${targetRoot}`);
+      }
+      const assetsDir = path.join(targetRoot, ".assets");
+      if (!fs.existsSync(assetsDir)) {
+        fs.mkdirSync(assetsDir, { recursive: true });
+      }
+      const ext = (path.extname(originalName) || ".jpg").toLowerCase();
+      const newName = `${randomUUID()}${ext}`;
+      const fullPath = path.join(assetsDir, newName);
+      // 直接传 Uint8Array（fs.writeFile 接受 ArrayBufferView）
+      await fs.promises.writeFile(fullPath, buffer);
+      // 返回相对 targetRoot 的路径，统一用 POSIX 斜杠
+      return { relPath: `.assets/${newName}` };
+    }
+  );
+
+  ipcMain.handle(
+    "workspace:readAssetFrom",
+    async (
+      _,
+      payload: { targetRoot: string; relPath: string }
+    ): Promise<Uint8Array | null> => {
+      const { targetRoot, relPath } = payload;
+      if (!targetRoot || !relPath) return null;
+      // 安全：禁止 .. 跳出 targetRoot
+      const fullPath = path.resolve(targetRoot, relPath);
+      const normRoot = path.resolve(targetRoot);
+      if (!fullPath.startsWith(normRoot)) {
+        throw new Error(`非法路径: ${relPath}`);
+      }
+      try {
+        const buf = await fs.promises.readFile(fullPath);
+        // 返回 Uint8Array（IPC 可序列化），renderer 用 new Blob([uint8]) 转 blob URL
+        return new Uint8Array(buf);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw e;
+      }
+    }
+  );
 
   ipcMain.handle("window:minimize", () => {
     mainWindow?.minimize();

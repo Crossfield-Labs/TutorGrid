@@ -36,6 +36,10 @@ declare global {
         ) => Promise<{ relPath: string }>;
         deleteFile: (relPath: string) => Promise<void>;
         openExternal: (relPath: string) => Promise<void>;
+        openPath: (filePath: string) => Promise<void>;
+        exportPdf: (payload: {
+          title: string;
+        }) => Promise<{ canceled: boolean; filePath?: string }>;
       };
     };
   }
