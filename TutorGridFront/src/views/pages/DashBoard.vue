@@ -19,9 +19,9 @@
                   class="pa-4 h-100 rounded border workspace-entry"
                   role="button"
                   tabindex="0"
-                  @click="openWorkspaceTile(item.route)"
-                  @keydown.enter.prevent="openWorkspaceTile(item.route)"
-                  @keydown.space.prevent="openWorkspaceTile(item.route)"
+                  @click="openWorkspaceTile(item)"
+                  @keydown.enter.prevent="openWorkspaceTile(item)"
+                  @keydown.space.prevent="openWorkspaceTile(item)"
                 >
                   <div class="d-flex align-center mb-3">
                     <v-icon :color="item.color" class="mr-2">{{ item.icon }}</v-icon>
@@ -84,7 +84,7 @@ const workspaceTiles = [
     description: "后续接入 WebSocket 流式对话和编排事件。",
     icon: "mdi-message-text-outline",
     color: "info",
-    route: "/board?toolbox=chat",
+    action: "chat",
   },
   {
     title: "TipTap 文档",
@@ -95,8 +95,18 @@ const workspaceTiles = [
   },
 ];
 
-function openWorkspaceTile(route: string) {
-  void router.push(route);
+function openWorkspaceTile(item: { route?: string; action?: string }) {
+  if (item.action === "chat") {
+    window.dispatchEvent(
+      new CustomEvent("tutorgrid:open-toolbox", {
+        detail: { panel: "chat" },
+      })
+    );
+    return;
+  }
+  if (item.route) {
+    void router.push(item.route);
+  }
 }
 
 const desktopTasks = [

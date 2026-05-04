@@ -4,13 +4,20 @@
 * @Description:
 -->
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { Icon } from "@iconify/vue";
 import ChatAssistant from "@/components/ai/ChatAssistant.vue";
 
 const route = useRoute();
 const toolboxShow = ref(false);
+
+function openToolbox(event?: Event) {
+  const panel = (event as CustomEvent<{ panel?: string }> | undefined)?.detail?.panel;
+  if (!panel || panel === "chat") {
+    toolboxShow.value = true;
+  }
+}
 
 watch(
   () => route.query.toolbox,
@@ -21,6 +28,14 @@ watch(
   },
   { immediate: true }
 );
+
+onMounted(() => {
+  window.addEventListener("tutorgrid:open-toolbox", openToolbox);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("tutorgrid:open-toolbox", openToolbox);
+});
 </script>
 
 <template>
