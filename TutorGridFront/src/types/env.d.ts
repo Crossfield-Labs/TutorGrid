@@ -12,6 +12,8 @@ declare interface ImportMeta {
     readonly VITE_UNSPLASH_ACCESS_KEY: string;
     readonly VITE_GITHUB_CLIENT_ID: string;
     readonly VITE_API_BASE_URL: string;
+    readonly VITE_WS_URL: string;
+    readonly VITE_DEFAULT_HOME_ROUTE: string;
     readonly VITE_OPENAI_API_KEY: string;
     readonly VITE_TTS_KEY: string;
     readonly VITE_TTS_REGION: string;

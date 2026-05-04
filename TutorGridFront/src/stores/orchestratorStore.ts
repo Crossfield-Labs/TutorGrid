@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { WS_URL } from "@/config/runtime";
 
 export type WsStatus =
   | "idle"
@@ -38,7 +39,6 @@ interface BufferedEvent {
   ts: number;
 }
 
-const DEFAULT_WS_URL = "ws://127.0.0.1:3210/ws/orchestrator";
 const REQUEST_TIMEOUT_MS = 60_000;
 const RECONNECT_INITIAL_MS = 1_500;
 const RECONNECT_MAX_MS = 15_000;
@@ -100,7 +100,7 @@ function rejectAllPending(reason: string) {
 
 export const useOrchestratorStore = defineStore("orchestrator", {
   state: () => ({
-    wsUrl: DEFAULT_WS_URL,
+    wsUrl: WS_URL,
     status: "idle" as WsStatus,
     lastError: "" as string,
     sessions: [] as string[],

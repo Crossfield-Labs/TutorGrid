@@ -15,10 +15,9 @@
  */
 
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "@/config/runtime";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-
-const API_BASE = "http://127.0.0.1:8000";
 
 export interface ProjectAppearance {
   topBarBg: string;     // BoardPage 顶部 AppBar 背景图 URL（可空）
@@ -84,7 +83,7 @@ export const useProjectStore = defineStore("project", {
       this.loading = true;
       this.loadError = "";
       try {
-        const res = await fetch(`${API_BASE}/api/workspaces`);
+        const res = await fetch(`${API_BASE_URL}/api/workspaces`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this.list = (await res.json()) as Project[];
       } catch (err) {
@@ -106,7 +105,7 @@ export const useProjectStore = defineStore("project", {
           fsRoot: payload.fsRoot,
           appearance: { ...EMPTY_APPEARANCE, ...(payload.appearance ?? {}) },
         };
-        const res = await fetch(`${API_BASE}/api/workspaces`, {
+        const res = await fetch(`${API_BASE_URL}/api/workspaces`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -130,7 +129,7 @@ export const useProjectStore = defineStore("project", {
       patch: Partial<Pick<Project, "name" | "fsRoot" | "appearance">>
     ): Promise<Project | null> {
       try {
-        const res = await fetch(`${API_BASE}/api/workspaces/${id}`, {
+        const res = await fetch(`${API_BASE_URL}/api/workspaces/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(patch),
@@ -148,7 +147,7 @@ export const useProjectStore = defineStore("project", {
 
     async deleteProject(id: string): Promise<boolean> {
       try {
-        const res = await fetch(`${API_BASE}/api/workspaces/${id}`, {
+        const res = await fetch(`${API_BASE_URL}/api/workspaces/${id}`, {
           method: "DELETE",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -185,7 +184,7 @@ export const useProjectStore = defineStore("project", {
     async fetchHyperdocs(projectId: string) {
       try {
         const res = await fetch(
-          `${API_BASE}/api/workspaces/${projectId}/hyperdocs`
+          `${API_BASE_URL}/api/workspaces/${projectId}/hyperdocs`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this.hyperdocsByProject[projectId] = (await res.json()) as HyperdocMeta[];

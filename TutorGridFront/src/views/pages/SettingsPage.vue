@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from "vue";
+import { API_BASE_URL } from "@/config/runtime";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 
 interface RuntimeConfigForm {
@@ -28,7 +29,6 @@ interface RuntimeConfigForm {
   };
 }
 
-const API_BASE_URL = "http://127.0.0.1:8000";
 const snackbarStore = useSnackbarStore();
 const loadingConfig = ref(false);
 const savingConfig = ref(false);

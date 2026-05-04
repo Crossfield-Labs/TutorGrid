@@ -12,10 +12,9 @@
  */
 
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "@/config/runtime";
 import type { ChatCitation } from "@/lib/chat-sse";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-
-const API_BASE = "http://127.0.0.1:8000";
 
 export interface ChatMessageMetadata {
   citations?: ChatCitation[];
@@ -85,7 +84,7 @@ export const useChatMessageStore = defineStore("chatMessage", {
       this.loading[sessionId] = true;
       try {
         const res = await fetch(
-          `${API_BASE}/api/chats/${sessionId}/messages?limit=200`
+          `${API_BASE_URL}/api/chats/${sessionId}/messages?limit=200`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const list = (await res.json()) as ChatMessage[];
@@ -228,7 +227,7 @@ export const useChatMessageStore = defineStore("chatMessage", {
 
     async _persistQuote(sessionId: string, msg: ChatMessage) {
       try {
-        await fetch(`${API_BASE}/api/chats/${sessionId}/messages`, {
+        await fetch(`${API_BASE_URL}/api/chats/${sessionId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

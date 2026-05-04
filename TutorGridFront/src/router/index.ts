@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { WEB_DEFAULT_HOME_ROUTE } from "@/config/runtime";
 
 import LandingRoutes from "./landing.routes";
 import AuthRoutes from "./auth.routes";
@@ -8,7 +9,7 @@ export const routes = [
     path: "/",
     redirect: () => {
       const isElectron = !!(window as any).metaAgent;
-      return isElectron ? "/board" : "/landing";
+      return isElectron ? "/board" : WEB_DEFAULT_HOME_ROUTE;
     },
     meta: {},
   } as any,

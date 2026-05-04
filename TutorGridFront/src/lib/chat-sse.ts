@@ -10,6 +10,8 @@
  *   data: {"type":"error","message":"..."}
  */
 
+import { CHAT_SSE_ENDPOINT } from "@/config/runtime";
+
 export interface ChatStartEvent {
   type: "start";
   message_id: string;
@@ -77,7 +79,7 @@ export interface ChatSSEOptions {
   signal?: AbortSignal;
 }
 
-export const DEFAULT_CHAT_SSE_ENDPOINT = "http://127.0.0.1:8000/api/chat/stream";
+export const DEFAULT_CHAT_SSE_ENDPOINT = CHAT_SSE_ENDPOINT;
 
 /**
  * 消费 Chat SSE 流。返回的 Promise 在 'done' / 'error' 事件后 resolve。

@@ -1,10 +1,9 @@
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "@/config/runtime";
 
 const COURSE_STORAGE_KEY = "metaagent.defaultCourseId";
 const DEFAULT_COURSE_NAME = "MetaAgent 默认课程";
 const DEFAULT_COURSE_DESC = "演示用：所有入库文件归档于此";
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
-
 export interface KnowledgeFile {
   fileId: string;
   fileName: string;
@@ -17,7 +16,7 @@ export interface KnowledgeFile {
 }
 
 function apiUrl(path: string): string {
-  return `${DEFAULT_API_BASE_URL}${path}`;
+  return `${API_BASE_URL}${path}`;
 }
 
 async function apiGet<T>(path: string): Promise<T> {

@@ -104,6 +104,17 @@ yarn install
 yarn dev
 ```
 
+### Web Console Deployment
+
+- Default behavior remains unchanged: without extra env vars, `/` redirects to `/landing` and the app uses local `127.0.0.1` backend defaults.
+- For a separate console deployment such as `console.tutorgrid.indolyn.com`, set:
+
+```env
+VITE_API_BASE_URL=https://api-tutorgrid.microindole.me
+VITE_WS_URL=wss://api-tutorgrid.microindole.me/ws/orchestrator
+VITE_DEFAULT_HOME_ROUTE=/board
+```
+
 ```
 TutorGridFront
 ├─ .browserslistrc

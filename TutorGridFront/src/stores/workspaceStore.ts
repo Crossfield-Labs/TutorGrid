@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "@/config/runtime";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 
 export type TileKind = "note" | "file" | "hyperdoc";
@@ -387,7 +388,7 @@ export const useWorkspaceStore = defineStore("workspace", {
         const projectId = projectStore.currentId;
         if (projectId) {
           const res = await fetch(
-            `http://127.0.0.1:8000/api/workspaces/${projectId}/hyperdocs`,
+            `${API_BASE_URL}/api/workspaces/${projectId}/hyperdocs`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },

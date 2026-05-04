@@ -9,9 +9,8 @@
  */
 
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "@/config/runtime";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-
-const API_BASE = "http://127.0.0.1:8000";
 
 export interface ChatSessionItem {
   id: string;
@@ -43,7 +42,7 @@ export const useChatSessionListStore = defineStore("chatSessionList", {
       this.loading = true;
       try {
         const res = await fetch(
-          `${API_BASE}/api/hyperdocs/${hyperdocId}/chats`
+          `${API_BASE_URL}/api/hyperdocs/${hyperdocId}/chats`
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const list = (await res.json()) as ChatSessionItem[];
@@ -69,7 +68,7 @@ export const useChatSessionListStore = defineStore("chatSessionList", {
     ): Promise<ChatSessionItem | null> {
       try {
         const res = await fetch(
-          `${API_BASE}/api/hyperdocs/${hyperdocId}/chats`,
+          `${API_BASE_URL}/api/hyperdocs/${hyperdocId}/chats`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -103,7 +102,7 @@ export const useChatSessionListStore = defineStore("chatSessionList", {
       title: string
     ): Promise<ChatSessionItem | null> {
       try {
-        const res = await fetch(`${API_BASE}/api/chats/${sessionId}`, {
+        const res = await fetch(`${API_BASE_URL}/api/chats/${sessionId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title }),
@@ -127,7 +126,7 @@ export const useChatSessionListStore = defineStore("chatSessionList", {
 
     async remove(sessionId: string): Promise<boolean> {
       try {
-        const res = await fetch(`${API_BASE}/api/chats/${sessionId}`, {
+        const res = await fetch(`${API_BASE_URL}/api/chats/${sessionId}`, {
           method: "DELETE",
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
