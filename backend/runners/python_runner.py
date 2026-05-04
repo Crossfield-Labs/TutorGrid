@@ -6,7 +6,14 @@ import subprocess
 from pathlib import Path
 
 from backend.config import OrchestratorConfig, load_config
-from backend.runners.base import AwaitUserCallback, BaseRunner, MessageEventCallback, ProgressCallback, SubstepCallback
+from backend.runners.base import (
+    AwaitUserCallback,
+    BaseRunner,
+    DocWriteCallback,
+    MessageEventCallback,
+    ProgressCallback,
+    SubstepCallback,
+)
 from backend.sessions.state import OrchestratorSessionState
 from backend.workers.common import diff_workspace, snapshot_workspace
 from backend.workers.models import WorkerResult
@@ -22,9 +29,13 @@ class PythonRunner(BaseRunner):
         *,
         emit_substep: SubstepCallback | None = None,
         emit_message_event: MessageEventCallback | None = None,
+        emit_doc_write: DocWriteCallback | None = None,
     ) -> None:
         self._emit_substep = emit_substep
         self._emit_message_event = emit_message_event
+        # PythonRunner doesn't write back to docs; accept the kwarg so the
+        # caller can uniformly plumb the callback for every runner.
+        _ = emit_doc_write
 
     async def run(
         self,

@@ -5,6 +5,7 @@ from typing import Any
 
 from backend.llm.planner import PlannerRuntime
 from backend.llm.messages import append_assistant_message, append_user_message
+from backend.observability import trace
 from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
@@ -85,11 +86,27 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             {"id": item.id, "tool": item.name, "arguments": item.arguments}
             for item in response.tool_calls
         ]
+        trace(
+            "plan",
+            iter=iteration,
+            tools=", ".join(item.name for item in response.tool_calls) or "(none)",
+            content_chars=len(str(response.content or "")),
+            finish_reason=response.finish_reason,
+        )
         filtered_tool_calls, dropped_duplicates = _filter_duplicate_tool_calls(
             planned_tool_calls,
             tool_events=tool_events,
         )
+        if dropped_duplicates:
+            trace(
+                "plan.dedupe",
+                iter=iteration,
+                dropped=dropped_duplicates,
+                kept=len(filtered_tool_calls),
+                kept_tools=", ".join(call.get("tool", "?") for call in filtered_tool_calls) or "(none)",
+            )
         if not filtered_tool_calls and dropped_duplicates and tool_results and _has_completion_evidence(next_state):
+            trace("plan.force_finalize", iter=iteration, reason="all_tool_calls_were_duplicates")
             stream_state = await _start_final_answer_stream(runtime_context, state=next_state)
             forced_final = await planner.finalize_from_evidence(
                 task=task,
@@ -134,6 +151,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
             )
             return next_state
 
+        # IMPORTANT: the assistant tool_calls block must match what tools_node
+        # will actually execute, otherwise providers like DeepSeek/OpenAI reject
+        # the next turn ("assistant message with 'tool_calls' must be followed
+        # by tool messages"). When dedup drops some calls we have to drop them
+        # from the assistant message too.
+        kept_ids = {str(call.get("id") or "") for call in filtered_tool_calls}
         assistant_tool_calls = [
             {
                 "id": item.id,
@@ -144,13 +167,24 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
                 },
             }
             for item in response.tool_calls
+            if str(item.id) in kept_ids
         ]
-        next_state["messages"] = append_assistant_message(
-            messages,
-            content=response.content,
-            tool_calls=assistant_tool_calls,
-            reasoning_content=reasoning_content,
-        )
+        if assistant_tool_calls:
+            next_state["messages"] = append_assistant_message(
+                messages,
+                content=response.content,
+                tool_calls=assistant_tool_calls,
+                reasoning_content=reasoning_content,
+            )
+        else:
+            # All tool calls were duplicates of prior evidence. Treat this turn
+            # as a content-only assistant message so the provider history stays
+            # consistent and the graph routes back to verification/finalize.
+            next_state["messages"] = append_assistant_message(
+                messages,
+                content=response.content or "(planner produced only duplicate tool calls; nothing new to execute)",
+                reasoning_content=reasoning_content,
+            )
         next_state["planned_tool_calls"] = filtered_tool_calls
         next_state["tool_events"] = tool_events + (
             [{"tool": "dedupe", "result": f"Suppressed {dropped_duplicates} duplicate tool call(s)."}]
@@ -163,6 +197,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         )
         if dropped_duplicates:
             next_state["latest_summary"] = f"Suppressed {dropped_duplicates} duplicate tool call(s)."
+        trace(
+            "plan.dispatch",
+            iter=iteration,
+            scheduled=len(filtered_tool_calls),
+            tools=", ".join(call.get("tool", "?") for call in filtered_tool_calls) or "(none)",
+        )
         await sync_session_from_runtime_state(
             next_state,
             emit_progress=runtime_context.get("emit_progress"),
@@ -247,6 +287,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         return next_state
 
     if tool_results and _should_attempt_forced_finish(next_state, iteration, max_iterations):
+        trace(
+            "plan.force_finalize",
+            iter=iteration,
+            reason="completion_evidence_threshold_reached",
+            evidence=len(tool_results),
+        )
         stream_state = await _start_final_answer_stream(runtime_context, state=next_state)
         forced_final = await planner.finalize_from_evidence(
             task=task,
@@ -291,6 +337,7 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         return next_state
 
     if iteration >= max_iterations:
+        trace("plan.max_iterations", iter=iteration, max=max_iterations)
         fallback = planner.build_fallback_summary(
             task=task,
             workspace=workspace,
@@ -316,6 +363,12 @@ async def planning_node(state: RuntimeState) -> RuntimeState:
         )
         return next_state
 
+    trace(
+        "plan.fallthrough_finalize",
+        iter=iteration,
+        content_chars=len(str(response.content or "")),
+        finish_reason=response.finish_reason,
+    )
     next_state["messages"] = append_assistant_message(
         messages,
         content=response.content,

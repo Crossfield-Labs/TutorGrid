@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile backend/llm/prompts.py backend/runtime/nodes/planning.py)"
+    ]
+  }
+}

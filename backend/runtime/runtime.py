@@ -24,6 +24,7 @@ AwaitUserCallback = Callable[[str, str | None], Awaitable[str]]
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
 SubstepCallback = Callable[[str, str, str, str | None], Awaitable[None]]
 MessageEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+DocWriteCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class RuntimePaused(Exception):
@@ -45,12 +46,14 @@ class OrchestratorRuntime:
         await_user: AwaitUserCallback,
         emit_substep: SubstepCallback | None = None,
         emit_message_event: MessageEventCallback | None = None,
+        emit_doc_write: DocWriteCallback | None = None,
     ) -> None:
         self.session = session
         self.emit_progress = emit_progress
         self.await_user = await_user
         self.emit_substep = emit_substep
         self.emit_message_event = emit_message_event
+        self.emit_doc_write = emit_doc_write
         self.config = load_config()
         self.graph_build = build_runtime_graph(checkpointer=self._CHECKPOINTER)
         self.planner = PlannerRuntime(self.config)
@@ -109,6 +112,7 @@ class OrchestratorRuntime:
             "emit_progress": self.emit_progress,
             "emit_substep": self.emit_substep,
             "emit_message_event": self.emit_message_event,
+            "emit_doc_write": self.emit_doc_write,
             "memory_service": self.memory_service,
             "memory_config": self.config.memory,
             "tracer": self.tracer,
@@ -171,7 +175,14 @@ class OrchestratorRuntime:
             astream_kwargs: dict[str, Any] = {"stream_mode": ["custom", "values"]}
             if self._supports_kwarg(graph.astream, "version"):
                 astream_kwargs["version"] = "v2"
-            async for mode, payload in graph.astream(input_value, config=config, **astream_kwargs):
+            async for chunk in graph.astream(input_value, config=config, **astream_kwargs):
+                # LangGraph 1.0+ 在多 stream_mode 下返回 (namespace, mode, payload)；旧版返回 (mode, payload)
+                if isinstance(chunk, tuple) and len(chunk) == 3:
+                    _, mode, payload = chunk
+                elif isinstance(chunk, tuple) and len(chunk) == 2:
+                    mode, payload = chunk
+                else:
+                    continue
                 if mode == "values" and isinstance(payload, dict):
                     latest_state = RuntimeState(**{**dict(latest_state), **payload})
                     continue

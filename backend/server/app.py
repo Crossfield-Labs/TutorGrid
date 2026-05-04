@@ -19,7 +19,7 @@ from backend.config import (
 )
 from backend.config import load_config
 from backend.editor import TipTapAICommandService
-from backend.observability import reset_langsmith_tracer
+from backend.observability import banner, reset_langsmith_tracer, trace
 from backend.scheduler.service import LearningPushScheduler
 from backend.knowledge.service import KnowledgeBaseService
 from backend.learning_profile.service import LearningProfileService
@@ -383,6 +383,59 @@ def _unsubscribe(session_id: str, websocket: WebSocketServerProtocol) -> None:
         subscriber_event_namespaces.pop(websocket, None)
 
 
+def _trace_broadcast_event(
+    session: OrchestratorSessionState,
+    *,
+    event: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if not event.startswith("orchestrator."):
+        return
+    short = event[len("orchestrator.") :]
+    data = payload or {}
+    if short == "task.create":
+        trace(
+            short,
+            task=session.task_id,
+            doc=data.get("doc_id"),
+            workspace=session.workspace,
+        )
+    elif short == "task.step":
+        trace(
+            short,
+            task=session.task_id,
+            phase=data.get("phase"),
+            status=data.get("status"),
+            worker=data.get("active_worker"),
+            summary=data.get("summary"),
+        )
+    elif short == "task.awaiting_user":
+        trace(short, task=session.task_id, prompt=data.get("prompt"))
+    elif short == "task.doc_write":
+        trace(
+            short,
+            task=session.task_id,
+            doc=data.get("doc_id"),
+            kind=data.get("kind"),
+            placement=data.get("placement"),
+            chars=len(str(data.get("content") or "")),
+            title=data.get("title"),
+        )
+    elif short == "task.result":
+        trace(
+            short,
+            task=session.task_id,
+            status=data.get("status"),
+            artifacts=len(data.get("artifacts") or []),
+            worker_runs=len(data.get("worker_runs") or []),
+            content_chars=len(str(data.get("content") or "")),
+        )
+    elif short.startswith("session.subnode."):
+        trace(short, kind=data.get("kind"), title=data.get("title"), status=data.get("status"))
+    else:
+        trace(short)
+
+
 async def _broadcast_event(
     session: OrchestratorSessionState,
     *,
@@ -390,6 +443,7 @@ async def _broadcast_event(
     payload: dict[str, Any] | None = None,
 ) -> None:
     _append_session_trace(session, event=event, payload=payload)
+    _trace_broadcast_event(session, event=event, payload=payload)
     seq = _next_event_seq(session)
     stale: list[WebSocketServerProtocol] = []
     for websocket in list(session_subscribers.get(session.session_id, set())):
@@ -807,6 +861,14 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
             },
         )
 
+    async def emit_doc_write(payload: dict[str, Any]) -> None:
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event="orchestrator.task.doc_write",
+            payload=dict(payload),
+        )
+
     try:
         runner = runner_router.get(session.runner)
         session.phase = "starting"
@@ -820,7 +882,11 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
         await _broadcast_task_step(session, summary="任务已创建，开始规划。", status="running", phase="planning")
         await _emit_projection_updates(session)
         if hasattr(runner, "set_event_callbacks"):
-            runner.set_event_callbacks(emit_substep=emit_substep, emit_message_event=emit_message_event)
+            runner.set_event_callbacks(
+                emit_substep=emit_substep,
+                emit_message_event=emit_message_event,
+                emit_doc_write=emit_doc_write,
+            )
         result = await runner.run(session, emit_progress, await_user)
         session.result = result
         session.phase = "finalize"
@@ -2296,7 +2362,8 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
 
 async def run_server(host: str, port: int, token: str) -> None:
     async with serve(lambda ws, path: websocket_handler(ws, path, token), host, port):
-        print(f"Orchestrator listening on ws://{host}:{port}/ws/orchestrator")
+        banner(f"Orchestrator listening on ws://{host}:{port}/ws/orchestrator")
+        trace("startup", workspace_root=str(ROOT / "scratch" / "tasks"), trace_root=str(TRACE_ROOT))
         await asyncio.Future()
 
 

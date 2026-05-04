@@ -1,12 +1,29 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 from backend.llm.messages import append_tool_message
+from backend.observability import trace
 from backend.runtime.context_registry import resolve_runtime_context
 from backend.runtime.session_sync import sync_session_from_runtime_state
 from backend.runtime.state import RuntimeState
+
+
+def _summarize_args(arguments: dict[str, Any]) -> str:
+    """Build a short summary of tool arguments for stdout traces."""
+    if not arguments:
+        return ""
+    pieces: list[str] = []
+    for key, value in arguments.items():
+        text = str(value).replace("\n", " ").strip()
+        if len(text) > 60:
+            text = text[:57] + "…"
+        pieces.append(f"{key}={text}")
+        if len(pieces) >= 3:
+            break
+    return ", ".join(pieces)
 
 
 async def tools_node(state: RuntimeState) -> RuntimeState:
@@ -85,6 +102,8 @@ async def tools_node(state: RuntimeState) -> RuntimeState:
         if emit_substep is not None:
             await emit_substep("tool", tool_name, "started", f"Executing {tool_name}")
         substeps.append({"kind": "tool", "title": tool_name, "status": "started", "detail": f"Executing {tool_name}"})
+        trace("tool.start", tool=tool_name, args=_summarize_args(arguments))
+        started_at = time.monotonic()
         try:
             if hasattr(tool, "ainvoke"):
                 result = await tool.ainvoke(arguments)
@@ -112,6 +131,12 @@ async def tools_node(state: RuntimeState) -> RuntimeState:
             if emit_substep is not None:
                 await emit_substep("tool", tool_name, "failed", result[:240])
             substeps.append({"kind": "tool", "title": tool_name, "status": "failed", "detail": result[:240]})
+            trace(
+                "tool.fail",
+                tool=tool_name,
+                ms=int((time.monotonic() - started_at) * 1000),
+                error=str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__,
+            )
             continue
         executed_results.append(
             {
@@ -131,6 +156,13 @@ async def tools_node(state: RuntimeState) -> RuntimeState:
         if emit_substep is not None:
             await emit_substep("tool", tool_name, "completed", str(result)[:240])
         substeps.append({"kind": "tool", "title": tool_name, "status": "completed", "detail": str(result)[:240]})
+        trace(
+            "tool.end",
+            tool=tool_name,
+            ms=int((time.monotonic() - started_at) * 1000),
+            chars=len(str(result)),
+            preview=str(result)[:80],
+        )
 
     if not planned_calls:
         next_state["phase"] = "planning"

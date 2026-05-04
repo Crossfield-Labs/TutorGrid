@@ -9,6 +9,7 @@ from backend.runtime.state import RuntimeState
 ProgressCallback = Callable[[str, float | None], Awaitable[None]]
 SubstepCallback = Callable[[str, str, str, str | None], Awaitable[None]]
 MessageEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+DocWriteCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class RuntimeExecutionContext(TypedDict, total=False):
@@ -20,6 +21,7 @@ class RuntimeExecutionContext(TypedDict, total=False):
     emit_progress: ProgressCallback | None
     emit_substep: SubstepCallback | None
     emit_message_event: MessageEventCallback | None
+    emit_doc_write: DocWriteCallback | None
     memory_service: Any
     memory_config: Any
     tracer: Any
