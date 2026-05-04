@@ -60,6 +60,13 @@
             @interrupt="emit('interruptTask')"
           />
 
+          <!-- 编排 plan step 磁贴（按 declare_plan 动态生成）-->
+          <StepTile
+            v-else-if="item.kind === 'step' && resolveStep(item)"
+            :step="resolveStep(item)!"
+            :task-id="item.taskId || ''"
+          />
+
           <!-- 占位磁贴（F08 替换） -->
           <PlaceholderTile
             v-else
@@ -122,6 +129,8 @@ import AgentTile from "./tiles/AgentTile.vue";
 import SelectionTile from "./tiles/SelectionTile.vue";
 import PlaceholderTile from "./tiles/PlaceholderTile.vue";
 import TaskTile from "./tiles/TaskTile.vue";
+import StepTile from "./tiles/StepTile.vue";
+import { useOrchestratorTaskStore } from "@/stores/orchestratorTaskStore";
 
 // ⚙️ 微调点 ① ：列数 / 间隙
 //   COL_NUM   网格列数 (默认 4)
@@ -148,12 +157,15 @@ interface TileLayoutItem {
   y: number;
   w: 1 | 2;
   h: 1 | 2;
-  kind: "agent" | "selection" | "placeholder" | "task";
+  kind: "agent" | "selection" | "placeholder" | "task" | "step";
   title?: string;
   subtitle?: string;
   icon?: string;
   iconColor?: string;
   fixed?: boolean;          // true = 系统磁贴，不可删除（仍可调大小）
+  /** for kind='step': which task & which plan step.id this tile renders */
+  taskId?: string;
+  stepId?: string;
 }
 
 // 右键菜单可选尺寸（任务书定义：1×1 / 1×2 / 2×2）
@@ -163,7 +175,7 @@ const SIZE_OPTIONS: { key: string; label: string; icon: string; w: 1 | 2; h: 1 |
   { key: "2x2", label: "大 · 2×2", icon: "mdi-checkbox-blank-outline", w: 2, h: 2 },
 ];
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     agent?: ActiveAgent | null;
     card?: SelectedCard | null;
@@ -306,6 +318,76 @@ watch(
     // placeholder for future persistence
   },
   { deep: true }
+);
+
+// ─────────────────────────────────────────────────────────
+// Plan-step 磁贴动态注入：监听 props.task.plan，把 N 个 plan step
+// 投影成 N 个 1×1 'step' kind 磁贴，追加到 layout 末尾。
+// 同 plan 重新声明时按 step.id 同步（已存在的就地更新，不重排）。
+// 切到无 plan 任务（或任务无 plan）时清掉所有 step 磁贴。
+// ─────────────────────────────────────────────────────────
+const taskStore = useOrchestratorTaskStore();
+const planSteps = computed(() => {
+  const t = props.task as { taskId?: string; plan?: { steps?: Array<{ id: string }> } } | null;
+  if (!t?.taskId) return [];
+  return taskStore.planStepsForTask(t.taskId);
+});
+
+function resolveStep(item: TileLayoutItem) {
+  if (!item.taskId || !item.stepId) return null;
+  return taskStore.planStepsForTask(item.taskId).find((s) => s.id === item.stepId) || null;
+}
+
+function nextFreeSlot(layout: TileLayoutItem[]): { x: number; y: number } {
+  // simple bottom-left scan: find lowest y with a free 1×1 slot
+  const occupied = new Set<string>();
+  for (const item of layout) {
+    for (let dx = 0; dx < item.w; dx++) {
+      for (let dy = 0; dy < item.h; dy++) {
+        occupied.add(`${item.x + dx},${item.y + dy}`);
+      }
+    }
+  }
+  for (let y = 0; y < 100; y++) {
+    for (let x = 0; x < COL_NUM; x++) {
+      if (!occupied.has(`${x},${y}`)) return { x, y };
+    }
+  }
+  return { x: 0, y: 100 };
+}
+
+watch(
+  planSteps,
+  (steps) => {
+    const t = props.task as { taskId?: string } | null;
+    const taskId = t?.taskId || "";
+    // 1. drop step tiles that no longer belong to the current plan
+    const wantedIds = new Set(steps.map((s) => `step-tile:${taskId}:${s.id}`));
+    internalLayout.value = internalLayout.value.filter((item) => {
+      if (item.kind !== "step") return true;
+      // keep only step tiles for the current task that exist in current plan
+      if (item.taskId !== taskId) return false;
+      return wantedIds.has(item.i);
+    });
+    // 2. append any missing step tile to the next free slot
+    for (const step of steps) {
+      const id = `step-tile:${taskId}:${step.id}`;
+      if (internalLayout.value.find((it) => it.i === id)) continue;
+      const slot = nextFreeSlot(internalLayout.value);
+      internalLayout.value.push({
+        i: id,
+        x: slot.x,
+        y: slot.y,
+        w: 1,
+        h: 1,
+        kind: "step",
+        fixed: true,                    // 不可右键删除（任务还在跑/历史记录）
+        taskId,
+        stepId: step.id,
+      });
+    }
+  },
+  { deep: true, immediate: true },
 );
 
 const sizeLabel = (item: { w: number; h: number }) =>

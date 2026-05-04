@@ -7,20 +7,20 @@ const expanded = ref<number>(1);
 
 const items = [
   {
-    title: "You can become a volunteer",
-    desc: "",
+    title: "Vue 3 + Vuetify 3 + Electron 桌面端",
+    desc: "基于 TypeScript 全栈开发，TipTap 2 富文本编辑器，Pinia 状态管理，本地化部署。",
   },
   {
-    title: "You can share information",
-    desc: "Help us spread the word about the importance of protecting nature and the environment by sharing our news and posts on social media.",
+    title: "LangGraph 多智能体编排引擎",
+    desc: "LangGraph v1.1 驱动的编排图，支持 Planning → Tools → Verify → Finalize 流程，Worker/CLI 委派执行，中断恢复。",
   },
   {
-    title: "You can make a donation",
-    desc: "",
+    title: "RAG + Tavily 双源检索增强",
+    desc: "EnsembleRetriever（BM25 + FAISS）融合检索，RRF 排序 + Rerank 精排，Tavily 联网搜索补充最新知识。",
   },
   {
-    title: "You can participate in campaigns",
-    desc: "",
+    title: "DeepSeek-V4-Pro 大模型驱动",
+    desc: "1.6T 参数 / 49B 激活，100 万 Token 上下文窗口，国产合规，高性价比。",
   },
 ];
 
@@ -34,14 +34,14 @@ function toggle(i: number) {
     <!-- 上半区：左大标题 "Get Involved↗" + 右说明文 -->
     <div class="landing-involve__head" data-node-id="0:284">
       <div class="landing-involve__head-left" data-node-id="0:285">
-        <h2>Get Involved</h2>
+        <h2>技术栈</h2>
         <button class="landing-circle-btn" style="padding: 0">
           <img :src="A.arrowDown" alt="" style="width: 32px; height: 32px" />
         </button>
       </div>
       <p class="landing-involve__head-right" data-node-id="0:290">
-        The GreenWorld has carried out many successful projects for
-        reforestation and blodiversity conservation.
+        智格生境采用前后端分离架构，前端 Electron 桌面应用，
+        后端 FastAPI 提供 Chat SSE / 编排 WebSocket / REST 三通道服务。
       </p>
     </div>
 

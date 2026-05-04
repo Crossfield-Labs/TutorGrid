@@ -86,8 +86,32 @@
         <v-window v-model="tab" class="h-100">
           <!-- Steps -->
           <v-window-item value="steps" class="pa-4">
+            <!-- 顶部：plan 概览（LLM declare_plan 后立刻显示）-->
+            <div v-if="task?.plan?.steps?.length" class="orchestration-drawer__plan mb-4">
+              <div class="text-caption text-medium-emphasis mb-1">
+                计划链路（{{ task.plan.steps.length }} 步）
+              </div>
+              <div
+                v-for="step in task.plan.steps"
+                :key="step.id"
+                :class="['orchestration-drawer__plan-row', `is-${step.status}`, { 'is-active': activeStepId === step.id }]"
+                @click="onSelectStep(step.id)"
+              >
+                <div :class="['orchestration-drawer__plan-dot', `is-${step.status}`]">
+                  {{ step.index }}
+                </div>
+                <div class="flex-fill min-w-0">
+                  <div class="text-body-2 font-weight-medium text-truncate">{{ step.label }}</div>
+                  <div class="text-caption text-medium-emphasis text-truncate">
+                    {{ planStatusLabel(step.status) }}<span v-if="step.brief"> · {{ step.brief }}</span>
+                  </div>
+                </div>
+                <span class="text-caption text-medium-emphasis">{{ step.nodeIds.length }} 节点</span>
+              </div>
+            </div>
+
             <NodeTimeline
-              :nodes="task?.nodes || []"
+              :nodes="filteredNodes"
               :selected-id="selectedNode?.id"
               @select="onSelectNode"
             />
@@ -174,7 +198,7 @@ import NodeDetailSheet from "./NodeDetailSheet.vue";
 import ArtifactList from "./ArtifactList.vue";
 
 const taskStore = useOrchestratorTaskStore();
-const { drawerOpen, drawerTaskId } = storeToRefs(taskStore);
+const { drawerOpen, drawerTaskId, drawerStepId } = storeToRefs(taskStore);
 
 const open = computed<boolean>({
   get: () => drawerOpen.value,
@@ -210,13 +234,44 @@ function taskStatusText(status: string): string {
 const tab = ref<string>("steps");
 const selectedNode = ref<OrchestratorNode | null>(null);
 const applyingWriteId = ref("");
+/** Currently filtered plan-step (null = show all nodes); mirrors store.drawerStepId */
+const activeStepId = computed<string>({
+  get: () => drawerStepId.value,
+  set: (val) => taskStore.selectDrawerStep(val),
+});
 
 watch(drawerTaskId, (id) => {
   selectedNode.value = null;
   applyingWriteId.value = "";
+  // do NOT reset activeStepId here — store.openDrawer(taskId, stepId) sets
+  // both at once, and resetting would clobber the StepTile click intent.
   tab.value = "steps";
   void id;
 });
+
+/** Nodes filtered by activeStepId; falls back to all task nodes when no step selected. */
+const filteredNodes = computed<OrchestratorNode[]>(() => {
+  const all = task.value?.nodes || [];
+  if (!activeStepId.value || !task.value?.plan) return all;
+  const step = task.value.plan.steps.find((s) => s.id === activeStepId.value);
+  if (!step) return all;
+  const allowed = new Set(step.nodeIds);
+  return all.filter((n) => allowed.has(n.id));
+});
+
+function onSelectStep(stepId: string) {
+  taskStore.selectDrawerStep(activeStepId.value === stepId ? "" : stepId);
+  selectedNode.value = null;
+}
+
+function planStatusLabel(status: string): string {
+  if (status === "running") return "执行中";
+  if (status === "done") return "已完成";
+  if (status === "failed") return "失败";
+  if (status === "awaiting_user") return "等待用户";
+  if (status === "interrupted") return "已中断";
+  return "待办";
+}
 
 const pendingDocWrites = computed(() =>
   (task.value?.pendingDocWrites || []).filter((w) => !w.applied),
@@ -316,5 +371,47 @@ function onClose() {
   &__pending {
     background: rgba(var(--v-theme-primary), 0.04);
   }
+
+  &__plan {
+    border: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
+    border-radius: 8px;
+    padding: 8px 10px;
+    background: rgba(var(--v-theme-surface), 0.4);
+  }
+  &__plan-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    &:hover { background: rgba(var(--v-theme-on-surface), 0.04); }
+    &.is-active { background: rgba(var(--v-theme-primary), 0.08); }
+  }
+  &__plan-dot {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: rgb(var(--v-theme-on-primary));
+    background: rgba(var(--v-theme-on-surface), 0.2);
+    &.is-running {
+      background: rgb(var(--v-theme-primary));
+      animation: drawer-plan-pulse 1.4s ease-in-out infinite;
+    }
+    &.is-done { background: rgb(var(--v-theme-success)); }
+    &.is-failed { background: rgb(var(--v-theme-error)); }
+    &.is-awaiting_user { background: rgb(var(--v-theme-warning)); }
+  }
+}
+
+@keyframes drawer-plan-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--v-theme-primary), 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(var(--v-theme-primary), 0); }
 }
 </style>

@@ -41,24 +41,35 @@ export interface OrchestratorTaskStep {
 }
 
 /**
- * 高层"步骤"——把 N 个 raw nodes 聚合成面向用户的工作单元。
- * 用户在右侧 TileGrid 看到的是 step 磁贴（2-5 个），不是每个 tool call 一个磁贴。
+ * 计划步骤（plan step） —— LLM 通过 declare_plan tool 提前声明的高层意图。
+ * 任务一开始就立刻在 TileGrid 渲染成 N 个 pending 磁贴；执行时随节点完成动态变状态。
+ *
+ * 与 raw OrchestratorNode 的区别：
+ *  - PlanStep: 用户视角的工作单元 (2-5 个), 先声明后执行, 按 kind/sessionKey 关联节点
+ *  - OrchestratorNode: 每个 tool call 一个原始节点, drawer 里看, 数量任意 (3-30+)
  */
-export interface OrchestratorStep {
+export type OrchestratorPlanStepKind = "worker" | "doc_write" | "await_user" | "inspect";
+
+export interface OrchestratorPlanStep {
   id: string;
+  index: number;
   label: string;
-  type: "worker" | "doc_write" | "await_user";
+  kind: OrchestratorPlanStepKind;
+  brief: string;
+  expectedWorker: string;
+  expectedSessionKey: string;
   status: TaskStepStatus;
   nodeIds: string[];
   startedAt: number;
-  endedAt?: number;
-  durationMs?: number;
-  workerName?: string;
-  sessionKey?: string;
-  sessionMode?: string;
-  artifactCount?: number;
-  /** 第一个 delegate_* 调用的 task 文本前 60 字，用于磁贴副标题 */
-  briefing?: string;
+  endedAt: number;
+  durationMs: number;
+  declaredAt: number;
+}
+
+export interface OrchestratorPlan {
+  planId: string;
+  declaredAt: number;
+  steps: OrchestratorPlanStep[];
 }
 
 export interface PendingDocWrite {
@@ -95,6 +106,7 @@ export interface OrchestratorTaskItem {
   activeWorkerProfile: string;
   steps: OrchestratorTaskStep[];
   nodes: OrchestratorNode[];
+  plan: OrchestratorPlan | null;
   pendingDocWrites: PendingDocWrite[];
   updatedAt: string;
 }
@@ -155,9 +167,116 @@ function emptyTask(taskId: string, sessionId: string, docId: string): Orchestrat
     activeWorkerProfile: "",
     steps: defaultSteps(),
     nodes: [],
+    plan: null,
     pendingDocWrites: [],
     updatedAt: new Date().toISOString(),
   };
+}
+
+function normalizePlanStep(raw: Record<string, unknown>, idx: number): OrchestratorPlanStep {
+  return {
+    id: String(raw.id || `step_${idx + 1}`),
+    index: Number(raw.index || idx + 1),
+    label: String(raw.label || ""),
+    kind: (String(raw.kind || "worker") as OrchestratorPlanStepKind),
+    brief: String(raw.brief || ""),
+    expectedWorker: String(raw.expected_worker || raw.expectedWorker || ""),
+    expectedSessionKey: String(raw.expected_session_key || raw.expectedSessionKey || ""),
+    status: (String(raw.status || "pending") as TaskStepStatus),
+    nodeIds: Array.isArray(raw.node_ids) ? (raw.node_ids as string[]) : [],
+    startedAt: Number(raw.started_at || 0),
+    endedAt: Number(raw.ended_at || 0),
+    durationMs: Number(raw.duration_ms || 0),
+    declaredAt: Number(raw.declared_at || 0),
+  };
+}
+
+/**
+ * Match a raw node to one of the declared plan steps.
+ *  - worker nodes (delegate_*) → match by sessionKey first, then by step.kind=worker
+ *  - doc_write nodes → match next pending doc_write step (or oldest doc_write step)
+ *  - await_user nodes → match next pending await_user step
+ *
+ * Returns the index of the matched step in plan.steps, or -1.
+ */
+function matchNodeToPlanStep(plan: OrchestratorPlan, node: OrchestratorNode): number {
+  if (!plan.steps.length) return -1;
+  if (node.type === "doc_write") {
+    const exact = plan.steps.findIndex((s) => s.kind === "doc_write" && s.status !== "done");
+    if (exact >= 0) return exact;
+    return plan.steps.findIndex((s) => s.kind === "doc_write");
+  }
+  if (node.type === "await_user") {
+    const exact = plan.steps.findIndex((s) => s.kind === "await_user" && s.status !== "done");
+    if (exact >= 0) return exact;
+    return plan.steps.findIndex((s) => s.kind === "await_user");
+  }
+  // tool / worker nodes
+  const isDelegate = !!node.toolName && node.toolName.startsWith("delegate_");
+  if (isDelegate) {
+    const sessionKey = node.workerSession?.sessionKey || "";
+    if (sessionKey) {
+      const bySession = plan.steps.findIndex(
+        (s) => s.kind === "worker" && s.expectedSessionKey === sessionKey,
+      );
+      if (bySession >= 0) return bySession;
+    }
+    const nextWorker = plan.steps.findIndex(
+      (s) => s.kind === "worker" && s.status !== "done",
+    );
+    if (nextWorker >= 0) return nextWorker;
+    return plan.steps.findIndex((s) => s.kind === "worker");
+  }
+  // light tool calls (read_file / list_files / glob / grep / run_shell / ...) —
+  // attach to the currently-running worker step if any, otherwise to the first
+  // pending step (so they're not orphaned but don't pollute "doc_write" steps).
+  const running = plan.steps.findIndex((s) => s.status === "running");
+  if (running >= 0) return running;
+  return plan.steps.findIndex((s) => s.status === "pending");
+}
+
+function applyNodeToPlan(plan: OrchestratorPlan, node: OrchestratorNode): OrchestratorPlan {
+  const idx = matchNodeToPlanStep(plan, node);
+  if (idx < 0) return plan;
+  const newSteps = plan.steps.map((step, i) => {
+    if (i !== idx) return step;
+    const nodeIds = step.nodeIds.includes(node.id) ? step.nodeIds : [...step.nodeIds, node.id];
+    let { status, startedAt, endedAt, durationMs } = step;
+    if (status === "pending") {
+      status = "running";
+      startedAt = node.startedAt || Date.now();
+    }
+    if (node.status === "running" && status !== "done" && status !== "failed") {
+      status = "running";
+    }
+    if (node.status === "failed") {
+      status = "failed";
+      endedAt = node.endedAt || Date.now();
+      durationMs = endedAt - (startedAt || endedAt);
+    }
+    if (node.status === "awaiting_user") {
+      status = "awaiting_user";
+    }
+    if (node.status === "done") {
+      // Mark this plan step done only if its kind is doc_write/await_user, OR
+      // if it's a worker step and the node is a delegate_* node (lightweight
+      // tools don't conclude a worker step).
+      const finishesStep =
+        step.kind === "doc_write" ||
+        step.kind === "await_user" ||
+        (step.kind === "worker" && !!node.toolName?.startsWith("delegate_")) ||
+        step.kind === "inspect";
+      if (finishesStep) {
+        status = "done";
+        endedAt = node.endedAt || Date.now();
+        durationMs = endedAt - (startedAt || endedAt);
+      } else if (status === "pending") {
+        status = "running";
+      }
+    }
+    return { ...step, nodeIds, status, startedAt, endedAt, durationMs };
+  });
+  return { ...plan, steps: newSteps };
 }
 
 function ensureTaskByIdOrSession(
@@ -184,6 +303,7 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
     lastError: "",
     drawerOpen: false,
     drawerTaskId: "" as string,
+    drawerStepId: "" as string,
   }),
 
   getters: {
@@ -195,6 +315,11 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
     },
     drawerTask: (state) => {
       return state.drawerTaskId ? state.tasksById[state.drawerTaskId] || null : null;
+    },
+    /** plan steps for a given task; empty array if no plan declared yet */
+    planStepsForTask: (state) => (taskId: string): OrchestratorPlanStep[] => {
+      const task = state.tasksById[taskId];
+      return task?.plan?.steps ? [...task.plan.steps] : [];
     },
   },
 
@@ -217,13 +342,17 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
       this.tasksById[task.taskId] = { ...task };
     },
 
-    openDrawer(taskId: string) {
+    openDrawer(taskId: string, stepId: string = "") {
       if (!taskId) return;
       this.drawerTaskId = taskId;
+      this.drawerStepId = stepId;
       this.drawerOpen = true;
     },
     closeDrawer() {
       this.drawerOpen = false;
+    },
+    selectDrawerStep(stepId: string) {
+      this.drawerStepId = stepId;
     },
 
     _ensureSessionSubscription(sessionId: string) {
@@ -319,6 +448,29 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           return;
         }
 
+        // ---------- PLAN DECLARED ----------
+        // LLM called declare_plan: render N plan-step tiles immediately.
+        if (event === "orchestrator.task.plan_declared") {
+          const taskId = String(payload?.task_id || "");
+          if (!taskId) return;
+          const incomingSteps = Array.isArray(payload?.steps) ? payload.steps : [];
+          this._patchTaskNodes(taskId, sessionId, (task) => {
+            const plan: OrchestratorPlan = {
+              planId: String(payload?.plan_id || ""),
+              declaredAt: Number(payload?.declared_at || Date.now()),
+              steps: incomingSteps.map((s: Record<string, unknown>, i: number) =>
+                normalizePlanStep(s, i),
+              ),
+            };
+            task.plan = plan;
+            // re-apply existing nodes onto the new plan (in case plan declared late or revised)
+            for (const node of task.nodes) {
+              task.plan = applyNodeToPlan(task.plan, node);
+            }
+          });
+          return;
+        }
+
         // ---------- DYNAMIC NODE LIFECYCLE ----------
         // Server emits orchestrator.session.subnode.{started,completed,failed}
         // for every tool call inside tools_node. We turn each into a dynamic
@@ -336,26 +488,38 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           if (!taskId) return;
           this._patchTaskNodes(taskId, sessionId, (task) => {
             const existing = task.nodes.find((n) => n.toolName === title && (n.status === "running" || n.status === "pending"));
+            let touchedNode: OrchestratorNode | null = null;
             if (status === "started") {
-              if (existing) return;
-              task.nodes.push({
-                id: `node_${Date.now()}_${task.nodes.length}`,
-                type: "tool",
-                toolName: title,
-                status: "running",
-                startedAt: Date.now(),
-                argsPreview: detail,
-              });
+              if (existing) {
+                touchedNode = existing;
+              } else {
+                const fresh: OrchestratorNode = {
+                  id: `node_${Date.now()}_${task.nodes.length}`,
+                  type: "tool",
+                  toolName: title,
+                  status: "running",
+                  startedAt: Date.now(),
+                  argsPreview: detail,
+                };
+                task.nodes.push(fresh);
+                touchedNode = fresh;
+              }
             } else if (status === "completed" || status === "failed") {
               const node =
                 existing ||
                 [...task.nodes].reverse().find((n) => n.toolName === title) ||
                 null;
-              if (!node) return;
-              node.status = status === "failed" ? "failed" : "done";
-              node.endedAt = Date.now();
-              node.durationMs = node.endedAt - (node.startedAt || node.endedAt);
-              node.outputPreview = detail || node.outputPreview;
+              if (node) {
+                node.status = status === "failed" ? "failed" : "done";
+                node.endedAt = Date.now();
+                node.durationMs = node.endedAt - (node.startedAt || node.endedAt);
+                node.outputPreview = detail || node.outputPreview;
+                touchedNode = node;
+              }
+            }
+            // Reflect this node into the plan (if any)
+            if (task.plan && touchedNode) {
+              task.plan = applyNodeToPlan(task.plan, touchedNode);
             }
           });
           return;
@@ -383,7 +547,7 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             // de-dup by writeId
             if (task.pendingDocWrites.find((w) => w.writeId === writeId)) return;
             task.pendingDocWrites = [...task.pendingDocWrites, pending];
-            task.nodes.push({
+            const newNode: OrchestratorNode = {
               id: `docwrite_${writeId}`,
               type: "doc_write",
               toolName: "write_to_doc",
@@ -397,7 +561,9 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
               writeContent: pending.content,
               writePlacement: pending.placement,
               writeApplied: false,
-            });
+            };
+            task.nodes.push(newNode);
+            if (task.plan) task.plan = applyNodeToPlan(task.plan, newNode);
           });
           return;
         }

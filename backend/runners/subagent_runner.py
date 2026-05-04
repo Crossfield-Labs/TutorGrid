@@ -5,6 +5,7 @@ from backend.runners.base import (
     BaseRunner,
     DocWriteCallback,
     MessageEventCallback,
+    PlanCallback,
     ProgressCallback,
     SubstepCallback,
 )
@@ -17,6 +18,7 @@ class SubAgentRunner(BaseRunner):
         self._emit_substep: SubstepCallback | None = None
         self._emit_message_event: MessageEventCallback | None = None
         self._emit_doc_write: DocWriteCallback | None = None
+        self._emit_plan: PlanCallback | None = None
 
     def set_event_callbacks(
         self,
@@ -24,10 +26,12 @@ class SubAgentRunner(BaseRunner):
         emit_substep: SubstepCallback | None = None,
         emit_message_event: MessageEventCallback | None = None,
         emit_doc_write: DocWriteCallback | None = None,
+        emit_plan: PlanCallback | None = None,
     ) -> None:
         self._emit_substep = emit_substep
         self._emit_message_event = emit_message_event
         self._emit_doc_write = emit_doc_write
+        self._emit_plan = emit_plan
 
     async def run(
         self,
@@ -42,6 +46,7 @@ class SubAgentRunner(BaseRunner):
             emit_substep=self._emit_substep,
             emit_message_event=self._emit_message_event,
             emit_doc_write=self._emit_doc_write,
+            emit_plan=self._emit_plan,
         )
         return await runtime.run()
 

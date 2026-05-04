@@ -5,7 +5,7 @@ import { FIGMA_ASSETS as A } from "../assets";
 <template>
   <section class="landing-brand" data-node-id="0:276">
     <p class="landing-brand__word landing-brand__word--outline" data-node-id="0:277">
-      GREEN
+      TUTOR
     </p>
 
     <div class="landing-brand__circle" data-node-id="0:278">
@@ -15,7 +15,7 @@ import { FIGMA_ASSETS as A } from "../assets";
     </div>
 
     <p class="landing-brand__word landing-brand__word--solid" data-node-id="0:282">
-      Earth
+      Grid
     </p>
   </section>
 </template>

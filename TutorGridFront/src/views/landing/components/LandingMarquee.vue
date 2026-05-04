@@ -6,10 +6,10 @@ import { marqueeLoop } from "../composables/useLandingAnimations";
 
 // 一组重复单元（4 对：sun_line + 文字 + sun_fill + 文字）
 const repeatUnit = [
-  { icon: A.iconSunLine2, text: "GrEen The PlaneT" },
-  { icon: A.iconSunFill, text: "GrEen The PlaneT" },
-  { icon: A.iconSunLine2, text: "GrEen The PlaneT" },
-  { icon: A.iconSunFill, text: "GrEen The PlaneT" },
+  { icon: A.iconSunLine2, text: "你是主驾 · AI 是副驾" },
+  { icon: A.iconSunFill, text: "写即学 · 做即练" },
+  { icon: A.iconSunLine2, text: "你是主驾 · AI 是副驾" },
+  { icon: A.iconSunFill, text: "写即学 · 做即练" },
 ];
 
 const trackRef = ref<HTMLElement | null>(null);

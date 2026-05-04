@@ -3,10 +3,10 @@ import { FIGMA_ASSETS as A } from "../assets";
 
 // 4 张窄卡（与 1 张宽卡一起共 5 张，滚动节奏更自然）
 const narrowCards = [
-  { title: "Forest gardens", outlined: false },
-  { title: "Forest gardens", outlined: true },
-  { title: "Wildlife shelter", outlined: false },
-  { title: "Clean rivers", outlined: true },
+  { title: "Chat 多会话", outlined: false },
+  { title: "RAG 知识库", outlined: true },
+  { title: "磁贴工具箱", outlined: false },
+  { title: "学习画像", outlined: true },
 ];
 </script>
 
@@ -15,13 +15,13 @@ const narrowCards = [
     <!-- 卡 1：Cleaning up the Danube（宽卡，灰底，左文右图） -->
     <div class="landing-projects__card landing-projects__card--wide" data-node-id="0:235">
       <div class="landing-projects__text">
-        <h3 class="landing-projects__title">Cleaning up the Danube</h3>
+        <h3 class="landing-projects__title">Hyper 文档 Split-View</h3>
         <p class="landing-projects__desc">
-          Our team is actively working to clean up the Danube River from
-          pollution in order to restore its natural beauty.
+          左侧文档共做、右侧磁贴工具箱，AI 气泡与你的段落交替排列，
+          写即学、做即练。
         </p>
         <div class="landing-projects__bottom">
-          <span class="landing-projects__more-text">View more</span>
+          <span class="landing-projects__more-text">了解详情</span>
           <button v-ripple class="landing-circle-btn" data-node-id="0:241">
             <img :src="A.arrowDown" alt="" />
           </button>
@@ -45,7 +45,7 @@ const narrowCards = [
         </div>
         <div class="landing-projects__more-row">
           <img class="landing-projects__leaf" :src="A.projectLeaf" alt="" />
-          <span>View more</span>
+          <span>了解详情</span>
         </div>
       </div>
       <button

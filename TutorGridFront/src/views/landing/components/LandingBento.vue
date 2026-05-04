@@ -12,17 +12,15 @@ import { FIGMA_ASSETS as A } from "../assets";
     <!-- 卡 2：双层文字卡（灰 + 浅绿） -->
     <div class="landing-bento__stack" data-node-id="0:149">
       <div class="landing-bento__stack-row gray" data-node-id="0:150">
-        <p class="landing-bento__stack-title">+685 trees planted</p>
+        <p class="landing-bento__stack-title">Hyper 文档共做</p>
         <p class="landing-bento__stack-desc">
-          More than 685 trees were©lanted lost year with the help of our
-          activists
+          你和 AI 都是一等作者，写一段、补一段，文档即学习轨迹
         </p>
       </div>
       <div class="landing-bento__stack-row green" data-node-id="0:153">
-        <p class="landing-bento__stack-title">6 educational programs</p>
+        <p class="landing-bento__stack-title">多智能体编排引擎</p>
         <p class="landing-bento__stack-desc">
-          More than 685 trees were©lanted lost year with the help of our
-          activists
+          /task 一句话触发，LangGraph 自动规划 → 执行 → 汇总
         </p>
       </div>
     </div>
@@ -34,7 +32,7 @@ import { FIGMA_ASSETS as A } from "../assets";
         <img :src="A.iconCampfire" alt="" />
       </div>
       <div class="landing-bento__photo-bottom-cta" data-node-id="0:162" v-ripple>
-        <p>Share with uS your results</p>
+        <p>磁贴式自适应工具箱</p>
       </div>
     </div>
 
@@ -42,11 +40,11 @@ import { FIGMA_ASSETS as A } from "../assets";
     <div class="landing-bento__photo landing-bento__photo--wide" data-node-id="0:164">
       <div class="landing-bento__overlay" :style="{ backgroundImage: `url(${A.bentoImg3})` }"></div>
       <div class="landing-bento__photo-tags" data-node-id="0:165">
-        <div class="landing-bento__tag" data-node-id="0:166"><p>Tag</p></div>
-        <div class="landing-bento__tag" data-node-id="0:168"><p>Tag</p></div>
+        <div class="landing-bento__tag" data-node-id="0:166"><p>RAG</p></div>
+        <div class="landing-bento__tag" data-node-id="0:168"><p>联网搜索</p></div>
       </div>
       <div class="landing-bento__photo-bottom-row" data-node-id="0:170" v-ripple>
-        <p>Donate and help the environment</p>
+        <p>知识库检索 + Tavily 联网双源问答</p>
         <img :src="A.iconArrowRightUpCircle" alt="" />
       </div>
     </div>
@@ -54,7 +52,7 @@ import { FIGMA_ASSETS as A } from "../assets";
     <!-- 卡 5：浅绿小卡 -->
     <div class="landing-bento__small-cta" data-node-id="0:176" v-ripple>
       <img :src="A.iconArrowRightUpCircle" alt="" />
-      <p>Intenational environment day</p>
+      <p>DeepSeek-V4-Pro 驱动</p>
     </div>
   </section>
 </template>

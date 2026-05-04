@@ -2,9 +2,7 @@
 import { FIGMA_ASSETS as A } from "../assets";
 
 const socialLinks = [
-  { icon: A.xiaohongshu, name: "多抓喵" },
-  { icon: A.socialFrame1, name: "多抓喵" },
-  { icon: A.socialFrame2, name: "多抓喵" },
+  
 ];
 </script>
 
@@ -13,10 +11,10 @@ const socialLinks = [
     <!-- 上：Our Gallery 标 + 大标题 -->
     <div class="landing-gallery__head" data-node-id="0:308">
       <div class="landing-gallery__chip" data-node-id="0:309">
-        <span>Our Gallery</span>
+        <span>关于我们</span>
       </div>
       <h2 class="landing-gallery__title" data-node-id="0:311">
-        Evaluate your results by browsing the gallery
+        Concrete.AI · 第19届中国大学生计算机设计大赛
       </h2>
     </div>
 
@@ -27,7 +25,7 @@ const socialLinks = [
         :style="{ backgroundImage: `url(${A.galleryOval})` }"
       ></div>
       <div class="landing-gallery__see-all" data-node-id="0:313" v-ripple>
-        <p>SEE ALL<br />PHOTOS</p>
+        <p>了解<br />团队</p>
       </div>
     </div>
 

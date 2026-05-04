@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 try:
     from langchain_core.tools import StructuredTool
 except ImportError:  # pragma: no cover
@@ -22,6 +24,7 @@ from backend.tools.filesystem import (
     read_file,
     write_file,
 )
+from backend.tools.plan import declare_plan
 from backend.tools.shell import run_shell
 from backend.tools.user_prompt import build_await_user_tool
 from backend.tools.web import web_fetch
@@ -88,6 +91,26 @@ if BaseModel is not None and Field is not None:
         session_key: str = Field(default="", description="Stable logical name for the long-running OpenCode thread.")
 
 
+    class DeclarePlanArgs(BaseModel):
+        # Use list[dict] (not list[BaseModel]) so providers that send raw JSON
+        # objects don't trip Pydantic strict validation. We coerce/validate
+        # each step's fields ourselves in declare_plan() with broad
+        # field-name aliasing (label/name/title, brief/description, etc.).
+        steps: list[dict[str, Any]] = Field(
+            description=(
+                "Ordered list of 2-5 high-level steps you intend to perform. "
+                "Each step becomes a tile in the right grid before execution starts. "
+                "Each step is an object with these fields: "
+                "label (string, REQUIRED, short tile title e.g. '训练 SVM 模型'), "
+                "kind (string, one of: worker / doc_write / await_user / inspect; default 'worker'), "
+                "brief (string, optional, tile subtitle), "
+                "expected_worker (string, optional, e.g. 'codex' or 'opencode'), "
+                "expected_session_key (string, optional, e.g. 'svm_exp')."
+            ),
+        )
+        replace: bool = Field(default=False, description="If true, replace any existing plan; otherwise merge with the existing plan preserving completed steps.")
+
+
     class WriteToDocArgs(BaseModel):
         content: str = Field(description="Markdown content to insert into the bound hyperdoc.")
         kind: str = Field(default="report", description="Block kind: report | explanation | summary | code_output | citation.")
@@ -108,6 +131,7 @@ else:
     ListFilesArgs = ReadFileArgs = WriteFileArgs = EditFileArgs = GlobArgs = GrepArgs = None
     RunShellArgs = AwaitUserArgs = None
     DelegateTaskArgs = DelegateCodexArgs = DelegateOpenCodeArgs = None
+    DeclarePlanArgs = None
     WriteToDocArgs = QueryDatabaseArgs = None
 
 
@@ -204,6 +228,12 @@ def build_langchain_tools(
             session=session,
         )
 
+    async def _declare_plan(steps: Any = None, replace: bool = False) -> str:
+        # Be permissive: accept list[dict], list[BaseModel], a single dict, or
+        # even a JSON string the LLM stringified. declare_plan() does the heavy
+        # field-name aliasing.
+        return await declare_plan(session, steps=steps if steps is not None else [], replace=replace)
+
     async def _write_to_doc(
         content: str,
         kind: str = "report",
@@ -279,6 +309,19 @@ def build_langchain_tools(
             name="await_user",
             description="Ask the user for a decision or clarification instead of guessing.",
             args_schema=AwaitUserArgs,
+        ),
+        StructuredTool.from_function(
+            coroutine=_declare_plan,
+            name="declare_plan",
+            description=(
+                "FIRST tool to call on every task. Declare 2-5 high-level steps you "
+                "intend to perform. Each step becomes a tile in the right grid before "
+                "execution starts (pending), then turns running/done as you actually "
+                "execute. Required: BEFORE any delegate_* / write_to_doc / await_user "
+                "call, declare the plan. You may call declare_plan again later to add "
+                "or revise steps; completed steps are preserved."
+            ),
+            args_schema=DeclarePlanArgs,
         ),
         StructuredTool.from_function(
             coroutine=_delegate_codex,

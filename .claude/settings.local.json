@@ -4,7 +4,8 @@
       "Bash(python -m py_compile backend/llm/prompts.py backend/runtime/nodes/planning.py)",
       "Bash(python -m py_compile backend/server/protocol.py backend/server/app.py backend/tools/document.py)",
       "Bash(yarn tsc *)",
-      "Bash(npx vue-tsc *)"
+      "Bash(npx vue-tsc *)",
+      "Bash(python -m py_compile backend/tools/plan.py backend/tools/registry.py backend/runtime/context_registry.py backend/runtime/runtime.py backend/runners/base.py backend/runners/subagent_runner.py backend/runners/python_runner.py backend/server/app.py backend/llm/prompts.py)"
     ]
   }
 }

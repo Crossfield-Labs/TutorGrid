@@ -4,7 +4,7 @@ import { FIGMA_ASSETS as A } from "../assets";
 
 <template>
   <div class="landing-nav" data-node-id="0:79">
-    <p class="landing-nav__brand" data-node-id="0:80">DuozhuaMiao</p>
+    <p class="landing-nav__brand" data-node-id="0:80">智格生境</p>
 
     <div class="landing-nav__menu">
       <div class="landing-nav__pill" data-node-id="0:82">
@@ -13,7 +13,7 @@ import { FIGMA_ASSETS as A } from "../assets";
             <img :src="A.iconFan" alt="" />
           </div>
         </div>
-        <p>Projects</p>
+        <p>核心功能</p>
       </div>
 
       <div class="landing-nav__pill" data-node-id="0:89">
@@ -22,7 +22,7 @@ import { FIGMA_ASSETS as A } from "../assets";
             <img :src="A.iconMail" alt="" />
           </div>
         </div>
-        <p>News</p>
+        <p>技术架构</p>
       </div>
 
       <div class="landing-nav__pill" data-node-id="0:96">
@@ -31,7 +31,7 @@ import { FIGMA_ASSETS as A } from "../assets";
             <img :src="A.iconChart" alt="" />
           </div>
         </div>
-        <p>Campaigns</p>
+        <p>开发团队</p>
       </div>
     </div>
 

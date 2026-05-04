@@ -25,6 +25,7 @@ ProgressCallback = Callable[[str, float | None], Awaitable[None]]
 SubstepCallback = Callable[[str, str, str, str | None], Awaitable[None]]
 MessageEventCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
 DocWriteCallback = Callable[[dict[str, Any]], Awaitable[None]]
+PlanCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class RuntimePaused(Exception):
@@ -47,6 +48,7 @@ class OrchestratorRuntime:
         emit_substep: SubstepCallback | None = None,
         emit_message_event: MessageEventCallback | None = None,
         emit_doc_write: DocWriteCallback | None = None,
+        emit_plan: PlanCallback | None = None,
     ) -> None:
         self.session = session
         self.emit_progress = emit_progress
@@ -54,6 +56,7 @@ class OrchestratorRuntime:
         self.emit_substep = emit_substep
         self.emit_message_event = emit_message_event
         self.emit_doc_write = emit_doc_write
+        self.emit_plan = emit_plan
         self.config = load_config()
         self.graph_build = build_runtime_graph(checkpointer=self._CHECKPOINTER)
         self.planner = PlannerRuntime(self.config)
@@ -113,6 +116,7 @@ class OrchestratorRuntime:
             "emit_substep": self.emit_substep,
             "emit_message_event": self.emit_message_event,
             "emit_doc_write": self.emit_doc_write,
+            "emit_plan": self.emit_plan,
             "memory_service": self.memory_service,
             "memory_config": self.config.memory,
             "tracer": self.tracer,

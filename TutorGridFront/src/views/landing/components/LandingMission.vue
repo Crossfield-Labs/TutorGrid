@@ -7,19 +7,19 @@ import { FIGMA_ASSETS as A } from "../assets";
     <!-- 上半区：左短文 + 右大标题 + CTA -->
     <div class="landing-mission__row" data-node-id="0:214">
       <p class="landing-mission__lead">
-        The GreenWorld has carried out many successful projects for
-        reforestation and blodiversity conservation.
+        智格生境将文档编辑、AI 对话、任务编排融为一体，
+        让每一次学习都留下可回溯的知识轨迹。
       </p>
       <div class="landing-mission__right">
         <h2 class="landing-mission__title">
-          We strive to protect nature for future generations.
+          一张可以和 AI 共写的活书桌
         </h2>
         <div class="landing-mission__cta-group">
           <button class="landing-mission__cta" data-node-id="0:219" v-ripple>
-            <span>About Us</span>
+            <span>了解更多</span>
           </button>
           <div class="landing-mission__more">
-            <span>View more</span>
+            <span>查看文档</span>
             <img :src="A.iconArrowRight" alt="" />
           </div>
         </div>
@@ -29,12 +29,12 @@ import { FIGMA_ASSETS as A } from "../assets";
     <!-- 下半区："Our Projects" 标 + 大标题（含 environment 高亮胶囊） -->
     <div class="landing-mission__projects-head" data-node-id="0:227">
       <div class="landing-mission__chip" data-node-id="0:228">
-        <span>Our Projects</span>
+        <span>核心能力</span>
       </div>
       <div class="landing-mission__heading-wrap" data-node-id="0:230">
         <p class="landing-mission__heading">
-          <span>We hold various events, campaigns and raise funds for the implementation of projects to preserve the&nbsp;</span>
-          <span class="landing-mission__env-pill" data-node-id="0:232">environment</span>
+          <span>Hyper 文档 · 磁贴工具箱 · Chat 多会话 · 编排引擎 · RAG 知识库 ·&nbsp;</span>
+          <span class="landing-mission__env-pill" data-node-id="0:232">Copilot 副驾驶</span>
         </p>
       </div>
     </div>

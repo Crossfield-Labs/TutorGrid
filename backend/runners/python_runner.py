@@ -11,6 +11,7 @@ from backend.runners.base import (
     BaseRunner,
     DocWriteCallback,
     MessageEventCallback,
+    PlanCallback,
     ProgressCallback,
     SubstepCallback,
 )
@@ -30,12 +31,15 @@ class PythonRunner(BaseRunner):
         emit_substep: SubstepCallback | None = None,
         emit_message_event: MessageEventCallback | None = None,
         emit_doc_write: DocWriteCallback | None = None,
+        emit_plan: PlanCallback | None = None,
     ) -> None:
         self._emit_substep = emit_substep
         self._emit_message_event = emit_message_event
-        # PythonRunner doesn't write back to docs; accept the kwarg so the
-        # caller can uniformly plumb the callback for every runner.
+        # PythonRunner is a leaf runner (no orchestration), so it doesn't use
+        # doc_write or plan callbacks. Accept the kwargs so the caller can
+        # uniformly plumb every runner.
         _ = emit_doc_write
+        _ = emit_plan
 
     async def run(
         self,

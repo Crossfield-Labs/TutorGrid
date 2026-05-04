@@ -421,6 +421,16 @@ def _trace_broadcast_event(
             chars=len(str(data.get("content") or "")),
             title=data.get("title"),
         )
+    elif short == "task.plan_declared":
+        steps = data.get("steps") or []
+        trace(
+            short,
+            task=session.task_id,
+            plan=data.get("plan_id"),
+            count=len(steps),
+            labels=" | ".join(str(s.get("label") or "?") for s in steps[:5]) if isinstance(steps, list) else "",
+            replace=data.get("replace"),
+        )
     elif short == "task.result":
         trace(
             short,
@@ -869,6 +879,14 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
             payload=dict(payload),
         )
 
+    async def emit_plan(payload: dict[str, Any]) -> None:
+        session_manager.update(session)
+        await _broadcast_event(
+            session,
+            event="orchestrator.task.plan_declared",
+            payload=dict(payload),
+        )
+
     try:
         runner = runner_router.get(session.runner)
         session.phase = "starting"
@@ -886,6 +904,7 @@ async def _run_session(session_id: str, websocket: WebSocketServerProtocol) -> N
                 emit_substep=emit_substep,
                 emit_message_event=emit_message_event,
                 emit_doc_write=emit_doc_write,
+                emit_plan=emit_plan,
             )
         result = await runner.run(session, emit_progress, await_user)
         session.result = result
