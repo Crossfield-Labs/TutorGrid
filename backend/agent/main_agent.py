@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import traceback
 from typing import Any, Awaitable, Callable
 
 from backend.config import load_config
@@ -89,14 +90,31 @@ class ChatAgent:
                 citations=citations,
                 search_results=search_results,
             )
-        except Exception:
+        except Exception as exc:
+            print(f"[ChatAgent] 第一次 LLM 调用失败: {type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            await on_event({
+                "type": "error",
+                "stage": "first_call",
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:600],
+            })
             response = LLMResponse(content=fallback_answer, tool_calls=[], finish_reason="stop", raw={})
 
         try:
             final_response = await self.provider.chat(messages=messages, tools=None, on_text_delta=on_delta)
             final_content = str(final_response.content or response.content or "")
-        except Exception:
-            final_content = fallback_answer or str(response.content or "当前无法调用LLM，请稍后重试。")
+        except Exception as exc:
+            print(f"[ChatAgent] 流式 LLM 调用失败: {type(exc).__name__}: {exc}")
+            traceback.print_exc()
+            await on_event({
+                "type": "error",
+                "stage": "stream_call",
+                "exception_type": type(exc).__name__,
+                "message": str(exc)[:600],
+            })
+            err_hint = f"[LLM 调用失败 · {type(exc).__name__}: {str(exc)[:200]}]"
+            final_content = fallback_answer or str(response.content or err_hint)
             await on_delta(final_content)
         return {
             "session_id": session_id,
