@@ -19,6 +19,17 @@ import { scrollToBottom } from "@/utils/common";
 import avatarAssistant from "@/assets/images/avatars/avatar_assistant.jpg";
 import avatarUser from "@/assets/images/avatars/avatar_user.jpg";
 
+const props = withDefaults(
+  defineProps<{
+    hideActivator?: boolean;
+    openSignal?: number;
+  }>(),
+  {
+    hideActivator: false,
+    openSignal: 0,
+  }
+);
+
 const snackbarStore = useSnackbarStore();
 const chatMsgStore = useChatMessageStore();
 const sessionListStore = useChatSessionListStore();
@@ -30,6 +41,15 @@ const userMessage = ref("");
 const isLoading = ref(false);
 const inputRow = ref(1);
 const dialog = ref(false);
+
+watch(
+  () => props.openSignal,
+  (value, oldValue) => {
+    if (value !== oldValue && value > 0) {
+      dialog.value = true;
+    }
+  }
+);
 
 const currentDocId = computed(() => chatSession.currentDocId);
 const sessionId = computed(() => chatSession.currentSessionId);
@@ -186,7 +206,7 @@ function insertToDocument(messageContent: string, sourceMessageId: string) {
 </script>
 
 <template>
-  <v-btn size="50" @click="dialog = !dialog">
+  <v-btn v-if="!hideActivator" size="50" @click="dialog = !dialog">
     <v-icon size="30">mdi-chat-outline</v-icon>
     <v-tooltip activator="parent" location="left" text="AI 对话" />
   </v-btn>

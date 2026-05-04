@@ -57,12 +57,16 @@
       </v-col>
     </v-row>
   </div>
+  <ChatAssistant hide-activator :open-signal="chatOpenSignal" />
 </template>
 
 <script setup lang="ts">
+import { ref } from "vue";
 import { useRouter } from "vue-router";
+import ChatAssistant from "@/components/ai/ChatAssistant.vue";
 
 const router = useRouter();
+const chatOpenSignal = ref(0);
 
 const workspaceTiles = [
   {
@@ -97,6 +101,7 @@ const workspaceTiles = [
 
 function openWorkspaceTile(item: { route?: string; action?: string }) {
   if (item.action === "chat") {
+    chatOpenSignal.value += 1;
     window.dispatchEvent(
       new CustomEvent("tutorgrid:open-toolbox", {
         detail: { panel: "chat" },
