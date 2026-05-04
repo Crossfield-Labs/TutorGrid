@@ -84,7 +84,7 @@ const workspaceTiles = [
     description: "后续接入 WebSocket 流式对话和编排事件。",
     icon: "mdi-message-text-outline",
     color: "info",
-    route: "/board",
+    route: "/board?toolbox=chat",
   },
   {
     title: "TipTap 文档",

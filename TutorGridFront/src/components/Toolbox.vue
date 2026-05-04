@@ -4,9 +4,23 @@
 * @Description:
 -->
 <script setup lang="ts">
+import { ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { Icon } from "@iconify/vue";
 import ChatAssistant from "@/components/ai/ChatAssistant.vue";
+
+const route = useRoute();
 const toolboxShow = ref(false);
+
+watch(
+  () => route.query.toolbox,
+  (value) => {
+    if (value === "chat") {
+      toolboxShow.value = true;
+    }
+  },
+  { immediate: true }
+);
 </script>
 
 <template>
