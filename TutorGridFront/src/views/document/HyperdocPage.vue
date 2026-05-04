@@ -58,26 +58,20 @@
             class="flex-fill"
             @ready="onEditorReady"
             @ai-command="onAiCommand"
-            @task-command="onTaskCommand"
           />
         </v-col>
 
-        <!-- 磁贴区（右 6 栏 · F08 CSS Grid）-->
+        <!-- 磁贴区（右 6 栏 · F06 占位骨架）-->
         <v-col cols="12" md="6" class="ps-md-3 tiles-col">
           <TileGrid
             :agent="activeAgent"
             :card="selectedCard"
             :task="activeTask"
             :task-starting="taskStore.starting"
-            :initial-grid-cols="tileGridCols"
-            :initial-tiles="tileGridTiles"
             @clear-card="selectedCard = null"
             @start-task="startTask"
             @resume-task="resumeTask"
             @interrupt-task="interruptTask"
-            @add-tile="onAddTile"
-            @update:tiles="onTileGridUpdate"
-            @update:grid-cols="onGridColsUpdate"
           />
         </v-col>
       </v-row>
@@ -92,7 +86,6 @@ import { useRoute, useRouter } from "vue-router";
 import type { Editor } from "@tiptap/vue-3";
 import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
-import type { GridTile } from "./components/TileGrid.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";
@@ -204,21 +197,6 @@ onMounted(async () => {
   // 把当前 session 注入全局 store，让 Toolbox 里的 ChatAssistant 能拿到
   chatSession.setSession(sessionId.value, tileId.value);
 
-  // F08: 读取磁贴布局（从 metadata 恢复）
-  const meta = tile.value.metadata || {};
-  const rawTiles = meta.tileGrid;
-  if (typeof rawTiles === "string" && rawTiles.trim()) {
-    try {
-      tileGridTiles.value = JSON.parse(rawTiles);
-    } catch {
-      // 解析失败则使用默认布局（组件内部 fallback）
-    }
-  }
-  const rawCols = meta.tileGridCols;
-  if (typeof rawCols === "string") {
-    tileGridCols.value = parseInt(rawCols, 10) || 3;
-  }
-
   try {
     content.value = await workspaceStore.readText(tile.value.source.relPath);
   } catch (e) {
@@ -235,66 +213,9 @@ onBeforeUnmount(() => {
   chatSession.resetToGlobal();
 });
 
-// ─── F08: 磁贴 Grid 持久化 ───────────────────────────
-const tileGridCols = ref(3);
-const tileGridTiles = ref<GridTile[]>([]);
-
-const onTileGridUpdate = async (tiles: GridTile[]) => {
-  tileGridTiles.value = tiles;
-  if (!tile.value) return;
-  await workspaceStore.setTileMetadata(tile.value.id, {
-    ...(tile.value.metadata || {}),
-    tileGrid: JSON.stringify(tiles),
-  });
-};
-
-const onGridColsUpdate = async (cols: number) => {
-  tileGridCols.value = cols;
-  if (!tile.value) return;
-  await workspaceStore.setTileMetadata(tile.value.id, {
-    ...(tile.value.metadata || {}),
-    tileGridCols: String(cols),
-  });
-};
-
-const onAddTile = (slotId: string) => {
-  const newTile: GridTile = {
-    id: `tile-${Date.now()}`,
-    kind: "placeholder",
-    colSpan: 1,
-    rowSpan: 1,
-    title: "新磁贴",
-    subtitle: "右键调整类型",
-    icon: "mdi-plus-box",
-    iconColor: "primary",
-  };
-  // 替换空格子为新磁贴
-  const idx = tileGridTiles.value.findIndex((t) => t.id === slotId);
-  if (idx >= 0) {
-    tileGridTiles.value.splice(idx, 1, newTile);
-    // 末尾补回一个空格子
-    tileGridTiles.value.push({
-      id: `add-${Date.now()}`,
-      kind: "empty",
-      colSpan: 1,
-      rowSpan: 1,
-      fixed: true,
-    });
-  }
-};
-
 // AI 命令的实际处理在 DocumentEditor 内部完成，这里只接住事件用于（未来）日志/埋点
 const onAiCommand = (_command: string, _payload?: unknown) => {
   // no-op
-};
-
-// F12: /task slash 命令 → 创建编排任务
-const onTaskCommand = async (instruction: string) => {
-  if (!instruction) {
-    snackbarStore.showWarningMessage("请输入任务指令，例如 /task 帮我跑线性回归");
-    return;
-  }
-  await startTask(instruction);
 };
 
 const startTask = async (instruction: string) => {

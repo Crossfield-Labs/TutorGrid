@@ -82,12 +82,4 @@ export const SLASH_ITEMS: SlashItem[] = [
     color: "primary",
     keywords: ["ai", "ask", "提问", "气泡"],
   },
-  {
-    command: "task",
-    title: "编排任务",
-    subtitle: "发送指令给编排引擎执行多步任务",
-    icon: "mdi-cog-sync-outline",
-    color: "deep-purple",
-    keywords: ["task", "run", "任务", "编排", "执行"],
-  },
 ];

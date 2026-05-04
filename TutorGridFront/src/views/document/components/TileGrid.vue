@@ -1,124 +1,79 @@
 <!--
-  F08: 右侧磁贴Grid
-  - CSS Grid 原生实现，grid-template-columns: repeat(N, 1fr)
-  - 支持 2×2 / 3×3 布局切换
-  - 磁贴可跨格：1×1 / 1×2 / 2×2
-  - 空格子显示"+" 添加引导
-  - 磁贴数据持久化到 Hyper 文档 metadata
+  Hyper 文档右栏磁贴网格 (F06 占位骨架)
+  - 4 列 Win10 风格磁贴
+  - 尺寸固定 {1×1, 1×2, 2×2}
+  - 拖拽推挤（grid-layout-plus 原生支持）
+  - F08 由前端B 接手：增删改、持久化、布局切换
 -->
 <template>
-  <div ref="containerRef" class="tile-grid-root">
-    <!-- 布局切换工具栏 -->
-    <div class="tile-grid-toolbar d-flex align-center justify-space-between mb-2">
-      <span class="text-caption text-grey-darken-1 font-weight-medium">
-        {{ layoutLabel }}
-      </span>
-      <v-btn-toggle
-        :model-value="gridCols"
-        mandatory
-        density="compact"
-        variant="outlined"
-        divided
-        @update:model-value="onToggleCols"
-      >
-        <v-btn :value="2" size="x-small" icon="mdi-grid">2×2</v-btn>
-        <v-btn :value="3" size="x-small" icon="mdi-grid-large">3×3</v-btn>
-      </v-btn-toggle>
-    </div>
-
-    <!-- CSS Grid 容器 -->
-    <div
-      class="tile-grid-css"
-      :style="{
-        gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-      }"
+  <div ref="containerRef" class="tile-grid">
+    <GridLayout
+      v-model:layout="internalLayout"
+      :col-num="COL_NUM"
+      :row-height="dynamicRowHeight"
+      :margin="MARGIN"
+      :is-draggable="true"
+      :is-resizable="false"
+      :vertical-compact="true"
+      :use-css-transforms="true"
+      drag-allow-from=".tile-handle"
     >
-      <div
-        v-for="tile in tiles"
-        :key="tile.id"
-        class="tile-cell"
-        :class="{ 'tile-empty': tile.kind === 'empty' }"
-        :style="{
-          gridColumn: `span ${tile.colSpan}`,
-          gridRow: `span ${tile.rowSpan}`,
-        }"
-        @contextmenu.prevent="(e) => onContextMenu(e, tile)"
+      <GridItem
+        v-for="item in internalLayout"
+        :key="item.i"
+        :x="item.x"
+        :y="item.y"
+        :w="item.w"
+        :h="item.h"
+        :i="item.i"
+        :min-w="1"
+        :max-w="2"
+        :min-h="1"
+        :max-h="2"
+        class="tile-handle"
       >
-        <!-- AgentTile -->
-        <AgentTile
-          v-if="tile.kind === 'agent'"
-          :agent="agent"
-          @dismiss="emit('dismissAgent')"
-        />
+        <div
+          class="tile-slot"
+          @contextmenu.prevent="(e) => onContextMenu(e, item)"
+        >
+          <!-- AgentTile -->
+          <AgentTile
+            v-if="item.kind === 'agent'"
+            :agent="agent"
+            @dismiss="$emit('dismissAgent')"
+          />
 
-        <!-- SelectionTile -->
-        <SelectionTile
-          v-else-if="tile.kind === 'selection'"
-          :card="card"
-          @clear="emit('clearCard')"
-        />
+          <!-- SelectionTile -->
+          <SelectionTile
+            v-else-if="item.kind === 'selection'"
+            :card="card"
+            @clear="$emit('clearCard')"
+          />
 
-        <!-- TaskTile -->
-        <TaskTile
-          v-else-if="tile.kind === 'task'"
-          :task="task"
-          :starting="taskStarting"
-          :size="sizeLabel(tile)"
-          @start="(instruction) => emit('startTask', instruction)"
-          @resume="(content) => emit('resumeTask', content)"
-          @interrupt="emit('interruptTask')"
-        />
+          <TaskTile
+            v-else-if="item.kind === 'task'"
+            :task="task"
+            :starting="taskStarting"
+            :size="sizeLabel(item)"
+            @start="(instruction) => emit('startTask', instruction)"
+            @resume="(content) => emit('resumeTask', content)"
+            @interrupt="emit('interruptTask')"
+          />
 
-        <!-- FileTile (F09) -->
-        <FileTile
-          v-else-if="tile.kind === 'file'"
-          :title="tile.title || '文件'"
-          :subtitle="tile.subtitle"
-          :file-path="tile.filePath"
-        />
-
-        <!-- CitationTile (F09) -->
-        <CitationTile
-          v-else-if="tile.kind === 'citation'"
-          :citations="tile.citations"
-        />
-
-        <!-- DashboardTile (F15) -->
-        <DashboardTile
-          v-else-if="tile.kind === 'dashboard'"
-        />
-
-        <!-- QuizTile (F14) -->
-        <QuizTile
-          v-else-if="tile.kind === 'quiz'"
-          :quiz="tile.quizData"
-        />
-
-        <!-- FlashcardTile (F14) -->
-        <FlashcardTile
-          v-else-if="tile.kind === 'flashcard'"
-          :cards="tile.flashcards"
-        />
-
-        <!-- PlaceholderTile -->
-        <PlaceholderTile
-          v-else-if="tile.kind === 'placeholder'"
-          :title="tile.title || '占位'"
-          :subtitle="tile.subtitle"
-          :icon="tile.icon"
-          :icon-color="tile.iconColor"
-          :size="sizeLabel(tile)"
-        />
-
-        <!-- 空格子："+" 添加按钮 -->
-        <div v-else class="empty-slot" @click="emit('addTile', tile.id)">
-          <v-icon icon="mdi-plus-circle-outline" size="28" color="grey-lighten-1" />
-          <span class="text-caption text-grey">添加磁贴</span>
+          <!-- 占位磁贴（F08 替换） -->
+          <PlaceholderTile
+            v-else
+            :title="item.title || '占位'"
+            :subtitle="item.subtitle"
+            :icon="item.icon"
+            :icon-color="item.iconColor"
+            :size="sizeLabel(item)"
+          />
         </div>
-      </div>
-    </div>
+      </GridItem>
+    </GridLayout>
 
-    <!-- 右键菜单 -->
+    <!-- 右键菜单（共享一个） -->
     <v-menu
       v-model="menuOpen"
       :target="menuTarget"
@@ -128,12 +83,12 @@
       <v-list density="compact" min-width="180" rounded="lg">
         <v-list-subheader class="text-caption">调整大小</v-list-subheader>
         <v-list-item
-          v-for="size in SIZE_OPTIONS.filter(s => s.w <= gridCols)"
+          v-for="size in SIZE_OPTIONS"
           :key="size.key"
           :prepend-icon="size.icon"
           :title="size.label"
           :disabled="isCurrentSize(size)"
-          @click="onResize(size.colSpan, size.rowSpan)"
+          @click="onResize(size.w, size.h)"
         />
         <v-divider class="my-1" />
         <v-list-item
@@ -144,7 +99,10 @@
           @click="onDelete"
         >
           <template v-if="menuTargetItem?.fixed" #append>
-            <v-tooltip location="left" text="系统磁贴，不可删除">
+            <v-tooltip
+              location="left"
+              text="系统磁贴，不可删除"
+            >
               <template #activator="{ props: tipProps }">
                 <v-icon v-bind="tipProps" icon="mdi-lock-outline" size="14" />
               </template>
@@ -158,72 +116,84 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useResizeObserver } from "@vueuse/core";
+import { GridLayout, GridItem } from "grid-layout-plus";
 import AgentTile from "./tiles/AgentTile.vue";
 import SelectionTile from "./tiles/SelectionTile.vue";
 import PlaceholderTile from "./tiles/PlaceholderTile.vue";
 import TaskTile from "./tiles/TaskTile.vue";
-import FileTile from "./tiles/FileTile.vue";
-import CitationTile from "./tiles/CitationTile.vue";
-import DashboardTile from "./tiles/DashboardTile.vue";
-import QuizTile from "./tiles/QuizTile.vue";
-import FlashcardTile from "./tiles/FlashcardTile.vue";
 
-// ─── Types ───────────────────────────────────────────
-export interface ActiveAgent {
+// ⚙️ 微调点 ① ：列数 / 间隙
+//   COL_NUM   网格列数 (默认 4)
+//   MARGIN   [水平间隙, 垂直间隙] 单位 px
+const COL_NUM = 4;
+const MARGIN: [number, number] = [6, 6];
+
+interface ActiveAgent {
   title: string;
   phase: string;
   worker?: string;
   progress: number;
 }
 
-export interface SelectedCard {
+interface SelectedCard {
   title?: string;
   icon?: string;
   detail?: string;
 }
 
-export interface Citation {
-  source: string;
-  page?: number;
-  chunk: string;
-  score: number;
-}
-
-export interface GridTile {
-  id: string;
-  kind: "agent" | "selection" | "placeholder" | "task" | "file" | "citation" | "dashboard" | "quiz" | "flashcard" | "empty";
-  colSpan: 1 | 2;
-  rowSpan: 1 | 2;
+interface TileLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: 1 | 2;
+  h: 1 | 2;
+  kind: "agent" | "selection" | "placeholder" | "task";
   title?: string;
   subtitle?: string;
   icon?: string;
   iconColor?: string;
-  fixed?: boolean;
-  filePath?: string;
-  citations?: Citation[];
-  quizData?: any;
-  flashcards?: any[];
+  fixed?: boolean;          // true = 系统磁贴，不可删除（仍可调大小）
 }
 
-// ─── Props & Emits ───────────────────────────────────
-const props = withDefaults(
+// 右键菜单可选尺寸（任务书定义：1×1 / 1×2 / 2×2）
+const SIZE_OPTIONS: { key: string; label: string; icon: string; w: 1 | 2; h: 1 | 2 }[] = [
+  { key: "1x1", label: "小 · 1×1", icon: "mdi-square-outline", w: 1, h: 1 },
+  { key: "1x2", label: "竖 · 1×2", icon: "mdi-rectangle-outline", w: 1, h: 2 },
+  { key: "2x2", label: "大 · 2×2", icon: "mdi-checkbox-blank-outline", w: 2, h: 2 },
+];
+
+withDefaults(
   defineProps<{
     agent?: ActiveAgent | null;
     card?: SelectedCard | null;
     task?: any;
     taskStarting?: boolean;
-    initialGridCols?: number;
-    initialTiles?: GridTile[];
   }>(),
   {
     agent: null,
     card: null,
     task: null,
     taskStarting: false,
-    initialGridCols: 3,
-    initialTiles: () => [],
   }
 );
+
+// 容器宽度 → 动态 rowHeight，保证 1×1 始终是正方形
+//   每列宽度 = (容器宽 - (列数+1)*水平间隙) / 列数
+//   rowHeight = 每列宽度
+const containerRef = ref<HTMLElement | null>(null);
+const containerWidth = ref(0);
+
+useResizeObserver(containerRef, (entries) => {
+  containerWidth.value = entries[0].contentRect.width;
+});
+
+const dynamicRowHeight = computed(() => {
+  const w = containerWidth.value;
+  if (!w) return 130; // 首屏 fallback
+  const colWidth = (w - (COL_NUM + 1) * MARGIN[0]) / COL_NUM;
+  return Math.max(80, Math.floor(colWidth));
+});
 
 const emit = defineEmits<{
   (e: "dismissAgent"): void;
@@ -231,250 +201,198 @@ const emit = defineEmits<{
   (e: "startTask", instruction: string): void;
   (e: "resumeTask", content: string): void;
   (e: "interruptTask"): void;
-  (e: "addTile", slotId: string): void;
-  (e: "update:tiles", tiles: GridTile[]): void;
-  (e: "update:gridCols", cols: number): void;
 }>();
 
-// ─── Default layout ──────────────────────────────────
-function makeDefaultTiles(): GridTile[] {
-  return [
-    // 2×2 大磁贴：编排任务 / Agent
-    {
-      id: "agent",
-      kind: "agent",
-      colSpan: 2,
-      rowSpan: 2,
-      fixed: true,
-    },
-    // 1×1 小磁贴：笔记摘要
-    {
-      id: "place-1",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "笔记摘要",
-      subtitle: "AI 自动总结",
-      icon: "mdi-text-box-outline",
-      iconColor: "indigo",
-    },
-    // 1×1 小磁贴：灵感
-    {
-      id: "place-2",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "灵感",
-      subtitle: "随手记一笔",
-      icon: "mdi-lightbulb-on-outline",
-      iconColor: "amber",
-    },
-    // 1×2 竖磁贴：RAG 引用
-    {
-      id: "place-3",
-      kind: "citation",
-      colSpan: 1,
-      rowSpan: 2,
-      title: "RAG 引用",
-      subtitle: "知识库检索结果",
-      icon: "mdi-bookshelf",
-      iconColor: "success",
-    },
-    // 1×1：文件
-    {
-      id: "place-4",
-      kind: "file",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "课件文件",
-      subtitle: "拖入查看",
-      icon: "mdi-file-pdf-box",
-      iconColor: "red",
-    },
-    // 1×1：联网搜索
-    {
-      id: "place-5",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "联网搜索",
-      subtitle: "Tavily 结果",
-      icon: "mdi-web",
-      iconColor: "blue",
-    },
-    // Selection 卡片（1×1 固定）
-    {
-      id: "selection",
-      kind: "selection",
-      colSpan: 1,
-      rowSpan: 1,
-      fixed: true,
-    },
-    // 1×1：测验
-    {
-      id: "place-6",
-      kind: "placeholder",
-      colSpan: 1,
-      rowSpan: 1,
-      title: "测验",
-      subtitle: "AI 出题",
-      icon: "mdi-help-circle-outline",
-      iconColor: "pink",
-    },
-    // 末尾空格子："+" 添加
-    {
-      id: "add-slot",
-      kind: "empty",
-      colSpan: 1,
-      rowSpan: 1,
-      fixed: true,
-    },
-  ];
-}
+// F06 默认布局：演示 1×1 / 1×2 / 2×2 三种尺寸
+const defaultLayout: TileLayoutItem[] = [
+  {
+    i: "agent",
+    x: 0,
+    y: 0,
+    w: 2,
+    h: 2,
+    kind: "agent",
+    fixed: true,
+  },
+  {
+    i: "place-1",
+    x: 2,
+    y: 0,
+    w: 1,
+    h: 1,
+    kind: "placeholder",
+    title: "笔记摘要",
+    subtitle: "AI 自动总结当前段落",
+    icon: "mdi-text-box-outline",
+    iconColor: "indigo",
+  },
+  {
+    i: "place-2",
+    x: 3,
+    y: 0,
+    w: 1,
+    h: 1,
+    kind: "placeholder",
+    title: "灵感",
+    subtitle: "随手记一笔",
+    icon: "mdi-lightbulb-on-outline",
+    iconColor: "amber",
+  },
+  {
+    i: "place-3",
+    x: 2,
+    y: 1,
+    w: 1,
+    h: 2,
+    kind: "placeholder",
+    title: "RAG 引用",
+    subtitle: "知识库检索结果会在这里堆叠展示",
+    icon: "mdi-bookshelf",
+    iconColor: "success",
+  },
+  {
+    i: "place-4",
+    x: 3,
+    y: 1,
+    w: 1,
+    h: 2,
+    kind: "placeholder",
+    title: "联网搜索",
+    subtitle: "Tavily 抓回的最新资料",
+    icon: "mdi-web",
+    iconColor: "blue",
+  },
+  {
+    i: "place-5",
+    x: 0,
+    y: 2,
+    w: 2,
+    h: 2,
+    kind: "task",
+    title: "编排任务",
+    subtitle: "/task 触发的多步任务进度",
+    icon: "mdi-cog-sync-outline",
+    iconColor: "deep-purple",
+  },
+  {
+    i: "selection",
+    x: 2,
+    y: 3,
+    w: 1,
+    h: 1,
+    kind: "selection",
+    fixed: true,
+  },
+  {
+    i: "place-6",
+    x: 3,
+    y: 3,
+    w: 1,
+    h: 1,
+    kind: "placeholder",
+    title: "测验",
+    subtitle: "AI 出题",
+    icon: "mdi-help-circle-outline",
+    iconColor: "pink",
+  },
+];
 
-// ─── Layout toggle ──────────────────────────────────
-const gridCols = ref(props.initialGridCols);
-const layoutLabel = computed(() =>
-  gridCols.value === 2 ? "2×2 布局" : "3×3 布局"
-);
+const internalLayout = ref<TileLayoutItem[]>([...defaultLayout]);
 
-function onToggleCols(n: number) {
-  if (n === gridCols.value) return;
-  gridCols.value = n;
-  emit("update:gridCols", n);
-}
-
-// ─── Tiles state ────────────────────────────────────
-const tiles = ref<GridTile[]>(
-  props.initialTiles.length > 0 ? [...props.initialTiles] : makeDefaultTiles()
-);
-
-// 合入 props.initialTiles 变化
+// F06 暂不持久化（按确认 #4），F08 接 tile.metadata
 watch(
-  () => props.initialTiles,
-  (val) => {
-    if (val && val.length > 0) {
-      tiles.value = [...val];
-    }
+  internalLayout,
+  () => {
+    // placeholder for future persistence
   },
   { deep: true }
 );
 
-// 布局变化 → 通知父组件持久化
-watch(
-  tiles,
-  () => {
-    emit("update:tiles", [...tiles.value]);
-  },
-  { deep: true }
-);
-watch(
-  gridCols,
-  () => {
-    emit("update:gridCols", gridCols.value);
-  },
-  { immediate: true }
-);
+const sizeLabel = (item: { w: number; h: number }) =>
+  `${item.w}×${item.h}` as "1x1" | "1x2" | "2x2";
 
-// ─── Helpers ────────────────────────────────────────
-const sizeLabel = (tile: { colSpan: number; rowSpan: number }) =>
-  `${tile.colSpan}×${tile.rowSpan}` as "1x1" | "1x2" | "2x2";
-
-const SIZE_OPTIONS = [
-  { key: "1x1", label: "小 · 1×1", icon: "mdi-square-outline", colSpan: 1, rowSpan: 1 },
-  { key: "1x2", label: "高 · 1×2", icon: "mdi-arrow-expand-vertical", colSpan: 1, rowSpan: 2 },
-  { key: "2x2", label: "大 · 2×2", icon: "mdi-crop-square", colSpan: 2, rowSpan: 2 },
-] as const;
-
-// ─── Context menu ───────────────────────────────────
+// ─────────────────────────────────────────────────────────
+// 右键菜单
+// ─────────────────────────────────────────────────────────
 const menuOpen = ref(false);
 const menuTarget = ref<[number, number]>([0, 0]);
-const menuTargetItem = ref<GridTile | null>(null);
+const menuTargetItem = ref<TileLayoutItem | null>(null);
 
-const onContextMenu = (e: MouseEvent, tile: GridTile) => {
-  if (tile.kind === "empty") return; // 空格子无右键菜单
+const onContextMenu = (e: MouseEvent, item: TileLayoutItem) => {
+  // 先关再开，强制 v-menu 重新定位（防止连续右键不同磁贴时位置黏住）
   menuOpen.value = false;
-  menuTargetItem.value = tile;
+  menuTargetItem.value = item;
   menuTarget.value = [e.clientX, e.clientY];
+  // 下一帧再开，确保 target 已更新
   requestAnimationFrame(() => {
     menuOpen.value = true;
   });
 };
 
-const isCurrentSize = (size: { colSpan: number; rowSpan: number }) => {
+const isCurrentSize = (size: { w: 1 | 2; h: 1 | 2 }) => {
   const t = menuTargetItem.value;
-  return !!t && t.colSpan === size.colSpan && t.rowSpan === size.rowSpan;
+  return !!t && t.w === size.w && t.h === size.h;
 };
 
-const onResize = (colSpan: 1 | 2, rowSpan: 1 | 2) => {
+const onResize = (w: 1 | 2, h: 1 | 2) => {
   const t = menuTargetItem.value;
   if (!t) return;
-  const idx = tiles.value.findIndex((x) => x.id === t.id);
+  // 直接改 layout 数组里的引用，grid-layout-plus 会重新排布并自动推挤碰撞磁贴
+  const idx = internalLayout.value.findIndex((x) => x.i === t.i);
   if (idx === -1) return;
-  tiles.value[idx] = { ...tiles.value[idx], colSpan, rowSpan };
+  internalLayout.value[idx] = { ...internalLayout.value[idx], w, h };
   menuOpen.value = false;
 };
 
 const onDelete = () => {
   const t = menuTargetItem.value;
   if (!t || t.fixed) return;
-  tiles.value = tiles.value.filter((x) => x.id !== t.id);
+  internalLayout.value = internalLayout.value.filter((x) => x.i !== t.i);
   menuOpen.value = false;
 };
 </script>
 
 <style scoped lang="scss">
-.tile-grid-root {
+.tile-grid {
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.tile-grid-toolbar {
-  flex-shrink: 0;
-  padding: 2px 2px 6px;
-}
-
-.tile-grid-css {
-  flex: 1 1 auto;
-  display: grid;
-  gap: 8px;
-  align-content: start;
   overflow-y: auto;
-  padding: 0 2px 16px;
-}
+  overflow-x: hidden;
+  padding: 0px 4px 16px;
 
-.tile-cell {
-  min-height: 110px;
-  display: flex;
-  flex-direction: column;
-
-  &.tile-empty {
-    min-height: 90px;
-    border: 2px dashed rgba(128, 128, 128, 0.35);
-    border-radius: 10px;
-    transition:
-      border-color 0.18s,
-      background 0.18s;
-
-    &:hover {
-      border-color: rgba(33, 150, 243, 0.45);
-      background: rgba(33, 150, 243, 0.06);
-    }
+  // 包裹磁贴内容，承接 contextmenu 事件
+  .tile-slot {
+    width: 100%;
+    height: 100%;
   }
-}
 
-.empty-slot {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  cursor: pointer;
-  border-radius: 10px;
-  user-select: none;
+  // grid-layout-plus 容器需要相对定位
+  :deep(.vgl-layout) {
+    min-height: 100%;
+  }
+
+  // 拖拽时占位虚影
+  :deep(.vgl-item--placeholder) {
+    background: rgba(33, 150, 243, 0.18);
+    border: 1.5px dashed rgba(33, 150, 243, 0.5);
+    border-radius: 10px;
+    opacity: 1;
+  }
+
+  // 拖拽中的磁贴
+  :deep(.vgl-item--dragging) {
+    cursor: grabbing;
+    opacity: 0.85;
+    z-index: 100;
+  }
+
+  :deep(.vgl-item) {
+    cursor: grab;
+  }
+
+  :deep(.vgl-item--dragging),
+  :deep(.vgl-item--resizing) {
+    cursor: grabbing;
+  }
 }
 </style>

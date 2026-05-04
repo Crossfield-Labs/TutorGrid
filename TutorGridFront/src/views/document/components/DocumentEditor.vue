@@ -97,7 +97,6 @@ const emit = defineEmits<{
   (e: "update:modelValue", value: string): void;
   (e: "ready", editor: Editor): void;
   (e: "aiCommand", command: string, payload?: { selectionText: string }): void;
-  (e: "taskCommand", instruction: string): void;
 }>();
 
 const slashState = reactive({
@@ -520,19 +519,9 @@ const onSlashSelect = (item: SlashItem) => {
       ed.chain().focus().setHorizontalRule().run();
       break;
     case "ask-ai":
+      // 在光标处发起一次 AI 对话，prompt 用 recent paragraphs 当上下文
       void runAiCommand("ask", "");
       break;
-    case "task": {
-      // F12: 提取 /task 后面的指令文本
-      const taskInstruction = slashState.query.trim() || "";
-      emit("taskCommand", taskInstruction);
-      snackbarStore.showSuccessMessage(
-        taskInstruction
-          ? `编排任务已提交：${taskInstruction.slice(0, 30)}…`
-          : "编排任务已提交"
-      );
-      break;
-    }
     default:
       console.warn("[slash] 未知命令:", item.command);
   }

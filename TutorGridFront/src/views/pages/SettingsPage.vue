@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { useSnackbarStore } from "@/stores/snackbarStore";
-import { useKnowledgeStore } from "@/stores/knowledgeStore";
 
 interface RuntimeConfigForm {
   planner: {
@@ -31,28 +30,6 @@ interface RuntimeConfigForm {
 
 const API_BASE_URL = "http://127.0.0.1:8000";
 const snackbarStore = useSnackbarStore();
-const knowledgeStore = useKnowledgeStore();
-
-// ── 知识库 ──
-const kbLoading = ref(false);
-const kbCourseName = computed(() => knowledgeStore.courseName || "未创建课程");
-const kbFiles = computed(() => knowledgeStore.files);
-const kbTotalChunks = computed(() => knowledgeStore.files.reduce((s, f) => s + (f.chunkCount || 0), 0));
-
-async function refreshKB() {
-  if (kbLoading.value) return;
-  kbLoading.value = true;
-  try {
-    await knowledgeStore.ensureDefaultCourse();
-    await knowledgeStore.refreshFiles();
-  } catch {
-    snackbarStore.showErrorMessage("知识库加载失败");
-  } finally {
-    kbLoading.value = false;
-  }
-}
-
-onMounted(() => { void refreshKB(); });
 const loadingConfig = ref(false);
 const savingConfig = ref(false);
 
@@ -314,79 +291,6 @@ async function saveRuntimeConfig() {
                 </v-sheet>
               </v-col>
             </v-row>
-
-            <!-- 知识库管理 -->
-            <v-divider class="my-4" />
-            <div class="px-4">
-              <div class="d-flex align-center mb-3">
-                <v-icon color="success" class="mr-2">mdi-database-outline</v-icon>
-                <span class="font-weight-bold">知识库管理</span>
-                <v-spacer />
-                <v-btn
-                  size="small"
-                  variant="tonal"
-                  color="success"
-                  :loading="kbLoading"
-                  @click="refreshKB"
-                >
-                  刷新
-                </v-btn>
-              </div>
-              <v-row dense>
-                <v-col cols="12" sm="6">
-                  <div class="text-caption text-grey-darken-1 mb-1">课程</div>
-                  <div class="text-body-2 font-weight-medium">{{ kbCourseName }}</div>
-                </v-col>
-                <v-col cols="12" sm="6">
-                  <div class="text-caption text-grey-darken-1 mb-1">文件 / 分块</div>
-                  <div class="text-body-2 font-weight-medium">
-                    {{ kbFiles.length }} 个文件 · {{ kbTotalChunks }} 个分块
-                  </div>
-                </v-col>
-              </v-row>
-              <v-list v-if="kbFiles.length" density="compact" class="mt-2" lines="one">
-                <v-list-item
-                  v-for="f in kbFiles.slice(0, 5)"
-                  :key="f.fileId"
-                  :title="f.fileName"
-                  :subtitle="f.chunkCount ? `${f.chunkCount} chunks` : '等待索引'"
-                >
-                  <template #prepend>
-                    <v-icon
-                      :icon="f.fileExt === 'pdf' ? 'mdi-file-pdf-box' : f.fileExt === 'pptx' ? 'mdi-file-powerpoint-box' : 'mdi-file-outline'"
-                      size="18"
-                    />
-                  </template>
-                  <template #append>
-                    <v-chip
-                      v-if="f.parseStatus === 'done'"
-                      size="x-small"
-                      color="success"
-                      variant="tonal"
-                    >
-                      已就绪
-                    </v-chip>
-                    <v-chip
-                      v-else-if="f.parseError"
-                      size="x-small"
-                      color="error"
-                      variant="tonal"
-                    >
-                      失败
-                    </v-chip>
-                    <v-chip v-else size="x-small" color="warning" variant="tonal">
-                      处理中
-                    </v-chip>
-                  </template>
-                </v-list-item>
-              </v-list>
-              <div v-if="kbFiles.length > 5" class="text-caption text-grey mt-1">
-                还有 {{ kbFiles.length - 5 }} 个文件…
-              </div>
-              <div v-if="!kbFiles.length && !kbLoading" class="text-caption text-grey my-3">
-                知识库中暂无文件。在多人协作板中导入文件即可自动加入知识库。
-              </div>
-            </div>
           </v-card-text>
           <v-divider />
           <v-card-actions class="pa-4">
