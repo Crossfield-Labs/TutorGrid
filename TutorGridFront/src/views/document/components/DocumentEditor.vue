@@ -66,9 +66,11 @@ import {
   filterSlashItems,
 } from "../extensions/slash-command-items";
 import { AiBubbleNode } from "../extensions/ai-bubble-node";
+import { TaskRegisterNode } from "../extensions/task-register-node";
 import { useMessageStore } from "@/stores/messageStore";
 import { useChatSessionStore } from "@/stores/chatSessionStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
+import { useOrchestratorTaskStore } from "@/stores/orchestratorTaskStore";
 import { streamChat } from "@/lib/chat-sse";
 import { useDocumentEditorBus } from "@/composables/useDocumentEditorBus";
 
@@ -90,6 +92,7 @@ const props = withDefaults(defineProps<Props>(), {
 const messageStore = useMessageStore();
 const chatSession = useChatSessionStore();
 const snackbarStore = useSnackbarStore();
+const taskStore = useOrchestratorTaskStore();
 // Step 2 跨视图：注册自己到 EditorBus，让浮窗 Chat 能"插入到文档"
 const editorBus = useDocumentEditorBus();
 
@@ -122,6 +125,7 @@ const editor = useEditor({
     }),
     Highlight.configure({ multicolor: true }),
     AiBubbleNode,
+    TaskRegisterNode,
   ],
   editorProps: {
     handleKeyDown(_view, event) {
@@ -324,6 +328,36 @@ async function runAiCommand(command: string, selectionText: string) {
 
   const recent = getRecentParagraphs();
   const { displayText, prompt } = buildCommandPrompt(command, selectionText, recent);
+
+  // ----- "去做" 走编排（WS）而不是 chat（SSE）------------------------------
+  // 文档左栏只插一个轻量 TaskRegisterNode，编排过程的所有可视化在右侧 drawer。
+  // 完成后用户主动按"插入报告到文档"才把结果落进文档，避免堆气泡。
+  if (command === "do-task") {
+    try {
+      const created = await taskStore.createTask({
+        docId: props.tileId || props.sessionId,
+        instruction: prompt,
+      });
+      const taskId = String(created?.task_id || "");
+      const sessionId = String(created?.session_id || "");
+      if (taskId) {
+        ed.chain()
+          .focus()
+          .insertTaskRegister({
+            taskId,
+            sessionId,
+            docId: props.tileId || props.sessionId,
+            selectionPreview: displayText,
+          })
+          .run();
+      }
+    } catch (error) {
+      snackbarStore.showErrorMessage(
+        `编排创建失败：${(error as Error)?.message || String(error)}`,
+      );
+    }
+    return;
+  }
 
   // 1. 写入 store：用户消息 + AI 占位消息
   const userMsg = messageStore.addUserMessage(

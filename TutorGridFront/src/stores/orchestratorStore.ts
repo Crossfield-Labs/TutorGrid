@@ -628,5 +628,20 @@ export const useOrchestratorStore = defineStore("orchestrator", {
         }
       );
     },
+
+    applyDocWrite(opts: { taskId: string; sessionId: string; writeId: string }): Promise<any> {
+      return this.request<any>(
+        "orchestrator.task.apply_doc_write",
+        {
+          sessionId: opts.sessionId,
+          writeId: opts.writeId,
+        },
+        {
+          sessionId: opts.sessionId,
+          taskId: opts.taskId,
+          expectEventName: "orchestrator.task.apply_doc_write",
+        }
+      );
+    },
   },
 });

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -m py_compile backend/llm/prompts.py backend/runtime/nodes/planning.py)"
+      "Bash(python -m py_compile backend/llm/prompts.py backend/runtime/nodes/planning.py)",
+      "Bash(python -m py_compile backend/server/protocol.py backend/server/app.py backend/tools/document.py)",
+      "Bash(yarn tsc *)",
+      "Bash(npx vue-tsc *)"
     ]
   }
 }

@@ -83,6 +83,7 @@ class OrchestratorParams:
     confidence: float = -1.0
     last_practiced_at: str = ""
     profile_data: dict[str, Any] = field(default_factory=dict)
+    write_id: str = ""
 
 
 @dataclass(slots=True)
@@ -162,6 +163,7 @@ class OrchestratorRequest:
                 confidence=_coerce_float(params.get("confidence"), -1.0),
                 last_practiced_at=str(params.get("lastPracticedAt") or ""),
                 profile_data=_coerce_dict(params.get("profileData")),
+                write_id=str(params.get("writeId") or params.get("write_id") or ""),
             ),
         )
 

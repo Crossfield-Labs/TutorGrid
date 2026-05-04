@@ -40,8 +40,11 @@ import { FIGMA_ASSETS as A } from "../assets";
       color="black"
       variant="flat"
       data-node-id="0:103"
+      href="https://github.com/Crossfield-Labs/TutorGrid"
+      target="_blank"
+      prepend-icon="mdi-github"
     >
-      <span>Contact Us</span>
+      <span>Github</span>
     </v-btn>
   </div>
 </template>

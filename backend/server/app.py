@@ -1237,6 +1237,57 @@ async def websocket_handler(websocket: WebSocketServerProtocol, path: str, requi
                 request.params.text = request.params.text or "Interrupt requested."
                 request.method = "orchestrator.session.interrupt"
 
+            if request.method == "orchestrator.task.apply_doc_write":
+                # User pressed "Insert to document" on a pending deliverable.
+                # Mark it applied in session state and emit task.doc_write_applied
+                # so any subscribed client (the document host) actually performs
+                # the TipTap insertion.
+                target_session_id = request.session_id or request.params.session_id
+                target_session = session_manager.get(target_session_id) if target_session_id else None
+                write_id = (request.params.write_id or "").strip()
+                if target_session is None or not write_id:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": "session_id and write_id are required"},
+                    )
+                    continue
+                pending = target_session.context.get("pending_doc_writes") or []
+                matched: dict[str, Any] | None = None
+                for entry in pending:
+                    if isinstance(entry, dict) and entry.get("write_id") == write_id:
+                        entry["applied"] = True
+                        matched = dict(entry)
+                        break
+                if matched is None:
+                    await send_event(
+                        websocket,
+                        event=event_name("orchestrator.session.failed"),
+                        task_id=request.task_id,
+                        node_id=request.node_id,
+                        session_id=request.session_id,
+                        payload={"message": f"pending doc write '{write_id}' not found"},
+                    )
+                    continue
+                session_manager.update(target_session)
+                await _broadcast_event(
+                    target_session,
+                    event="orchestrator.task.doc_write_applied",
+                    payload=matched,
+                )
+                await send_event(
+                    websocket,
+                    event=event_name("orchestrator.task.apply_doc_write"),
+                    task_id=request.task_id,
+                    node_id=request.node_id,
+                    session_id=request.session_id,
+                    payload={"applied": True, "write_id": write_id},
+                )
+                continue
+
             if request.method in {"orchestrator.session.list", "pc.session.list"}:
                 await send_event(
                     websocket,

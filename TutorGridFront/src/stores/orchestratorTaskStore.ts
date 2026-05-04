@@ -9,12 +9,70 @@ export type TaskStepStatus =
   | "awaiting_user"
   | "interrupted";
 
+export type OrchestratorNodeType = "plan" | "tool" | "doc_write" | "await_user";
+
+export interface OrchestratorNode {
+  id: string;
+  type: OrchestratorNodeType;
+  toolName?: string;
+  status: TaskStepStatus;
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  argsPreview?: string;
+  outputPreview?: string;
+  workerSession?: { worker: string; sessionKey: string; mode: string };
+  artifacts?: string[];
+  // doc_write specific
+  writeId?: string;
+  writeKind?: string;
+  writeTitle?: string;
+  writeContent?: string;
+  writePlacement?: string;
+  writeApplied?: boolean;
+}
+
 export interface OrchestratorTaskStep {
   phase: string;
   name: string;
   status: TaskStepStatus;
   index: number;
   detail?: string;
+}
+
+/**
+ * 高层"步骤"——把 N 个 raw nodes 聚合成面向用户的工作单元。
+ * 用户在右侧 TileGrid 看到的是 step 磁贴（2-5 个），不是每个 tool call 一个磁贴。
+ */
+export interface OrchestratorStep {
+  id: string;
+  label: string;
+  type: "worker" | "doc_write" | "await_user";
+  status: TaskStepStatus;
+  nodeIds: string[];
+  startedAt: number;
+  endedAt?: number;
+  durationMs?: number;
+  workerName?: string;
+  sessionKey?: string;
+  sessionMode?: string;
+  artifactCount?: number;
+  /** 第一个 delegate_* 调用的 task 文本前 60 字，用于磁贴副标题 */
+  briefing?: string;
+}
+
+export interface PendingDocWrite {
+  writeId: string;
+  taskId: string;
+  sessionId: string;
+  docId: string;
+  kind: string;
+  title: string;
+  content: string;
+  placement: string;
+  citations: Array<Record<string, unknown>>;
+  createdAt: number;
+  applied: boolean;
 }
 
 export interface OrchestratorTaskItem {
@@ -36,6 +94,8 @@ export interface OrchestratorTaskItem {
   activeSessionMode: string;
   activeWorkerProfile: string;
   steps: OrchestratorTaskStep[];
+  nodes: OrchestratorNode[];
+  pendingDocWrites: PendingDocWrite[];
   updatedAt: string;
 }
 
@@ -74,6 +134,46 @@ function mergeSteps(
   });
 }
 
+function emptyTask(taskId: string, sessionId: string, docId: string): OrchestratorTaskItem {
+  return {
+    taskId,
+    sessionId,
+    docId,
+    title: "编排任务",
+    status: "pending",
+    phase: "planning",
+    summary: "",
+    currentStepIndex: 1,
+    stepTotal: 4,
+    resultSummary: "",
+    awaitingUser: false,
+    prompt: "",
+    artifacts: [],
+    workerRuns: [],
+    activeWorker: "",
+    activeSessionMode: "",
+    activeWorkerProfile: "",
+    steps: defaultSteps(),
+    nodes: [],
+    pendingDocWrites: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function ensureTaskByIdOrSession(
+  state: { tasksById: Record<string, OrchestratorTaskItem>; activeTaskIdByDoc: Record<string, string> },
+  taskId: string,
+  sessionId: string,
+): OrchestratorTaskItem | null {
+  if (taskId && state.tasksById[taskId]) return state.tasksById[taskId];
+  if (sessionId) {
+    for (const candidate of Object.values(state.tasksById)) {
+      if (candidate.sessionId === sessionId) return candidate;
+    }
+  }
+  return null;
+}
+
 export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
   state: () => ({
     tasksById: {} as Record<string, OrchestratorTaskItem>,
@@ -82,6 +182,8 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
     subscriptions: {} as Record<string, boolean>,
     starting: false,
     lastError: "",
+    drawerOpen: false,
+    drawerTaskId: "" as string,
   }),
 
   getters: {
@@ -90,6 +192,9 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
         const taskId = state.activeTaskIdByDoc[docId] || "";
         return taskId ? state.tasksById[taskId] || null : null;
       };
+    },
+    drawerTask: (state) => {
+      return state.drawerTaskId ? state.tasksById[state.drawerTaskId] || null : null;
     },
   },
 
@@ -104,6 +209,23 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
       this.activeTaskIdByDoc[task.docId] = task.taskId;
     },
 
+    _patchTaskNodes(taskId: string, sessionId: string, mutator: (task: OrchestratorTaskItem) => void) {
+      const task = ensureTaskByIdOrSession(this.$state, taskId, sessionId);
+      if (!task) return;
+      mutator(task);
+      task.updatedAt = new Date().toISOString();
+      this.tasksById[task.taskId] = { ...task };
+    },
+
+    openDrawer(taskId: string) {
+      if (!taskId) return;
+      this.drawerTaskId = taskId;
+      this.drawerOpen = true;
+    },
+    closeDrawer() {
+      this.drawerOpen = false;
+    },
+
     _ensureSessionSubscription(sessionId: string) {
       if (!sessionId || this.subscriptions[sessionId]) return;
       const orchestrator = useOrchestratorStore();
@@ -115,6 +237,8 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           const phase = String(payload?.phase || "planning");
           const summary = String(payload?.summary || "");
           const task: OrchestratorTaskItem = {
+            ...emptyTask(taskId, String(payload?.session_id || sessionId), String(payload?.doc_id || previous?.docId || "")),
+            ...(previous || {}),
             taskId,
             sessionId: String(payload?.session_id || sessionId),
             docId: String(payload?.doc_id || previous?.docId || ""),
@@ -124,15 +248,13 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             summary,
             currentStepIndex: Number(payload?.step_index || 1),
             stepTotal: Number(payload?.step_total || 4),
-            resultSummary: previous?.resultSummary || "",
             awaitingUser: Boolean(payload?.awaiting_user),
-            prompt: previous?.prompt || "",
-            artifacts: previous?.artifacts || [],
-            workerRuns: previous?.workerRuns || [],
             activeWorker: String(payload?.active_worker || previous?.activeWorker || ""),
             activeSessionMode: String(payload?.active_session_mode || previous?.activeSessionMode || ""),
             activeWorkerProfile: String(payload?.active_worker_profile || previous?.activeWorkerProfile || ""),
-            steps: mergeSteps(previous?.steps, payload?.steps, phase, summary),
+            steps: mergeSteps(previous?.steps, payload?.steps as Array<Record<string, unknown>>, phase, summary),
+            nodes: previous?.nodes || [],
+            pendingDocWrites: previous?.pendingDocWrites || [],
             updatedAt: new Date().toISOString(),
           };
           this._upsertTask(task);
@@ -148,7 +270,7 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             status: "awaiting_user",
             awaitingUser: true,
             prompt: String(payload?.prompt || ""),
-            steps: mergeSteps(existing.steps, existing.steps as Array<Record<string, unknown>>, existing.phase, String(payload?.prompt || "")),
+            steps: mergeSteps(existing.steps, existing.steps as unknown as Array<Record<string, unknown>>, existing.phase, String(payload?.prompt || "")),
             updatedAt: new Date().toISOString(),
           });
           return;
@@ -160,11 +282,13 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
           const previous = this.tasksById[taskId];
           const resultSummary = String(payload?.content || "");
           this._upsertTask({
+            ...emptyTask(taskId, String(payload?.session_id || sessionId), String(payload?.doc_id || previous?.docId || "")),
+            ...(previous || {}),
             taskId,
             sessionId: String(payload?.session_id || sessionId),
             docId: String(payload?.doc_id || previous?.docId || ""),
             title: previous?.title || "编排任务",
-            status: payload?.status || "done",
+            status: (payload?.status as TaskStepStatus) || "done",
             phase: "finalize",
             summary: previous?.summary || "",
             currentStepIndex: 4,
@@ -172,25 +296,124 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
             resultSummary,
             awaitingUser: false,
             prompt: "",
-            artifacts: Array.isArray(payload?.artifacts) ? payload.artifacts : [],
-            workerRuns: Array.isArray(payload?.worker_runs) ? payload.worker_runs : previous?.workerRuns || [],
+            artifacts: Array.isArray(payload?.artifacts) ? payload.artifacts : (previous?.artifacts || []),
+            workerRuns: Array.isArray(payload?.worker_runs) ? payload.worker_runs : (previous?.workerRuns || []),
             activeWorker: String(payload?.active_worker || previous?.activeWorker || ""),
             activeSessionMode: String(payload?.active_session_mode || previous?.activeSessionMode || ""),
             activeWorkerProfile: String(payload?.active_worker_profile || previous?.activeWorkerProfile || ""),
-            steps:
-              previous?.steps?.length
-                ? previous.steps.map((step) => ({
-                    ...step,
-                    status: step.status === "failed" ? step.status : "done",
-                    detail: step.phase === "finalize" && resultSummary.trim() ? resultSummary : step.detail || "",
-                  }))
-                : defaultSteps().map((step) => ({
-                    ...step,
-                    status: "done",
-                    detail: step.phase === "finalize" ? resultSummary : "",
-                  })),
+            steps: previous?.steps?.length
+              ? previous.steps.map((step) => ({
+                  ...step,
+                  status: step.status === "failed" ? step.status : ("done" as TaskStepStatus),
+                  detail: step.phase === "finalize" && resultSummary.trim() ? resultSummary : step.detail || "",
+                }))
+              : defaultSteps().map((step) => ({
+                  ...step,
+                  status: "done" as TaskStepStatus,
+                  detail: step.phase === "finalize" ? resultSummary : "",
+                })),
+            nodes: previous?.nodes || [],
+            pendingDocWrites: previous?.pendingDocWrites || [],
             updatedAt: new Date().toISOString(),
           });
+          return;
+        }
+
+        // ---------- DYNAMIC NODE LIFECYCLE ----------
+        // Server emits orchestrator.session.subnode.{started,completed,failed}
+        // for every tool call inside tools_node. We turn each into a dynamic
+        // node entry on the task so the drawer can show a real timeline.
+        if (event.startsWith("orchestrator.session.subnode.")) {
+          const status = event.split(".").pop() || "started";
+          const title = String(payload?.title || "");
+          const detail = String(payload?.detail || payload?.message || "");
+          const taskId = this.activeTaskIdByDoc[
+            // try resolve via session
+            Object.keys(this.activeTaskIdByDoc).find(
+              (doc) => this.tasksById[this.activeTaskIdByDoc[doc]]?.sessionId === sessionId,
+            ) || ""
+          ];
+          if (!taskId) return;
+          this._patchTaskNodes(taskId, sessionId, (task) => {
+            const existing = task.nodes.find((n) => n.toolName === title && (n.status === "running" || n.status === "pending"));
+            if (status === "started") {
+              if (existing) return;
+              task.nodes.push({
+                id: `node_${Date.now()}_${task.nodes.length}`,
+                type: "tool",
+                toolName: title,
+                status: "running",
+                startedAt: Date.now(),
+                argsPreview: detail,
+              });
+            } else if (status === "completed" || status === "failed") {
+              const node =
+                existing ||
+                [...task.nodes].reverse().find((n) => n.toolName === title) ||
+                null;
+              if (!node) return;
+              node.status = status === "failed" ? "failed" : "done";
+              node.endedAt = Date.now();
+              node.durationMs = node.endedAt - (node.startedAt || node.endedAt);
+              node.outputPreview = detail || node.outputPreview;
+            }
+          });
+          return;
+        }
+
+        // ---------- DOC WRITE STAGED (pending user confirmation) ----------
+        if (event === "orchestrator.task.doc_write") {
+          const writeId = String(payload?.write_id || "");
+          const taskId = String(payload?.task_id || "");
+          if (!writeId || !taskId) return;
+          const pending: PendingDocWrite = {
+            writeId,
+            taskId,
+            sessionId: String(payload?.session_id || sessionId),
+            docId: String(payload?.doc_id || ""),
+            kind: String(payload?.kind || "report"),
+            title: String(payload?.title || ""),
+            content: String(payload?.content || ""),
+            placement: String(payload?.placement || "append"),
+            citations: Array.isArray(payload?.citations) ? payload.citations : [],
+            createdAt: Number(payload?.created_at || Date.now()),
+            applied: false,
+          };
+          this._patchTaskNodes(taskId, sessionId, (task) => {
+            // de-dup by writeId
+            if (task.pendingDocWrites.find((w) => w.writeId === writeId)) return;
+            task.pendingDocWrites = [...task.pendingDocWrites, pending];
+            task.nodes.push({
+              id: `docwrite_${writeId}`,
+              type: "doc_write",
+              toolName: "write_to_doc",
+              status: "done",
+              startedAt: Date.now(),
+              endedAt: Date.now(),
+              durationMs: 0,
+              writeId,
+              writeKind: pending.kind,
+              writeTitle: pending.title,
+              writeContent: pending.content,
+              writePlacement: pending.placement,
+              writeApplied: false,
+            });
+          });
+          return;
+        }
+
+        // ---------- DOC WRITE APPLIED (user pressed insert) ----------
+        if (event === "orchestrator.task.doc_write_applied") {
+          const writeId = String(payload?.write_id || "");
+          const taskId = String(payload?.task_id || "");
+          if (!writeId || !taskId) return;
+          this._patchTaskNodes(taskId, sessionId, (task) => {
+            const pending = task.pendingDocWrites.find((w) => w.writeId === writeId);
+            if (pending) pending.applied = true;
+            const node = task.nodes.find((n) => n.writeId === writeId);
+            if (node) node.writeApplied = true;
+          });
+          return;
         }
       });
       this.subscriptions[sessionId] = true;
@@ -215,26 +438,12 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
         }
         if (taskId) {
           this._upsertTask({
-            taskId,
-            sessionId,
-            docId: opts.docId,
+            ...emptyTask(taskId, sessionId, opts.docId),
             title: opts.instruction,
-            status: "pending",
-            phase: "planning",
             summary: "任务已创建，等待开始。",
-            currentStepIndex: 1,
-            stepTotal: 4,
-            resultSummary: "",
-            awaitingUser: false,
-            prompt: "",
-            artifacts: [],
-            workerRuns: [],
-            activeWorker: "",
-            activeSessionMode: "",
-            activeWorkerProfile: "",
-            steps: defaultSteps(),
-            updatedAt: new Date().toISOString(),
           });
+          // auto-open the right drawer so users can watch the task run
+          this.openDrawer(taskId);
         }
         return payload;
       } catch (error) {
@@ -265,6 +474,18 @@ export const useOrchestratorTaskStore = defineStore("orchestratorTask", {
       await orchestrator.interruptTask({
         taskId: task.taskId,
         sessionId: task.sessionId,
+      });
+    },
+
+    async applyDocWrite(taskId: string, writeId: string) {
+      const orchestrator = useOrchestratorStore();
+      const task = this.tasksById[taskId];
+      if (!task) return;
+      await orchestrator.connect();
+      await orchestrator.applyDocWrite({
+        taskId: task.taskId,
+        sessionId: task.sessionId,
+        writeId,
       });
     },
   },

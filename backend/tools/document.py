@@ -49,17 +49,26 @@ async def write_to_doc(
         "citations": list(citations or []),
         "created_at": int(time.time() * 1000),
     }
-    history = session.context.setdefault("doc_writes", [])
-    if isinstance(history, list):
-        history.append(payload)
+    # IMPORTANT: per the V5 cross-view contract, AI-authored content does NOT
+    # auto-insert into the user's document. We stage it as a *pending
+    # deliverable* visible in the right-side OrchestrationDrawer. The user has
+    # to explicitly press "Insert to document" (which fires
+    # orchestrator.task.apply_doc_write back to the backend) for it to land.
+    pending = session.context.setdefault("pending_doc_writes", [])
+    if isinstance(pending, list):
+        pending.append({**payload, "applied": False})
     runtime_context = get_runtime_context(session.session_id)
     callback = runtime_context.get("emit_doc_write") if runtime_context else None
     if callback is not None:
         try:
             await callback(payload)
         except Exception as error:  # pragma: no cover - defensive
-            return f"Wrote {write_id} to local trace, but broadcast failed: {error}"
-    return f"Wrote {write_id} to document {target_doc_id} (placement={normalized_placement}, kind={normalized_kind})."
+            return f"Staged {write_id} locally, but broadcast failed: {error}"
+    return (
+        f"Staged {write_id} as a pending deliverable for document {target_doc_id} "
+        f"(placement={normalized_placement}, kind={normalized_kind}). "
+        "The user will decide when to insert it into the document."
+    )
 
 
 def _resolve_session_doc_id(session: OrchestratorSessionState) -> str:

@@ -25,25 +25,25 @@ onMounted(() => {
           :ref="(el) => { if (el) floaters[0] = el as HTMLElement; }"
           data-node-id="0:110"
         >
-          <img :src="A.iconFan2" alt="" />
+          <v-icon size="32" color="#004a30">mdi-head-lightbulb</v-icon>
         </div>
         <div
           class="landing-hero__circle landing-hero__circle--green-deep offset-down"
           :ref="(el) => { if (el) floaters[1] = el as HTMLElement; }"
           data-node-id="0:115"
         >
-          <img :src="A.iconLeaf" alt="" />
+          <v-icon size="32" color="#fff">mdi-file-document-edit-outline</v-icon>
         </div>
       </div>
 
       <!-- 中间标题 -->
       <h1 class="landing-hero__title" data-node-id="0:120">
-        <span>Join us in the&nbsp;</span>
+        <span>格智&nbsp;</span>
         <span class="landing-pill-highlight" data-node-id="0:122">
-          <span>fight</span>
+          <span>生境</span>
         </span>
-        <span>&nbsp;for</span>
-        <span>&nbsp;the environment that</span>
+        <span>&nbsp;TutorGrid</span>
+        <span>&nbsp;基于多智能体编排的磁贴式自适应学伴</span>
       </h1>
 
       <!-- 右侧装饰：圆形图标 + 描边箭头 -->
@@ -53,27 +53,26 @@ onMounted(() => {
           :ref="(el) => { if (el) floaters[2] = el as HTMLElement; }"
           data-node-id="0:128"
         >
-          <img :src="A.iconSunLine" alt="" />
+          <v-icon size="32" color="#004a30">mdi-view-grid-outline</v-icon>
         </div>
         <div
           class="landing-hero__circle landing-hero__circle--outlined offset-down-2"
           :ref="(el) => { if (el) floaters[3] = el as HTMLElement; }"
           data-node-id="0:133"
         >
-          <img :src="A.iconArrowLeftDown" alt="" />
+          <v-icon size="32" color="#333">mdi-robot-outline</v-icon>
         </div>
       </div>
     </div>
 
     <div class="landing-hero__sub" data-node-id="0:138">
       <p class="landing-hero__subtitle">
-        We are an organizatlon that educates society about the problems of
-        ecology and nature
+        你记两句，Copilot 帮你整理好；你写一句"帮我跑"，编排引擎就替你做了。
       </p>
       <div class="landing-hero__cta-wrap">
         <button class="landing-hero__cta" data-node-id="0:141" v-ripple>
-          <span>Learn More</span>
-          <img :src="A.iconArrowRightUp" alt="" />
+          <span>立即体验</span>
+          <v-icon size="20" color="#004a30">mdi-arrow-right</v-icon>
         </button>
       </div>
     </div>

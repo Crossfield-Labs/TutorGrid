@@ -77,6 +77,8 @@
       </v-row>
     </div>
 
+    <!-- 编排过程的全部可视化都在这个 drawer 里：动态节点 / 产物 / 日志 -->
+    <OrchestrationDrawer />
   </div>
 </template>
 
@@ -86,6 +88,7 @@ import { useRoute, useRouter } from "vue-router";
 import type { Editor } from "@tiptap/vue-3";
 import DocumentEditor from "./components/DocumentEditor.vue";
 import TileGrid from "./components/TileGrid.vue";
+import OrchestrationDrawer from "./components/drawer/OrchestrationDrawer.vue";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useChatSessionStore, makeSessionId } from "@/stores/chatSessionStore";

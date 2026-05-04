@@ -34,6 +34,20 @@
           </v-chip>
         </div>
 
+        <!-- N-step dynamic dots: each dot = one tool call -->
+        <div v-if="dynamicNodes.length" class="task-tile__dots">
+          <span
+            v-for="node in dynamicNodes"
+            :key="node.id"
+            :class="['task-tile__dot', `is-${node.status}`, `is-${node.type}`]"
+            :title="`${node.toolName || node.type} · ${node.status}`"
+          />
+          <span
+            v-if="task.status === 'running' || task.status === 'awaiting_user'"
+            class="task-tile__dot is-pulse"
+          />
+        </div>
+
         <div
           v-if="task.status === 'done' || task.status === 'failed' || task.status === 'interrupted'"
           class="d-flex justify-end"
@@ -161,12 +175,21 @@
             中断
           </v-btn>
           <v-btn
+            color="primary"
+            variant="tonal"
+            size="small"
+            prepend-icon="mdi-page-layout-sidebar-right"
+            @click="onOpenDrawer"
+          >
+            打开编排
+          </v-btn>
+          <v-btn
             variant="text"
             size="small"
             class="ml-auto"
             @click="goToDetails"
           >
-            查看详情
+            详情页
           </v-btn>
         </div>
       </template>
@@ -253,7 +276,13 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
-import type { OrchestratorTaskItem, TaskStepStatus } from "@/stores/orchestratorTaskStore";
+import {
+  useOrchestratorTaskStore,
+  type OrchestratorTaskItem,
+  type TaskStepStatus,
+} from "@/stores/orchestratorTaskStore";
+
+const taskStore = useOrchestratorTaskStore();
 
 const props = defineProps<{
   task?: OrchestratorTaskItem | null;
@@ -278,6 +307,7 @@ const showBodyCopy = computed(() => !compactMode.value);
 const showMetaList = computed(() => largeMode.value);
 const showDetailAlert = computed(() => largeMode.value);
 const showInlineInput = computed(() => largeMode.value);
+const dynamicNodes = computed(() => props.task?.nodes || []);
 const tileSummaryText = computed(() => {
   if (!props.task) return "";
   const source =
@@ -289,8 +319,9 @@ const tileSummaryText = computed(() => {
   return summarizeText(source);
 });
 const currentStep = computed(() => {
-  if (!props.task) return null;
-  return props.task.steps.find((step) => step.index === props.task.currentStepIndex) || props.task.steps[0] || null;
+  const t = props.task;
+  if (!t) return null;
+  return t.steps.find((step) => step.index === t.currentStepIndex) || t.steps[0] || null;
 });
 const currentStepLabel = computed(() => currentStep.value?.name || "等待开始");
 const progressValue = computed(() => {
@@ -312,15 +343,6 @@ const progressLabel = computed(() => {
   if (props.task.status === "running") return "执行中";
   return "排队中";
 });
-
-function stepIcon(status: TaskStepStatus) {
-  if (status === "done") return "mdi-check-circle";
-  if (status === "failed") return "mdi-close-circle";
-  if (status === "running") return "mdi-progress-clock";
-  if (status === "awaiting_user") return "mdi-account-clock-outline";
-  if (status === "interrupted") return "mdi-pause-circle";
-  return "mdi-timer-sand-empty";
-}
 
 function stepColor(status: TaskStepStatus) {
   if (status === "done") return "success";
@@ -399,6 +421,11 @@ function goToDetails() {
   if (!props.task) return;
   void router.push(`/tasks/${props.task.taskId}`);
 }
+
+function onOpenDrawer() {
+  if (!props.task) return;
+  taskStore.openDrawer(props.task.taskId);
+}
 </script>
 
 <style scoped lang="scss">
@@ -409,6 +436,52 @@ function goToDetails() {
   @include t.tile-padding;
   height: 100%;
   width: 100%;
+
+  &__dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
+  }
+  &__dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: rgba(var(--v-theme-on-surface), 0.18);
+    transition: background 0.2s, transform 0.2s;
+    &.is-running {
+      background: rgb(var(--v-theme-primary));
+      animation: tile-dot-pulse 1.4s ease-in-out infinite;
+    }
+    &.is-done { background: rgb(var(--v-theme-success)); }
+    &.is-failed { background: rgb(var(--v-theme-error)); }
+    &.is-awaiting_user { background: rgb(var(--v-theme-warning)); }
+    &.is-doc_write {
+      box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.25);
+    }
+    &.is-pulse {
+      width: 14px;
+      height: 4px;
+      border-radius: 4px;
+      background: linear-gradient(
+        90deg,
+        rgba(var(--v-theme-primary), 0.2),
+        rgba(var(--v-theme-primary), 0.8),
+        rgba(var(--v-theme-primary), 0.2)
+      );
+      animation: tile-pulse-slide 1.6s ease-in-out infinite;
+    }
+  }
+}
+
+@keyframes tile-dot-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.25); opacity: 0.65; }
+}
+
+@keyframes tile-pulse-slide {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
 }
 
 :global(.v-theme--dark) .task-tile {
