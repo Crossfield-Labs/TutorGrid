@@ -2,8 +2,10 @@
   <v-card
     class="pa-5 mt-4 card-shadow tile-card"
     @dblclick.stop="onPrimaryOpen"
+    @click.stop="onTileClick"
   >
     <div class="d-flex align-start font-weight-bold text-title">
+      <v-icon :icon="tileIcon" :color="tileIconColor" size="18" class="mr-1 mt-n1" />
       <span class="flex-fill">{{ tile.title }}</span>
       <v-chip
         v-if="isMissing"
@@ -142,7 +144,7 @@ import type { Tile } from "@/stores/workspaceStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 
 const props = defineProps<{ tile: Tile }>();
-defineEmits<{
+const emit = defineEmits<{
   (e: "edit"): void;
   (e: "delete"): void;
   (e: "previewPdf", tile: Tile): void;
@@ -154,6 +156,24 @@ const showImageDialog = ref(false);
 const blobUrl = ref<string | null>(null);
 
 const isMissing = computed(() => Boolean(workspaceStore.missing[props.tile.id]));
+
+const tileIcon = computed(() => {
+  switch (props.tile.kind) {
+    case "hyperdoc": return "mdi-file-document-edit-outline";
+    case "file": return "mdi-file-outline";
+    case "note": return "mdi-note-text-outline";
+    default: return "mdi-card-outline";
+  }
+});
+
+const tileIconColor = computed(() => {
+  switch (props.tile.kind) {
+    case "hyperdoc": return "primary";
+    case "file": return "orange";
+    case "note": return "grey-darken-1";
+    default: return "grey";
+  }
+});
 
 const isImage = computed(
   () =>
@@ -231,16 +251,40 @@ const loadImage = async () => {
   );
 };
 
+let clickTimer: ReturnType<typeof setTimeout> | null = null;
+
+const onTileClick = () => {
+  // 只对 note 类型磁贴响应单击（其他类型有自己的内部点击区域）
+  if (props.tile.kind !== "note") return;
+  // 防止双击时触发两次
+  if (clickTimer) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    return;
+  }
+  clickTimer = setTimeout(() => {
+    clickTimer = null;
+    emit("edit");
+  }, 250);
+};
+
 const onPrimaryOpen = () => {
+  // 取消可能待处理的单击
+  if (clickTimer) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+  }
   if (props.tile.kind === "hyperdoc") {
     router.push(`/hyperdoc/${props.tile.id}`);
   } else if (isPdf.value) {
-    // 让父级用全局对话框统一处理
-    // emit('previewPdf', props.tile)
+    emit('previewPdf', props.tile);
   } else if (isImage.value) {
     showImageDialog.value = true;
   } else if (canOpenExternal.value) {
     onOpenExternal();
+  } else if (props.tile.kind === "note") {
+    // note 类型：双击打开编辑对话框
+    emit('edit');
   }
 };
 

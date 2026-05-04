@@ -18,7 +18,7 @@
       />
     </div>
 
-    <div class="d-flex flex-column ga-3 flex-fill">
+    <div class="d-flex flex-column ga-2 flex-fill">
       <template v-if="task">
         <div class="d-flex align-start justify-space-between ga-2">
           <div class="flex-fill min-w-0">
@@ -34,22 +34,9 @@
           </v-chip>
         </div>
 
-        <div
-          v-if="task.status === 'done' || task.status === 'failed' || task.status === 'interrupted'"
-          class="d-flex justify-end"
-        >
-          <v-btn
-            color="primary"
-            variant="tonal"
-            size="small"
-            @click="openStartFlow"
-          >
-            新建任务
-          </v-btn>
-        </div>
-
+        <!-- 执行进度 -->
         <div>
-          <div class="d-flex align-center justify-space-between text-caption mb-2">
+          <div class="d-flex align-center justify-space-between text-caption mb-1">
             <span class="text-medium-emphasis">执行进度</span>
             <span class="font-weight-medium">{{ progressLabel }}</span>
           </div>
@@ -62,10 +49,36 @@
           />
         </div>
 
-        <v-row v-if="showMetaList && task.status !== 'done' && task.status !== 'failed' && task.status !== 'interrupted'" dense>
+        <!-- 步骤列表（带状态图标）—— F09 新增 -->
+        <div v-if="showStepList" class="step-list">
+          <div
+            v-for="step in task.steps"
+            :key="step.phase"
+            class="step-item d-flex align-center ga-2"
+          >
+            <v-icon
+              :icon="stepIcon(step.status)"
+              :color="stepColor(step.status)"
+              size="16"
+              class="flex-shrink-0"
+            />
+            <span class="text-caption flex-fill">{{ step.name }}</span>
+            <v-chip
+              size="x-small"
+              variant="tonal"
+              :color="stepColor(step.status)"
+              class="ml-auto"
+            >
+              {{ stepMiniLabel(step.status) }}
+            </v-chip>
+          </div>
+        </div>
+
+        <!-- 元信息卡片 -->
+        <v-row v-if="showMetaList" dense>
           <v-col cols="6">
             <v-card variant="tonal" rounded="lg">
-              <v-card-text class="py-3">
+              <v-card-text class="py-2">
                 <div class="text-caption text-medium-emphasis">当前阶段</div>
                 <div class="text-body-2 font-weight-medium mt-1">{{ currentStepLabel }}</div>
               </v-card-text>
@@ -73,7 +86,7 @@
           </v-col>
           <v-col cols="6">
             <v-card variant="tonal" rounded="lg">
-              <v-card-text class="py-3">
+              <v-card-text class="py-2">
                 <div class="text-caption text-medium-emphasis">任务状态</div>
                 <div class="text-body-2 font-weight-medium mt-1">{{ stepStatusLabel(task.status) }}</div>
               </v-card-text>
@@ -81,56 +94,32 @@
           </v-col>
         </v-row>
 
-        <v-sheet
-          v-if="showDetailAlert && task.status === 'done' && tileSummaryText"
-          color="success"
-          rounded="lg"
-          class="pa-3"
+        <v-alert
+          v-if="showDetailAlert && task.status === 'done' && task.resultSummary"
+          type="success"
+          variant="tonal"
+          density="compact"
         >
-          <div class="d-flex align-start ga-3">
-            <v-icon color="success" icon="mdi-check-circle" />
-            <div class="min-w-0">
-              <div class="text-body-2 font-weight-medium">编排已完成</div>
-              <div class="text-caption text-medium-emphasis mt-1">
-                {{ tileSummaryText }}
-              </div>
-            </div>
-          </div>
-        </v-sheet>
+          <MarkdownContent :content="task.resultSummary" />
+        </v-alert>
 
-        <v-sheet
+        <v-alert
           v-else-if="showDetailAlert && task.status === 'failed'"
-          color="error"
-          rounded="lg"
-          class="pa-3"
+          type="error"
+          variant="tonal"
+          density="compact"
         >
-          <div class="d-flex align-start ga-3">
-            <v-icon color="error" icon="mdi-alert-circle" />
-            <div class="min-w-0">
-              <div class="text-body-2 font-weight-medium">任务执行失败</div>
-              <div class="text-caption text-medium-emphasis mt-1">
-                {{ tileSummaryText || "可前往详情查看失败阶段与错误信息。" }}
-              </div>
-            </div>
-          </div>
-        </v-sheet>
+          <MarkdownContent :content="task.summary || '任务执行失败，请前往详情查看原因。'" />
+        </v-alert>
 
-        <v-sheet
+        <v-alert
           v-else-if="showDetailAlert && task.awaitingUser"
-          color="warning"
-          rounded="lg"
-          class="pa-3"
+          type="warning"
+          variant="tonal"
+          density="compact"
         >
-          <div class="d-flex align-start ga-3">
-            <v-icon color="warning" icon="mdi-account-clock-outline" />
-            <div class="min-w-0">
-              <div class="text-body-2 font-weight-medium">等待补充输入</div>
-              <div class="text-caption text-medium-emphasis mt-1">
-                {{ tileSummaryText || "当前需要补充输入后才能继续。" }}
-              </div>
-            </div>
-          </div>
-        </v-sheet>
+          <MarkdownContent :content="task.prompt || '任务正在等待补充输入。'" />
+        </v-alert>
 
         <v-text-field
           v-if="task.awaitingUser && showInlineInput"
@@ -253,6 +242,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
+import MarkdownContent from "@/components/common/MarkdownContent.vue";
 import type { OrchestratorTaskItem, TaskStepStatus } from "@/stores/orchestratorTaskStore";
 
 const props = defineProps<{
@@ -275,19 +265,10 @@ const resumeDialog = ref(false);
 const compactMode = computed(() => props.size === "1x1");
 const largeMode = computed(() => props.size !== "1x1" && props.size !== "1x2");
 const showBodyCopy = computed(() => !compactMode.value);
+const showStepList = computed(() => !!props.task && !compactMode.value && props.task.steps.length > 0);
 const showMetaList = computed(() => largeMode.value);
 const showDetailAlert = computed(() => largeMode.value);
 const showInlineInput = computed(() => largeMode.value);
-const tileSummaryText = computed(() => {
-  if (!props.task) return "";
-  const source =
-    props.task.status === "done"
-      ? props.task.resultSummary || props.task.summary
-      : props.task.awaitingUser
-        ? props.task.prompt || props.task.summary
-        : props.task.summary;
-  return summarizeText(source);
-});
 const currentStep = computed(() => {
   if (!props.task) return null;
   return props.task.steps.find((step) => step.index === props.task.currentStepIndex) || props.task.steps[0] || null;
@@ -331,6 +312,15 @@ function stepColor(status: TaskStepStatus) {
   return "grey";
 }
 
+function stepMiniLabel(status: TaskStepStatus) {
+  if (status === "done") return "✅";
+  if (status === "failed") return "❌";
+  if (status === "running") return "🔄";
+  if (status === "awaiting_user") return "⏳";
+  if (status === "interrupted") return "⏸";
+  return "⏳";
+}
+
 function stepStatusLabel(status: TaskStepStatus) {
   if (status === "done") return "已完成";
   if (status === "failed") return "失败";
@@ -347,20 +337,6 @@ function taskStatusCopy(status: TaskStepStatus) {
   if (status === "interrupted") return "任务已暂停，可稍后恢复或查看详情。";
   if (status === "running") return "正在逐步推进编排流程。";
   return "任务已创建，等待进入执行阶段。";
-}
-
-function summarizeText(value: string | null | undefined) {
-  const text = String(value || "")
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/!\[[^\]]*\]\([^)]+\)/g, " ")
-    .replace(/\[[^\]]+\]\([^)]+\)/g, "$1")
-    .replace(/^[#>*\-\s]+/gm, "")
-    .replace(/\|/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!text) return "";
-  return text.length > 72 ? `${text.slice(0, 72)}...` : text;
 }
 
 function submitResume() {
@@ -380,7 +356,7 @@ function openResumeFlow() {
 }
 
 function openStartFlow() {
-  if (largeMode.value && !props.task) {
+  if (largeMode.value) {
     submitStart();
     return;
   }
@@ -409,9 +385,26 @@ function goToDetails() {
   @include t.tile-padding;
   height: 100%;
   width: 100%;
+  overflow-y: auto;
+}
+
+.step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  .step-item {
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.03);
+  }
 }
 
 :global(.v-theme--dark) .task-tile {
   @include t.frosted-tile-dark;
+
+  .step-item {
+    background: rgba(255, 255, 255, 0.04);
+  }
 }
 </style>

@@ -127,7 +127,7 @@ def read_config_data() -> dict[str, object]:
     path = _config_path()
     if not path.exists():
         return {}
-    loaded = json.loads(path.read_text(encoding="utf-8"))
+    loaded = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(loaded, dict):
         return loaded
     return {}

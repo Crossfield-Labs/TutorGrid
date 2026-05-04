@@ -4,7 +4,7 @@
       <v-img
         :aspect-ratio="1"
         class="bg-white"
-        :src="appBarBg"
+        src="/images/boardbackground.jpg"
         max-height="100px"
         cover
       >
@@ -12,6 +12,16 @@
           <div class="text-subtitle-2 ml-3">
             <v-icon icon="mdi-folder-outline" color="white" class="mr-1" />
             工作区: {{ workspaceStore.root || '加载中...' }}
+            <v-chip
+              v-if="kbReady"
+              size="x-small"
+              variant="tonal"
+              color="success"
+              class="ml-2"
+            >
+              <v-icon icon="mdi-database" size="12" class="mr-1" />
+              KB: {{ kbFileCount }} 文件 · {{ kbChunkCount }} 块
+            </v-chip>
           </div>
           <v-spacer></v-spacer>
           <v-btn
@@ -245,44 +255,20 @@
 import draggable from "vuedraggable";
 import BoardCard from "@/components/BoardCard.vue";
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { useRoute } from "vue-router";
 import { useInspirationStore } from "@/stores/inspirationStore";
 import { useSnackbarStore } from "@/stores/snackbarStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
-import { useProjectStore } from "@/stores/projectStore";
-import { useWorkspaceAsset } from "@/composables/useWorkspaceAsset";
+import { useKnowledgeStore } from "@/stores/knowledgeStore";
 import type { Tile } from "@/stores/workspaceStore";
 
 const snackbarStore = useSnackbarStore();
 const inspirationStore = useInspirationStore();
 const workspaceStore = useWorkspaceStore();
-const projectStore = useProjectStore();
-const route = useRoute();
+const knowledgeStore = useKnowledgeStore();
 
-// 顶部 AppBar 背景图：来自当前工作区 appearance.topBarBg
-//  - 空 / 找不到文件 → 自动 fallback 到默认 /images/boardbackground.jpg
-//  - .assets/xxx → 走 IPC 转 blob URL
-//  - http(s)://... 或 /... → 直接用
-const topBarBgRel = computed(() => projectStore.currentAppearance.topBarBg);
-const fsRootRef = computed(() => projectStore.current?.fsRoot ?? "");
-const appBarBg = useWorkspaceAsset(
-  topBarBgRel,
-  fsRootRef,
-  "/images/boardbackground.jpg"
-);
-
-// 监听路由参数 /projects/:id → 同步切换当前工作区
-watch(
-  () => route.params.id,
-  async (newId) => {
-    if (newId && typeof newId === "string" && newId !== projectStore.currentId) {
-      // 列表可能还没加载，先确保
-      if (projectStore.list.length === 0) await projectStore.fetchList();
-      await projectStore.setCurrent(newId);
-    }
-  },
-  { immediate: true }
-);
+const kbFileCount = computed(() => knowledgeStore.files.length);
+const kbChunkCount = computed(() => knowledgeStore.files.reduce((s, f) => s + (f.chunkCount || 0), 0));
+const kbReady = computed(() => kbFileCount.value > 0);
 
 interface AddState {
   visible: boolean;
@@ -451,6 +437,8 @@ const importFromInspiration = async () => {
 onMounted(async () => {
   await workspaceStore.init();
   workspaceStore.columns.forEach(ensureAddState);
+  // 静默加载知识库数据以显示 KB 状态
+  knowledgeStore.ensureDefaultCourse().then(() => knowledgeStore.refreshFiles()).catch(() => {});
 });
 </script>
 
